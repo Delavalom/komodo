@@ -6,6 +6,7 @@ import type { ReviewProvider } from "./types.js";
 
 export { ClaudeProvider } from "./claude.js";
 export { CodexProvider, codexLoggedIn } from "./codex.js";
+export { OpenRouterProvider, type OpenRouterUsage } from "./openrouter.js";
 export { buildReviewPrompt } from "./prompt.js";
 export type { ReviewInput, ReviewProvider } from "./types.js";
 

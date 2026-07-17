@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-17T17:20:48.103Z",
+  "updatedAt": "2026-07-17T18:12:27.641Z",
   "missions": [
     {
       "id": "session:d943fa4e-a696-40ab-a435-02b7c1edea1c:none",
@@ -7,15 +7,15 @@
       "name": "none",
       "objective": "Session mission",
       "createdAt": "2026-07-17T17:20:48.103Z",
-      "updatedAt": "2026-07-17T17:20:48.103Z",
-      "status": "running",
-      "workerCount": 1,
+      "updatedAt": "2026-07-17T18:12:27.641Z",
+      "status": "done",
+      "workerCount": 2,
       "taskCounts": {
-        "total": 1,
+        "total": 2,
         "pending": 0,
         "blocked": 0,
-        "inProgress": 1,
-        "completed": 0,
+        "inProgress": 0,
+        "completed": 2,
         "failed": 0
       },
       "agents": [
@@ -23,21 +23,135 @@
           "name": "ui-builder:aui-bui",
           "role": "ui-builder",
           "ownership": "aui-builder-993e751a6ebdf3d5",
-          "status": "running",
+          "status": "done",
           "currentStep": null,
-          "latestUpdate": null,
+          "latestUpdate": "completed",
           "completedSummary": null,
-          "updatedAt": "2026-07-17T17:20:48.103Z"
+          "updatedAt": "2026-07-17T17:50:12.382Z"
+        },
+        {
+          "name": "cloud-builder:acloud-",
+          "role": "cloud-builder",
+          "ownership": "acloud-builder-1e7aac28c03a1f40",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-17T18:12:27.641Z"
         }
       ],
       "timeline": [
         {
-          "id": "session-start:aui-builder-993e751a6ebdf3d5:2026-07-17T17:20:48.103Z",
-          "at": "2026-07-17T17:20:48.103Z",
-          "kind": "update",
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:36:38.484Z",
+          "at": "2026-07-17T17:36:38.484Z",
+          "kind": "completion",
           "agent": "ui-builder:aui-bui",
-          "detail": "started ui-builder:aui-bui",
-          "sourceKey": "session-start:aui-builder-993e751a6ebdf3d5"
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
+        },
+        {
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:36:46.364Z",
+          "at": "2026-07-17T17:36:46.364Z",
+          "kind": "completion",
+          "agent": "ui-builder:aui-bui",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
+        },
+        {
+          "id": "session-start:acloud-builder-1e7aac28c03a1f40:2026-07-17T17:36:50.235Z",
+          "at": "2026-07-17T17:36:50.235Z",
+          "kind": "update",
+          "agent": "cloud-builder:acloud-",
+          "detail": "started cloud-builder:acloud-",
+          "sourceKey": "session-start:acloud-builder-1e7aac28c03a1f40"
+        },
+        {
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:36:53.375Z",
+          "at": "2026-07-17T17:36:53.375Z",
+          "kind": "completion",
+          "agent": "ui-builder:aui-bui",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
+        },
+        {
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:36:58.965Z",
+          "at": "2026-07-17T17:36:58.965Z",
+          "kind": "completion",
+          "agent": "ui-builder:aui-bui",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
+        },
+        {
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:37:04.225Z",
+          "at": "2026-07-17T17:37:04.225Z",
+          "kind": "completion",
+          "agent": "ui-builder:aui-bui",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
+        },
+        {
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:37:10.997Z",
+          "at": "2026-07-17T17:37:10.997Z",
+          "kind": "completion",
+          "agent": "ui-builder:aui-bui",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
+        },
+        {
+          "id": "session-stop:a03b5b14191008205:2026-07-17T17:40:44.414Z",
+          "at": "2026-07-17T17:40:44.414Z",
+          "kind": "completion",
+          "agent": "ui-builder:aui-bui",
+          "detail": "completed",
+          "sourceKey": "session-stop:a03b5b14191008205"
+        },
+        {
+          "id": "session-stop:a665cca522acd631e:2026-07-17T17:50:12.382Z",
+          "at": "2026-07-17T17:50:12.382Z",
+          "kind": "completion",
+          "agent": "ui-builder:aui-bui",
+          "detail": "completed",
+          "sourceKey": "session-stop:a665cca522acd631e"
+        },
+        {
+          "id": "session-stop:acloud-builder-1e7aac28c03a1f40:2026-07-17T18:11:56.378Z",
+          "at": "2026-07-17T18:11:56.378Z",
+          "kind": "completion",
+          "agent": "cloud-builder:acloud-",
+          "detail": "completed",
+          "sourceKey": "session-stop:acloud-builder-1e7aac28c03a1f40"
+        },
+        {
+          "id": "session-stop:acloud-builder-1e7aac28c03a1f40:2026-07-17T18:12:03.307Z",
+          "at": "2026-07-17T18:12:03.307Z",
+          "kind": "completion",
+          "agent": "cloud-builder:acloud-",
+          "detail": "completed",
+          "sourceKey": "session-stop:acloud-builder-1e7aac28c03a1f40"
+        },
+        {
+          "id": "session-stop:acloud-builder-1e7aac28c03a1f40:2026-07-17T18:12:14.921Z",
+          "at": "2026-07-17T18:12:14.921Z",
+          "kind": "completion",
+          "agent": "cloud-builder:acloud-",
+          "detail": "completed",
+          "sourceKey": "session-stop:acloud-builder-1e7aac28c03a1f40"
+        },
+        {
+          "id": "session-stop:acloud-builder-1e7aac28c03a1f40:2026-07-17T18:12:24.536Z",
+          "at": "2026-07-17T18:12:24.536Z",
+          "kind": "completion",
+          "agent": "cloud-builder:acloud-",
+          "detail": "completed",
+          "sourceKey": "session-stop:acloud-builder-1e7aac28c03a1f40"
+        },
+        {
+          "id": "session-stop:acloud-builder-1e7aac28c03a1f40:2026-07-17T18:12:27.641Z",
+          "at": "2026-07-17T18:12:27.641Z",
+          "kind": "completion",
+          "agent": "cloud-builder:acloud-",
+          "detail": "completed",
+          "sourceKey": "session-stop:acloud-builder-1e7aac28c03a1f40"
         }
       ]
     }

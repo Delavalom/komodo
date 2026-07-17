@@ -6,10 +6,19 @@
       "started_at": "2026-07-17T17:20:48.103Z",
       "parent_mode": "none",
       "status": "running"
+    },
+    {
+      "agent_id": "acloud-builder-1e7aac28c03a1f40",
+      "agent_type": "cloud-builder",
+      "started_at": "2026-07-17T17:36:50.235Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-07-17T18:12:27.641Z",
+      "duration_ms": 2137406
     }
   ],
-  "total_spawned": 1,
-  "total_completed": 0,
+  "total_spawned": 2,
+  "total_completed": 5,
   "total_failed": 0,
-  "last_updated": "2026-07-17T17:20:48.206Z"
+  "last_updated": "2026-07-17T18:12:27.743Z"
 }

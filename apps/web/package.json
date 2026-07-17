@@ -1,0 +1,35 @@
+{
+  "name": "@komodo/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@komodo/core": "workspace:*",
+    "@polar-sh/sdk": "^0.34.0",
+    "drizzle-orm": "^0.44.0",
+    "marked": "^15.0.0",
+    "next": "^15.3.0",
+    "next-auth": "beta",
+    "pg": "^8.13.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "drizzle-kit": "^0.31.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "postcss": "^8.4.0",
+    "typescript": "^5.7.0"
+  }
+}
