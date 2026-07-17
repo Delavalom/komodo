@@ -25,7 +25,7 @@ Komodo never performs, brokers, or stores logins for any provider — it only de
 
 ## Status
 
-Early development. Cloud version (pick any model, pay per credit) in progress.
+`komodo-review` is [live on npm](https://www.npmjs.com/package/komodo-review). Cloud version (pick any model, pay per credit) is in beta.
 
 ## License
 

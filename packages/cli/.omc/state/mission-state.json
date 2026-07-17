@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-17T17:33:09.837Z",
+  "updatedAt": "2026-07-17T18:40:21.683Z",
   "missions": [
     {
       "id": "session:d943fa4e-a696-40ab-a435-02b7c1edea1c:none",
@@ -7,7 +7,7 @@
       "name": "none",
       "objective": "Session mission",
       "createdAt": "2026-07-17T17:24:30.318Z",
-      "updatedAt": "2026-07-17T17:33:09.837Z",
+      "updatedAt": "2026-07-17T18:40:21.683Z",
       "status": "done",
       "workerCount": 1,
       "taskCounts": {
@@ -27,7 +27,7 @@
           "currentStep": null,
           "latestUpdate": "completed",
           "completedSummary": null,
-          "updatedAt": "2026-07-17T17:33:09.837Z"
+          "updatedAt": "2026-07-17T18:40:21.683Z"
         }
       ],
       "timeline": [
@@ -798,6 +798,30 @@
           "agent": "marketing-builder:amarket",
           "detail": "completed",
           "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:a4382138bf5b0547c:2026-07-17T18:39:45.541Z",
+          "at": "2026-07-17T18:39:45.541Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4382138bf5b0547c"
+        },
+        {
+          "id": "session-stop:a4382138bf5b0547c:2026-07-17T18:40:06.122Z",
+          "at": "2026-07-17T18:40:06.122Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4382138bf5b0547c"
+        },
+        {
+          "id": "session-stop:a4382138bf5b0547c:2026-07-17T18:40:21.683Z",
+          "at": "2026-07-17T18:40:21.683Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4382138bf5b0547c"
         }
       ]
     }
