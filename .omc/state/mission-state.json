@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-17T17:33:16.883Z",
+  "updatedAt": "2026-07-17T17:34:31.660Z",
   "missions": [
     {
       "id": "session:d943fa4e-a696-40ab-a435-02b7c1edea1c:none",
@@ -7,7 +7,7 @@
       "name": "none",
       "objective": "Session mission",
       "createdAt": "2026-07-17T16:51:46.916Z",
-      "updatedAt": "2026-07-17T17:33:16.883Z",
+      "updatedAt": "2026-07-17T17:34:31.660Z",
       "status": "done",
       "workerCount": 3,
       "taskCounts": {
@@ -27,7 +27,7 @@
           "currentStep": null,
           "latestUpdate": "completed",
           "completedSummary": null,
-          "updatedAt": "2026-07-17T17:33:16.883Z"
+          "updatedAt": "2026-07-17T17:34:31.660Z"
         },
         {
           "name": "ux-research:aux-res",
@@ -346,6 +346,22 @@
           "agent": "sdk-research:asdk-re",
           "detail": "completed",
           "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:33:53.628Z",
+          "at": "2026-07-17T17:33:53.628Z",
+          "kind": "completion",
+          "agent": "sdk-research:asdk-re",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
+        },
+        {
+          "id": "session-stop:a4a71be06f41f80cd:2026-07-17T17:34:31.660Z",
+          "at": "2026-07-17T17:34:31.660Z",
+          "kind": "completion",
+          "agent": "sdk-research:asdk-re",
+          "detail": "completed",
+          "sourceKey": "session-stop:a4a71be06f41f80cd"
         }
       ]
     }
