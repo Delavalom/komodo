@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-17T17:28:25.896Z",
+  "updatedAt": "2026-07-17T17:33:09.837Z",
   "missions": [
     {
       "id": "session:d943fa4e-a696-40ab-a435-02b7c1edea1c:none",
@@ -7,7 +7,7 @@
       "name": "none",
       "objective": "Session mission",
       "createdAt": "2026-07-17T17:24:30.318Z",
-      "updatedAt": "2026-07-17T17:28:25.896Z",
+      "updatedAt": "2026-07-17T17:33:09.837Z",
       "status": "done",
       "workerCount": 1,
       "taskCounts": {
@@ -27,7 +27,7 @@
           "currentStep": null,
           "latestUpdate": "completed",
           "completedSummary": null,
-          "updatedAt": "2026-07-17T17:28:25.896Z"
+          "updatedAt": "2026-07-17T17:33:09.837Z"
         }
       ],
       "timeline": [
@@ -454,6 +454,350 @@
           "agent": "marketing-builder:amarket",
           "detail": "completed",
           "sourceKey": "session-stop:a69ff5a46190f39d4"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:30:52.906Z",
+          "at": "2026-07-17T17:30:52.906Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:30:58.674Z",
+          "at": "2026-07-17T17:30:58.674Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:03.614Z",
+          "at": "2026-07-17T17:31:03.614Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:06.358Z",
+          "at": "2026-07-17T17:31:06.358Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:11.065Z",
+          "at": "2026-07-17T17:31:11.065Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:16.002Z",
+          "at": "2026-07-17T17:31:16.002Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:18.904Z",
+          "at": "2026-07-17T17:31:18.904Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:24.055Z",
+          "at": "2026-07-17T17:31:24.055Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:24.225Z",
+          "at": "2026-07-17T17:31:24.225Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:29.847Z",
+          "at": "2026-07-17T17:31:29.847Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:30.398Z",
+          "at": "2026-07-17T17:31:30.398Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:34.514Z",
+          "at": "2026-07-17T17:31:34.514Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:35.483Z",
+          "at": "2026-07-17T17:31:35.483Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:40.904Z",
+          "at": "2026-07-17T17:31:40.904Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:42.538Z",
+          "at": "2026-07-17T17:31:42.538Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:46.699Z",
+          "at": "2026-07-17T17:31:46.699Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:48.167Z",
+          "at": "2026-07-17T17:31:48.167Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:51.772Z",
+          "at": "2026-07-17T17:31:51.772Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:52.930Z",
+          "at": "2026-07-17T17:31:52.930Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:31:56.606Z",
+          "at": "2026-07-17T17:31:56.606Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:31:58.349Z",
+          "at": "2026-07-17T17:31:58.349Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:a8c0c08b0a14c06a9:2026-07-17T17:32:02.522Z",
+          "at": "2026-07-17T17:32:02.522Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:a8c0c08b0a14c06a9"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:04.306Z",
+          "at": "2026-07-17T17:32:04.306Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:08.382Z",
+          "at": "2026-07-17T17:32:08.382Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:16.455Z",
+          "at": "2026-07-17T17:32:16.455Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:20.527Z",
+          "at": "2026-07-17T17:32:20.527Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:24.706Z",
+          "at": "2026-07-17T17:32:24.706Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:28.762Z",
+          "at": "2026-07-17T17:32:28.762Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:32:29.835Z",
+          "at": "2026-07-17T17:32:29.835Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:33.746Z",
+          "at": "2026-07-17T17:32:33.746Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:37.835Z",
+          "at": "2026-07-17T17:32:37.835Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:32:39.644Z",
+          "at": "2026-07-17T17:32:39.644Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:41.803Z",
+          "at": "2026-07-17T17:32:41.803Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:47.871Z",
+          "at": "2026-07-17T17:32:47.871Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:32:48.756Z",
+          "at": "2026-07-17T17:32:48.756Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:32:52.166Z",
+          "at": "2026-07-17T17:32:52.166Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:52.200Z",
+          "at": "2026-07-17T17:32:52.200Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:32:56.370Z",
+          "at": "2026-07-17T17:32:56.370Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:33:00.397Z",
+          "at": "2026-07-17T17:33:00.397Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:adc7502e0d7e99f5e:2026-07-17T17:33:02.406Z",
+          "at": "2026-07-17T17:33:02.406Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:adc7502e0d7e99f5e"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:33:06.363Z",
+          "at": "2026-07-17T17:33:06.363Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:33:08.551Z",
+          "at": "2026-07-17T17:33:08.551Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
+        },
+        {
+          "id": "session-stop:amarketing-builder-35a8a317e7ef16bb:2026-07-17T17:33:09.837Z",
+          "at": "2026-07-17T17:33:09.837Z",
+          "kind": "completion",
+          "agent": "marketing-builder:amarket",
+          "detail": "completed",
+          "sourceKey": "session-stop:amarketing-builder-35a8a317e7ef16bb"
         }
       ]
     }

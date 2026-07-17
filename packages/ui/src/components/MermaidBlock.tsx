@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 // Singleton state so we only initialise once across re-renders
 let initialised = false;
@@ -6,8 +6,8 @@ let initialised = false;
 let mermaidLib: any = null;
 
 export function MermaidBlock({ diagram }: { diagram: string }) {
-  const ref = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
+  const [svg, setSvg] = useState("");
   const [errMsg, setErrMsg] = useState("");
 
   useEffect(() => {
@@ -37,10 +37,10 @@ export function MermaidBlock({ diagram }: { diagram: string }) {
 
         // Each render needs a unique id to avoid Mermaid's internal cache collisions
         const id = `mermaid-${Math.random().toString(36).slice(2)}`;
-        const { svg } = await mermaidLib.render(id, diagram);
+        const rendered = await mermaidLib.render(id, diagram);
 
-        if (!cancelled && ref.current) {
-          ref.current.innerHTML = svg;
+        if (!cancelled) {
+          setSvg(rendered.svg);
           setStatus("ok");
         }
       } catch (e: unknown) {
@@ -59,5 +59,5 @@ export function MermaidBlock({ diagram }: { diagram: string }) {
 
   if (status === "error") return <pre className="mermaid-error">{errMsg}</pre>;
   if (status === "loading") return <p className="mermaid-loading">Rendering diagram…</p>;
-  return <div ref={ref} className="mermaid-block" />;
+  return <div className="mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />;
 }

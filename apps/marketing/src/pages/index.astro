@@ -1,0 +1,884 @@
+---
+export const prerender = true;
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Komodo — Open-Source AI Code Review</title>
+  <meta name="description" content="CodeRabbit-class PR reviews on the Claude or ChatGPT plan you already pay for. Free. MIT licensed." />
+  <meta property="og:title" content="Komodo — Open-Source AI Code Review" />
+  <meta property="og:description" content="$0/seat. Your subscription. Your machine. MIT licensed." />
+  <meta property="og:type" content="website" />
+  <style>
+    /* ── Reset ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Design tokens ──────────────────────────────────── */
+    :root {
+      --bg:            #0A0B0D;
+      --card:          #111316;
+      --card-2:        #14171D;
+      --card-3:        #0D0F12;
+      --border:        rgba(255,255,255,0.065);
+      --border-hover:  rgba(255,255,255,0.13);
+      --border-accent: rgba(62,207,142,0.28);
+      --accent:        #3ECF8E;
+      --accent-dim:    rgba(62,207,142,0.10);
+      --accent-glow:   rgba(62,207,142,0.06);
+      --text-1:        #F0F0F2;
+      --text-2:        #8F8FA3;
+      --text-3:        #52526A;
+      --red:           #F87171;
+      --red-dim:       rgba(248,113,113,0.12);
+      --red-border:    rgba(248,113,113,0.28);
+      --blue:          #79C0FF;
+      --yellow:        #F5C518;
+      --radius:        16px;
+      --gap:           14px;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --mono: "SF Mono", ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace;
+    }
+
+    html {
+      background: var(--bg);
+      color: var(--text-1);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    body { min-height: 100svh; padding: 18px; }
+
+    /* ── Nav ────────────────────────────────────────────── */
+    .nav {
+      max-width: 1240px;
+      margin: 0 auto 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 22px;
+      background: rgba(17,19,22,0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 1.05rem;
+      font-weight: 750;
+      letter-spacing: -0.015em;
+      color: var(--text-1);
+      text-decoration: none;
+    }
+    .nav-logo-glyph {
+      font-size: 1.35rem;
+      line-height: 1;
+    }
+    .nav-gh {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 15px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--text-1);
+      font-size: 0.845rem;
+      font-weight: 550;
+      text-decoration: none;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .nav-gh:hover {
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.15);
+      color: #fff;
+    }
+    .star { color: var(--yellow); font-style: normal; }
+
+    /* ── Bento grid ─────────────────────────────────────── */
+    .bento {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: var(--gap);
+    }
+
+    /* ── Card base ──────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      overflow: hidden;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--border-hover); }
+
+    /* ── Row 1 ──────────────────────────────────────────── */
+    .hero-card     { grid-column: span 8; }
+    .provider-card { grid-column: span 4; }
+
+    /* ── Row 2 ──────────────────────────────────────────── */
+    .review-card  { grid-column: span 7; }
+    .pricing-card { grid-column: span 5; }
+
+    /* ── Row 3 ──────────────────────────────────────────── */
+    .terminal-card { grid-column: span 5; }
+    .fix-card      { grid-column: span 4; }
+    .runs-card     { grid-column: span 3; }
+
+    /* ─────────────────────────────────────────────────────
+       HERO CARD
+    ───────────────────────────────────────────────────── */
+    .hero-card {
+      background: linear-gradient(145deg, #111417 55%, #0D1711 100%);
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    /* subtle dot-grid overlay */
+    .hero-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.028) 1px, transparent 0);
+      background-size: 28px 28px;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+    /* accent glow top-right */
+    .hero-card::after {
+      content: '';
+      position: absolute;
+      top: -80px;
+      right: -60px;
+      width: 380px;
+      height: 380px;
+      background: radial-gradient(circle, rgba(62,207,142,0.09) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .hero-inner { position: relative; z-index: 1; }
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid rgba(62,207,142,0.22);
+      border-radius: 6px;
+      padding: 4px 10px;
+      margin-bottom: 22px;
+    }
+    .hero-h1 {
+      font-size: clamp(2.1rem, 3.4vw, 3.1rem);
+      font-weight: 820;
+      letter-spacing: -0.035em;
+      line-height: 1.08;
+      margin-bottom: 18px;
+    }
+    .hero-h1 .accent { color: var(--accent); }
+    .hero-sub {
+      font-size: 1rem;
+      color: var(--text-2);
+      line-height: 1.65;
+      max-width: 440px;
+      margin-bottom: 30px;
+    }
+    .hero-actions { display: flex; gap: 11px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 22px;
+      border-radius: 10px;
+      font-size: 0.875rem;
+      font-weight: 650;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.14s, opacity 0.14s, box-shadow 0.14s;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary {
+      background: var(--text-1);
+      color: #0A0B0D;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.4);
+    }
+    .btn-primary:hover { box-shadow: 0 4px 18px rgba(0,0,0,0.5); opacity: 0.93; }
+    .btn-outline {
+      background: rgba(255,255,255,0.05);
+      color: var(--text-1);
+      border: 1.5px solid var(--border);
+    }
+    .btn-outline:hover { border-color: rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); }
+
+    /* ─────────────────────────────────────────────────────
+       PROVIDER CARD
+    ───────────────────────────────────────────────────── */
+    .provider-card {
+      display: flex;
+      flex-direction: column;
+    }
+    .card-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 14px;
+    }
+    .providers-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      flex: 1;
+    }
+    .prov-item {
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      transition: border-color 0.18s;
+    }
+    .prov-item:hover { border-color: var(--border-hover); }
+    .prov-item.soon {
+      border-color: var(--border-accent);
+      background: rgba(62,207,142,0.04);
+    }
+    .prov-glyph { font-size: 1.4rem; line-height: 1; margin-bottom: 5px; }
+    .prov-name  { font-size: 0.78rem; font-weight: 650; color: var(--text-1); }
+    .prov-cmd {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--text-3);
+      background: rgba(255,255,255,0.055);
+      border-radius: 4px;
+      padding: 2px 6px;
+      width: fit-content;
+      margin: 2px 0;
+    }
+    .prov-status { font-size: 0.7rem; font-weight: 600; color: var(--accent); }
+    .prov-soon   { font-size: 0.7rem; font-weight: 600; color: var(--accent); opacity: 0.8; }
+
+    /* ─────────────────────────────────────────────────────
+       REVIEW CARD
+    ───────────────────────────────────────────────────── */
+    .review-card { padding: 24px; }
+    .review-card .card-label { margin-bottom: 12px; }
+
+    .gh-review {
+      background: #0D1117;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 0.8rem;
+    }
+    .gh-section {
+      padding: 13px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+    }
+    .gh-section:last-child { border-bottom: none; }
+    .gh-section-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-3);
+      margin-bottom: 10px;
+    }
+
+    /* Walkthrough table */
+    .walk-table { width: 100%; border-collapse: collapse; }
+    .walk-table th {
+      text-align: left;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-3);
+      padding: 3px 0 7px;
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+    }
+    .walk-table th:first-child { width: 38%; }
+    .walk-table td {
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.035);
+      vertical-align: top;
+      line-height: 1.5;
+    }
+    .walk-table tr:last-child td { border-bottom: none; }
+    .walk-table td:first-child {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--blue);
+      padding-right: 14px;
+    }
+    .walk-table td:last-child { color: var(--text-2); font-size: 0.77rem; }
+
+    /* Confidence */
+    .confidence-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .conf-dots { display: flex; gap: 3px; }
+    .conf-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.08);
+    }
+    .conf-dot.on { background: var(--accent); }
+    .conf-text { font-size: 0.78rem; color: var(--text-2); }
+    .conf-score { font-weight: 700; color: #FBBF24; }
+    .conf-note  { color: var(--text-3); }
+
+    /* Finding */
+    .finding {
+      border: 1px solid var(--red-border);
+      border-radius: 9px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .finding-hdr {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 13px;
+      background: var(--red-dim);
+      flex-wrap: wrap;
+    }
+    .sev-badge {
+      font-size: 0.67rem;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(248,113,113,0.18);
+      color: var(--red);
+    }
+    .cat-badge { font-size: 0.75rem; color: var(--text-2); }
+    .finding-title {
+      font-size: 0.78rem;
+      font-weight: 650;
+      color: var(--text-1);
+      margin-left: auto;
+    }
+    .finding-body { padding: 11px 13px; background: rgba(0,0,0,0.18); }
+    .finding-desc {
+      font-size: 0.77rem;
+      color: var(--text-2);
+      line-height: 1.55;
+      margin-bottom: 10px;
+    }
+    .diff-block {
+      background: #0A0D12;
+      border: 1px solid rgba(255,255,255,0.055);
+      border-radius: 7px;
+      overflow: hidden;
+      font-family: var(--mono);
+      font-size: 0.71rem;
+    }
+    .diff-hdr {
+      padding: 4px 11px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid rgba(255,255,255,0.045);
+      color: var(--text-3);
+      font-size: 0.66rem;
+    }
+    .diff-line {
+      display: flex;
+      align-items: flex-start;
+      padding: 1.5px 11px;
+      line-height: 1.8;
+    }
+    .diff-line.del { background: rgba(248,113,113,0.08); color: #FCA5A5; }
+    .diff-line.add { background: rgba(62,207,142,0.08); color: #6EE7B7; }
+    .diff-marker { min-width: 12px; margin-right: 7px; opacity: 0.6; user-select: none; }
+
+    /* ─────────────────────────────────────────────────────
+       PRICING CARD
+    ───────────────────────────────────────────────────── */
+    .pricing-card {
+      background: linear-gradient(150deg, #111316, #0D1510);
+      border-color: rgba(62,207,142,0.14);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .price-big {
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+      margin-top: 6px;
+    }
+    .price-num {
+      font-size: clamp(3.8rem, 5.5vw, 5rem);
+      font-weight: 900;
+      color: var(--accent);
+      letter-spacing: -0.05em;
+      line-height: 1;
+    }
+    .price-unit { font-size: 1.1rem; color: var(--text-2); font-weight: 500; }
+    .price-vs { font-size: 0.8rem; color: var(--text-3); margin-top: 2px; }
+    .price-table { display: flex; flex-direction: column; gap: 0; }
+    .price-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.82rem;
+    }
+    .price-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .price-brand { color: var(--text-2); }
+    .price-val { font-weight: 600; color: var(--text-3); }
+    .price-val.free { color: var(--accent); font-weight: 800; font-size: 0.9rem; }
+
+    /* ─────────────────────────────────────────────────────
+       TERMINAL CARD
+    ───────────────────────────────────────────────────── */
+    .terminal-card { padding: 0; }
+    .term-chrome {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 11px 16px;
+      background: #1A1C20;
+      border-bottom: 1px solid var(--border);
+    }
+    .tdot { width: 12px; height: 12px; border-radius: 50%; }
+    .tdot.r { background: #FF5F57; }
+    .tdot.y { background: #FEBC2E; }
+    .tdot.g { background: #28C840; }
+    .term-title {
+      margin-left: 8px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-3);
+    }
+    .term-body {
+      padding: 20px 22px 24px;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1;
+    }
+    .tl { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
+    .tl.gap { margin-bottom: 14px; }
+    .tl.last { margin-bottom: 0; }
+    .t-prompt { color: var(--accent); flex-shrink: 0; }
+    .t-cmd    { color: var(--text-1); }
+    .t-out    { color: var(--text-2); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .t-ok     { color: var(--accent); font-weight: 600; }
+    .t-info   { color: var(--blue); }
+    .t-conf-dots { display: flex; gap: 3px; }
+    .t-cdot { width: 16px; height: 16px; border-radius: 3px; background: rgba(255,255,255,0.08); }
+    .t-cdot.on { background: var(--accent); }
+    .t-score { color: var(--text-1); font-weight: 700; }
+    .t-msg { color: var(--text-2); }
+
+    /* ─────────────────────────────────────────────────────
+       FIX CARD
+    ───────────────────────────────────────────────────── */
+    .fix-card { display: flex; flex-direction: column; gap: 18px; }
+    .fix-card-title { font-size: 1.05rem; font-weight: 750; letter-spacing: -0.015em; }
+    .fix-card-sub { font-size: 0.83rem; color: var(--text-2); line-height: 1.6; }
+    .fix-chips { display: flex; flex-direction: column; gap: 8px; }
+    .fix-chip {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 11px 13px;
+      transition: border-color 0.18s;
+    }
+    .fix-chip:hover { border-color: var(--border-hover); }
+    .fix-chip-ico { font-size: 1.05rem; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+    .fix-chip-body { display: flex; flex-direction: column; gap: 2px; }
+    .fix-chip-title { font-size: 0.8rem; font-weight: 650; color: var(--text-1); }
+    .fix-chip-desc { font-size: 0.73rem; color: var(--text-3); line-height: 1.4; }
+
+    /* ─────────────────────────────────────────────────────
+       RUNS-LOCAL CARD
+    ───────────────────────────────────────────────────── */
+    .runs-card { display: flex; flex-direction: column; gap: 14px; }
+    .runs-title { font-size: 1rem; font-weight: 750; letter-spacing: -0.01em; }
+    .runs-sub { font-size: 0.8rem; color: var(--text-2); line-height: 1.6; }
+    .runs-items { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+    .run-item { display: flex; gap: 11px; align-items: flex-start; }
+    .run-ico {
+      width: 34px;
+      height: 34px;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+    }
+    .run-text { font-size: 0.78rem; color: var(--text-2); line-height: 1.5; padding-top: 2px; }
+    .run-text strong { color: var(--text-1); font-weight: 600; }
+
+    /* ─────────────────────────────────────────────────────
+       FOOTER
+    ───────────────────────────────────────────────────── */
+    .footer {
+      max-width: 1240px;
+      margin: 22px auto 0;
+      padding: 18px 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--text-3);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .footer-links { display: flex; gap: 18px; align-items: center; }
+    .footer-links a {
+      color: var(--text-3);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: var(--text-2); }
+    .footer-note { font-size: 0.75rem; }
+
+    /* ─────────────────────────────────────────────────────
+       RESPONSIVE
+    ───────────────────────────────────────────────────── */
+    @media (max-width: 1024px) and (min-width: 641px) {
+      .bento { grid-template-columns: repeat(6, 1fr); }
+      .hero-card     { grid-column: span 4; }
+      .provider-card { grid-column: span 2; }
+      .review-card   { grid-column: span 4; }
+      .pricing-card  { grid-column: span 2; }
+      .terminal-card { grid-column: span 3; }
+      .fix-card      { grid-column: span 2; }
+      .runs-card     { grid-column: span 1; }
+    }
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      .bento { grid-template-columns: 1fr; }
+      .hero-card, .provider-card, .review-card, .pricing-card,
+      .terminal-card, .fix-card, .runs-card { grid-column: span 1; }
+      .hero-h1 { font-size: 2rem; }
+      .price-num { font-size: 3.8rem; }
+      .hero-card { min-height: auto; }
+      .providers-grid { grid-template-columns: 1fr 1fr; }
+      .footer { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Nav ──────────────────────────────────────────── -->
+  <nav class="nav" aria-label="Main navigation">
+    <a href="/" class="nav-logo">
+      <span class="nav-logo-glyph">🦎</span>
+      Komodo
+    </a>
+    <a href="https://github.com/Delavalom/komodo" class="nav-gh" target="_blank" rel="noopener noreferrer">
+      <em class="star" aria-hidden="true">★</em> Star on GitHub
+    </a>
+  </nav>
+
+  <!-- ── Bento grid ───────────────────────────────────── -->
+  <main class="bento">
+
+    <!-- ── Row 1 · Hero ──────────────────────────────── -->
+    <div class="card hero-card">
+      <div class="hero-inner">
+        <div class="kicker" aria-label="Category">
+          <span aria-hidden="true">◆</span> Open-source AI code review
+        </div>
+        <h1 class="hero-h1">
+          Your code review.<br>
+          <span class="accent">Your subscription.</span>
+        </h1>
+        <p class="hero-sub">
+          CodeRabbit-class PR reviews on the Claude or ChatGPT
+          plan you already pay for. Free. MIT&nbsp;licensed.
+        </p>
+        <div class="hero-actions">
+          <a href="#quickstart" class="btn btn-primary">Get started</a>
+          <a href="https://github.com/Delavalom/komodo" class="btn btn-outline" target="_blank" rel="noopener noreferrer">Fork it ↗</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Row 1 · Providers ─────────────────────────── -->
+    <div class="card provider-card" aria-label="Supported AI providers">
+      <div class="card-label">Works with your existing setup</div>
+      <div class="providers-grid">
+
+        <div class="prov-item">
+          <div class="prov-glyph" aria-hidden="true">◆</div>
+          <div class="prov-name">Claude Code</div>
+          <code class="prov-cmd">claude</code>
+          <div class="prov-status">✓ connected</div>
+        </div>
+
+        <div class="prov-item">
+          <div class="prov-glyph" aria-hidden="true">⬡</div>
+          <div class="prov-name">Codex CLI</div>
+          <code class="prov-cmd">codex login</code>
+          <div class="prov-status">✓ connected</div>
+        </div>
+
+        <div class="prov-item">
+          <div class="prov-glyph" aria-hidden="true">○</div>
+          <div class="prov-name">GitHub</div>
+          <code class="prov-cmd">gh auth login</code>
+          <div class="prov-status">✓ connected</div>
+        </div>
+
+        <div class="prov-item soon">
+          <div class="prov-glyph" aria-hidden="true">◇</div>
+          <div class="prov-name">Any model</div>
+          <code class="prov-cmd">komodo cloud →</code>
+          <div class="prov-soon">coming soon</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Row 2 · Review screenshot ─────────────────── -->
+    <div class="card review-card" aria-label="Example Komodo review output">
+      <div class="card-label">What a review looks like</div>
+
+      <div class="gh-review" role="img" aria-label="Simulated GitHub PR review by Komodo">
+
+        <!-- Walkthrough -->
+        <div class="gh-section">
+          <div class="gh-section-title">Walkthrough</div>
+          <table class="walk-table">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Change summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>src/db/queries.ts</td>
+                <td>Modified user lookup to accept raw filter input</td>
+              </tr>
+              <tr>
+                <td>src/api/users.ts</td>
+                <td>Added /users/search endpoint with query param</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Confidence -->
+        <div class="gh-section">
+          <div class="gh-section-title">Merge confidence</div>
+          <div class="confidence-row">
+            <div class="conf-dots" aria-hidden="true">
+              <div class="conf-dot on"></div>
+              <div class="conf-dot on"></div>
+              <div class="conf-dot"></div>
+              <div class="conf-dot"></div>
+              <div class="conf-dot"></div>
+            </div>
+            <span class="conf-text">
+              <span class="conf-score">2 / 5</span>
+              <span class="conf-note"> — Blocking security issue in the query layer</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Finding -->
+        <div class="gh-section">
+          <div class="gh-section-title">Inline findings</div>
+          <div class="finding">
+            <div class="finding-hdr">
+              <span class="sev-badge" aria-label="Critical severity">🔴 Critical</span>
+              <span class="cat-badge">🔒 Security</span>
+              <span class="finding-title">SQL injection via string interpolation</span>
+            </div>
+            <div class="finding-body">
+              <p class="finding-desc">
+                User input is interpolated directly into the SQL query string.
+                An attacker can break out and execute arbitrary SQL.
+              </p>
+              <div class="diff-block">
+                <div class="diff-hdr">src/db/queries.ts · line 47 · suggestion</div>
+                <div class="diff-line del">
+                  <span class="diff-marker" aria-hidden="true">-</span>
+                  <span>const&nbsp;query&nbsp;=&nbsp;`SELECT&nbsp;*&nbsp;FROM&nbsp;users&nbsp;WHERE&nbsp;name&nbsp;=&nbsp;'${'{'}filter{'}'}'`</span>
+                </div>
+                <div class="diff-line add">
+                  <span class="diff-marker" aria-hidden="true">+</span>
+                  <span>const&nbsp;query&nbsp;=&nbsp;`SELECT&nbsp;*&nbsp;FROM&nbsp;users&nbsp;WHERE&nbsp;name&nbsp;=&nbsp;$1`</span>
+                </div>
+                <div class="diff-line add">
+                  <span class="diff-marker" aria-hidden="true">+</span>
+                  <span>const&nbsp;result&nbsp;=&nbsp;await&nbsp;db.query(query,&nbsp;[filter])</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Row 2 · Pricing ───────────────────────────── -->
+    <div class="card pricing-card" aria-label="Pricing comparison">
+      <div class="card-label">Price per seat</div>
+
+      <div>
+        <div class="price-big">
+          <span class="price-num" aria-label="Zero dollars">$0</span>
+          <span class="price-unit">/seat</span>
+        </div>
+        <div class="price-vs">vs $24–30/seat/mo elsewhere</div>
+      </div>
+
+      <div class="price-table" role="table" aria-label="Competitor pricing comparison">
+        <div class="price-row" role="row">
+          <span class="price-brand" role="cell">CodeRabbit Pro</span>
+          <span class="price-val" role="cell">$24 / seat</span>
+        </div>
+        <div class="price-row" role="row">
+          <span class="price-brand" role="cell">Greptile Pro</span>
+          <span class="price-val" role="cell">$30 / seat</span>
+        </div>
+        <div class="price-row" role="row">
+          <span class="price-brand" role="cell">Komodo</span>
+          <span class="price-val free" role="cell">$0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Row 3 · Terminal quickstart ───────────────── -->
+    <div class="card terminal-card" id="quickstart" aria-label="Quickstart terminal example">
+      <div class="term-chrome" aria-hidden="true">
+        <div class="tdot r"></div>
+        <div class="tdot y"></div>
+        <div class="tdot g"></div>
+        <span class="term-title">zsh — komodo</span>
+      </div>
+      <div class="term-body">
+
+        <div class="tl">
+          <span class="t-prompt" aria-hidden="true">$</span>
+          <span class="t-cmd">npx komodo-review init</span>
+        </div>
+        <div class="tl gap">
+          <span class="t-out">
+            <span class="t-ok">✓</span>
+            <span class="t-info">Claude:</span>&nbsp;available&nbsp;·&nbsp;
+            <span class="t-info">GitHub:</span>&nbsp;Delavalom
+          </span>
+        </div>
+
+        <div class="tl">
+          <span class="t-prompt" aria-hidden="true">$</span>
+          <span class="t-cmd">npx komodo-review pr 42</span>
+        </div>
+        <div class="tl last">
+          <span class="t-out">
+            <span class="t-conf-dots" aria-hidden="true">
+              <span class="t-cdot on"></span>
+              <span class="t-cdot on"></span>
+              <span class="t-cdot on"></span>
+              <span class="t-cdot on"></span>
+              <span class="t-cdot"></span>
+            </span>
+            &nbsp;<span class="t-score">4/5</span>&nbsp;
+            <span class="t-msg">— posted to GitHub</span>
+          </span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Row 3 · One button to fix ─────────────────── -->
+    <div class="card fix-card">
+      <div class="fix-card-title">One click to fix</div>
+      <p class="fix-card-sub">
+        Every finding ships with a committable suggestion and
+        a copy-paste AI-agent prompt so fixing is never more than
+        one action away.
+      </p>
+      <div class="fix-chips">
+        <div class="fix-chip">
+          <span class="fix-chip-ico" aria-hidden="true">📋</span>
+          <div class="fix-chip-body">
+            <div class="fix-chip-title">Committable suggestion</div>
+            <div class="fix-chip-desc">Appears inline on the diff — accept directly from GitHub</div>
+          </div>
+        </div>
+        <div class="fix-chip">
+          <span class="fix-chip-ico" aria-hidden="true">⚡</span>
+          <div class="fix-chip-body">
+            <div class="fix-chip-title">AI-agent fix prompt</div>
+            <div class="fix-chip-desc">Paste into Claude or Codex — it applies the fix for you</div>
+          </div>
+        </div>
+        <div class="fix-chip">
+          <span class="fix-chip-ico" aria-hidden="true">🗺️</span>
+          <div class="fix-chip-body">
+            <div class="fix-chip-title">Mermaid sequence diagram</div>
+            <div class="fix-chip-desc">Auto-generated flow diagram for complex change sets</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Row 3 · Runs where your code lives ────────── -->
+    <div class="card runs-card">
+      <div class="runs-title">Runs where your code lives</div>
+      <p class="runs-sub">
+        Nothing leaves your machine except the review you choose to post.
+      </p>
+      <div class="runs-items">
+        <div class="run-item">
+          <div class="run-ico" aria-hidden="true">💻</div>
+          <div class="run-text"><strong>Local CLI</strong> — runs entirely on your machine via the AI subscription you already have</div>
+        </div>
+        <div class="run-item">
+          <div class="run-ico" aria-hidden="true">🔍</div>
+          <div class="run-text"><strong>Localhost viewer</strong> — <code style="font-family:var(--mono);font-size:0.72rem;color:var(--text-3)">npx komodo-review ui</code> opens a local review explorer</div>
+        </div>
+        <div class="run-item">
+          <div class="run-ico" aria-hidden="true">🔒</div>
+          <div class="run-text"><strong>No vendor lock-in</strong> — MIT licensed, self-hostable, your code never touches our servers</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ── Footer ───────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="footer-links">
+      <span>MIT</span>
+      <a href="https://github.com/Delavalom/komodo" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+    </div>
+    <span class="footer-note">Built with Komodo reviewing its own PRs</span>
+  </footer>
+
+</body>
+</html>

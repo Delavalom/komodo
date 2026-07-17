@@ -85,7 +85,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
       patch,
     })),
     result: finalResult,
-    posted: post,
+    posted: false,
   };
 
   const outDir = opts.outDir ?? join(process.cwd(), ".komodo", "reviews");
@@ -127,6 +127,8 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
         `Komodo: ${finalResult.confidence}/5 — ${finalResult.verdict}`,
       );
     }
+    record.posted = true;
+    writeFileSync(recordPath, JSON.stringify(record, null, 2));
   }
 
   return { record, recordPath, reviewUrl, droppedFindings: dropped };

@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@komodo/core": "workspace:*",
+    "@komodo/ui": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/picomatch": "^4.0.0",
     "tsup": "^8.3.0",

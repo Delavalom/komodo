@@ -1,0 +1,16 @@
+{
+  "name": "@komodo/marketing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "start": "HOST=0.0.0.0 node ./dist/server/entry.mjs"
+  },
+  "dependencies": {
+    "@astrojs/node": "^11.0.2",
+    "astro": "^7.1.1"
+  }
+}

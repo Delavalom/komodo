@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +10,13 @@ import type { ReviewInput, ReviewProvider } from "./types.js";
 const execFileAsync = promisify(execFile);
 
 export function codexLoggedIn(): boolean {
-  return existsSync(join(homedir(), ".codex", "auth.json"));
+  if (!existsSync(join(homedir(), ".codex", "auth.json"))) return false;
+  try {
+    execFileSync("codex", ["--version"], { stdio: ["ignore", "pipe", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
