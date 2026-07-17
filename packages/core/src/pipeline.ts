@@ -103,7 +103,17 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     const hasBlocking = finalResult.findings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK.major);
     const event =
       hasBlocking && config.post.request_changes ? ("REQUEST_CHANGES" as const) : ("COMMENT" as const);
-    const review = await github.postReview(ref, pr.headSha, renderReviewBody(finalResult), event, comments);
+    let review: { html_url: string };
+    try {
+      review = await github.postReview(ref, pr.headSha, renderReviewBody(finalResult), event, comments);
+    } catch (err) {
+      // GitHub rejects REQUEST_CHANGES/APPROVE on the token owner's own PR.
+      if (event !== "COMMENT" && err instanceof Error && err.message.includes("own pull request")) {
+        review = await github.postReview(ref, pr.headSha, renderReviewBody(finalResult), "COMMENT", comments);
+      } else {
+        throw err;
+      }
+    }
     reviewUrl = review.html_url;
 
     if (config.post.update_description) {

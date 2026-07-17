@@ -1,0 +1,15 @@
+{
+  "agents": [
+    {
+      "agent_id": "amarketing-builder-35a8a317e7ef16bb",
+      "agent_type": "marketing-builder",
+      "started_at": "2026-07-17T17:24:30.318Z",
+      "parent_mode": "none",
+      "status": "running"
+    }
+  ],
+  "total_spawned": 1,
+  "total_completed": 0,
+  "total_failed": 0,
+  "last_updated": "2026-07-17T17:28:25.998Z"
+}

@@ -119,5 +119,9 @@ export interface ReviewRecord {
 }
 
 export function reviewResultJsonSchema(): Record<string, unknown> {
-  return z.toJSONSchema(ReviewResultSchema) as Record<string, unknown>;
+  // draft-07 + no $schema key: the Claude Code CLI's validator rejects the
+  // draft/2020-12 meta-schema reference zod v4 emits by default.
+  const schema = z.toJSONSchema(ReviewResultSchema, { target: "draft-7" }) as Record<string, unknown>;
+  delete schema.$schema;
+  return schema;
 }
