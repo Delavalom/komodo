@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"pnpm install 2>&1 | tail -2 && cd packages/cli && pnpm typecheck 2>&1 | tail -10\",\"timeout\":180000,\"description\":\"Install CLI deps and typecheck the CLI package\"}",
+  "error": "Exit code 1\n\nPackages found in the workspace: \n(eval):cd:1: no such file or directory: packages/cli",
+  "timestamp": "2026-07-17T17:20:52.406Z",
+  "retry_count": 1
+}

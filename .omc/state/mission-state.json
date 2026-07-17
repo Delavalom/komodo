@@ -1,0 +1,153 @@
+{
+  "updatedAt": "2026-07-17T17:09:01.701Z",
+  "missions": [
+    {
+      "id": "session:d943fa4e-a696-40ab-a435-02b7c1edea1c:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-07-17T16:51:46.916Z",
+      "updatedAt": "2026-07-17T17:09:01.701Z",
+      "status": "done",
+      "workerCount": 3,
+      "taskCounts": {
+        "total": 3,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 0,
+        "completed": 3,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "sdk-research:asdk-re",
+          "role": "sdk-research",
+          "ownership": "asdk-research-a7e9b578889a7132",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-17T17:01:19.863Z"
+        },
+        {
+          "name": "ux-research:aux-res",
+          "role": "ux-research",
+          "ownership": "aux-research-b5fb35c9ec53fd95",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-17T17:09:01.701Z"
+        },
+        {
+          "name": "product-research:aproduc",
+          "role": "product-research",
+          "ownership": "aproduct-research-7ce4e688e4083a7f",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-07-17T17:05:52.965Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:06:30.885Z",
+          "at": "2026-07-17T17:06:30.885Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:06:33.625Z",
+          "at": "2026-07-17T17:06:33.625Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-start:aux-research-b5fb35c9ec53fd95:2026-07-17T17:06:46.907Z",
+          "at": "2026-07-17T17:06:46.907Z",
+          "kind": "update",
+          "agent": "ux-research:aux-res",
+          "detail": "started ux-research:aux-res",
+          "sourceKey": "session-start:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:22.342Z",
+          "at": "2026-07-17T17:08:22.342Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:31.949Z",
+          "at": "2026-07-17T17:08:31.949Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:35.027Z",
+          "at": "2026-07-17T17:08:35.027Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:38.688Z",
+          "at": "2026-07-17T17:08:38.688Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:43.465Z",
+          "at": "2026-07-17T17:08:43.465Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:48.072Z",
+          "at": "2026-07-17T17:08:48.072Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:52.190Z",
+          "at": "2026-07-17T17:08:52.190Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:08:55.969Z",
+          "at": "2026-07-17T17:08:55.969Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        },
+        {
+          "id": "session-stop:aux-research-b5fb35c9ec53fd95:2026-07-17T17:09:01.701Z",
+          "at": "2026-07-17T17:09:01.701Z",
+          "kind": "completion",
+          "agent": "ux-research:aux-res",
+          "detail": "completed",
+          "sourceKey": "session-stop:aux-research-b5fb35c9ec53fd95"
+        }
+      ]
+    }
+  ]
+}

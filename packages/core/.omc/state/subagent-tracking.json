@@ -1,0 +1,15 @@
+{
+  "agents": [
+    {
+      "agent_id": "aui-builder-993e751a6ebdf3d5",
+      "agent_type": "ui-builder",
+      "started_at": "2026-07-17T17:20:48.103Z",
+      "parent_mode": "none",
+      "status": "running"
+    }
+  ],
+  "total_spawned": 1,
+  "total_completed": 0,
+  "total_failed": 0,
+  "last_updated": "2026-07-17T17:20:48.206Z"
+}

@@ -1,0 +1,35 @@
+{
+  "agents": [
+    {
+      "agent_id": "asdk-research-a7e9b578889a7132",
+      "agent_type": "sdk-research",
+      "started_at": "2026-07-17T16:51:46.916Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-07-17T17:01:19.863Z",
+      "duration_ms": 572947
+    },
+    {
+      "agent_id": "aux-research-b5fb35c9ec53fd95",
+      "agent_type": "ux-research",
+      "started_at": "2026-07-17T17:06:46.907Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-07-17T17:09:01.701Z",
+      "duration_ms": 134794
+    },
+    {
+      "agent_id": "aproduct-research-7ce4e688e4083a7f",
+      "agent_type": "product-research",
+      "started_at": "2026-07-17T16:52:06.641Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-07-17T17:05:52.965Z",
+      "duration_ms": 826324
+    }
+  ],
+  "total_spawned": 4,
+  "total_completed": 36,
+  "total_failed": 0,
+  "last_updated": "2026-07-17T17:09:01.806Z"
+}

@@ -1,0 +1,7 @@
+{
+  "tool_name": "WebFetch",
+  "tool_input_preview": "{\"url\":\"https://docs.greptile.com/introduction\",\"prompt\":\"Extract how Greptile works as an AI code reviewer: what it posts on a PR (summary, line comments, severity), its codebase graph / full-repo aw...",
+  "error": "connect ECONNREFUSED 192.64.119.203:443",
+  "timestamp": "2026-07-17T16:57:22.528Z",
+  "retry_count": 1
+}

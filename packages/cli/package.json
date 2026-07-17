@@ -1,0 +1,41 @@
+{
+  "name": "komodo-review",
+  "version": "0.1.0",
+  "description": "AI code review on your own Claude or ChatGPT subscription. CodeRabbit-class reviews, $0/seat.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Delavalom/komodo.git"
+  },
+  "keywords": ["code-review", "ai", "pull-request", "claude", "codex", "github"],
+  "bin": {
+    "komodo-review": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --clean && node scripts/copy-ui.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "echo 'no tests'"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.0",
+    "commander": "^13.0.0",
+    "picocolors": "^1.1.0",
+    "picomatch": "^4.0.2",
+    "yaml": "^2.6.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@komodo/core": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/picomatch": "^4.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  },
+  "tsup": {
+    "noExternal": ["@komodo/core"]
+  }
+}

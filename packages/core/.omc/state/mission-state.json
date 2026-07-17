@@ -1,0 +1,45 @@
+{
+  "updatedAt": "2026-07-17T17:20:48.103Z",
+  "missions": [
+    {
+      "id": "session:d943fa4e-a696-40ab-a435-02b7c1edea1c:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-07-17T17:20:48.103Z",
+      "updatedAt": "2026-07-17T17:20:48.103Z",
+      "status": "running",
+      "workerCount": 1,
+      "taskCounts": {
+        "total": 1,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 1,
+        "completed": 0,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "ui-builder:aui-bui",
+          "role": "ui-builder",
+          "ownership": "aui-builder-993e751a6ebdf3d5",
+          "status": "running",
+          "currentStep": null,
+          "latestUpdate": null,
+          "completedSummary": null,
+          "updatedAt": "2026-07-17T17:20:48.103Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-start:aui-builder-993e751a6ebdf3d5:2026-07-17T17:20:48.103Z",
+          "at": "2026-07-17T17:20:48.103Z",
+          "kind": "update",
+          "agent": "ui-builder:aui-bui",
+          "detail": "started ui-builder:aui-bui",
+          "sourceKey": "session-start:aui-builder-993e751a6ebdf3d5"
+        }
+      ]
+    }
+  ]
+}
