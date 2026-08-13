@@ -1,4 +1,13 @@
-import { pgTable, text, uuid, timestamp, numeric, integer, jsonb } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  uuid,
+  timestamp,
+  numeric,
+  integer,
+  jsonb,
+  boolean,
+} from "drizzle-orm/pg-core";
 import type { ReviewRecord } from "@komodo/core";
 
 export const users = pgTable("users", {
@@ -40,6 +49,19 @@ export const creditLedger = pgTable("credit_ledger", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const userSettings = pgTable("user_settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id),
+  defaultModel: text("default_model").notNull().default("anthropic/claude-sonnet-4-5"),
+  postToGithubDefault: boolean("post_to_github_default").notNull().default(true),
+  /** quiet = only the most important findings, assertive = maximum detail. */
+  reviewProfile: text("review_profile").notNull().default("chill"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Review = typeof reviews.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
+export type UserSettings = typeof userSettings.$inferSelect;

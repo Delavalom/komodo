@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
 import type { ReviewSummary } from "../types";
 import { fetchReviews } from "../api";
+import { useResource } from "../store";
 import { ConfidenceMeter } from "./ConfidenceMeter";
 
 function timeAgo(dateStr: string): string {
@@ -16,19 +16,14 @@ function timeAgo(dateStr: string): string {
 }
 
 export function ReviewList() {
-  const [reviews, setReviews] = useState<ReviewSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const state = useResource<ReviewSummary[]>("reviews", fetchReviews);
 
-  useEffect(() => {
-    fetchReviews()
-      .then(setReviews)
-      .catch((e: unknown) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, []);
+  if (state.status === "loading") return <div className="state-msg">Loading reviews…</div>;
+  if (state.status === "error")
+    return <div className="state-msg state-msg--error">{state.error}</div>;
 
-  if (loading) return <div className="state-msg">Loading reviews…</div>;
-  if (error) return <div className="state-msg state-msg--error">{error}</div>;
+  const reviews = state.data;
+
   if (reviews.length === 0)
     return (
       <div className="state-msg">
@@ -71,7 +66,11 @@ export function ReviewList() {
                 <ConfidenceMeter score={r.confidence} size="sm" />
               </td>
               <td>
-                <span className={r.findings > 0 ? "findings-count findings-count--nonzero" : "findings-count"}>
+                <span
+                  className={
+                    r.findings > 0 ? "findings-count findings-count--nonzero" : "findings-count"
+                  }
+                >
                   {r.findings}
                 </span>
               </td>

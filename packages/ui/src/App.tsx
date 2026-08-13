@@ -1,16 +1,6 @@
-import { useEffect, useState } from "react";
 import { ReviewList } from "./components/ReviewList";
 import { ReviewDetail } from "./components/ReviewDetail";
-
-function useHash(): string {
-  const [hash, setHash] = useState(() => window.location.hash || "#/");
-  useEffect(() => {
-    const handler = () => setHash(window.location.hash || "#/");
-    window.addEventListener("hashchange", handler);
-    return () => window.removeEventListener("hashchange", handler);
-  }, []);
-  return hash;
-}
+import { useHash } from "./store";
 
 export default function App() {
   const hash = useHash();
@@ -19,14 +9,17 @@ export default function App() {
   if (detailMatch) {
     const id = decodeURIComponent(detailMatch[1]);
     return (
-      <main className="app-main">
-        <ReviewDetail id={id} onBack={() => { window.location.hash = "#/"; }} />
-      </main>
+      <ReviewDetail
+        id={id}
+        onBack={() => {
+          window.location.hash = "#/";
+        }}
+      />
     );
   }
 
   return (
-    <main className="app-main">
+    <div className="app-shell">
       <header className="app-header">
         <div className="app-header__logo">
           <span className="app-header__mark">🦎</span>
@@ -34,7 +27,9 @@ export default function App() {
           <span className="app-header__sub">Review Viewer</span>
         </div>
       </header>
-      <ReviewList />
-    </main>
+      <main className="app-main">
+        <ReviewList />
+      </main>
+    </div>
   );
 }

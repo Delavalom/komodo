@@ -1,131 +1,43 @@
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
+import { marked } from "marked";
+import { ExternalLink } from "lucide-react";
 import { auth } from "@/auth";
 import { getDb, reviews } from "@/db";
-import { marked } from "marked";
-import { Collapsible } from "./collapsible";
-import type { Finding } from "@komodo/core";
-
-const SEVERITY_COLOR: Record<string, string> = {
-  critical: "#EF4444",
-  major: "#F97316",
-  minor: "#EAB308",
-  trivial: "#3B82F6",
-};
-
-const SEVERITY_BG: Record<string, string> = {
-  critical: "#1A0808",
-  major: "#1A0F08",
-  minor: "#1A1808",
-  trivial: "#08101A",
-};
-
-function SeverityChip({ severity }: { severity: string }) {
-  return (
-    <span
-      className="text-xs font-semibold px-2 py-0.5 rounded uppercase tracking-wider"
-      style={{ color: SEVERITY_COLOR[severity] ?? "#9CA3AF", backgroundColor: SEVERITY_BG[severity] ?? "#111318" }}
-    >
-      {severity}
-    </span>
-  );
-}
-
-function CategoryChip({ category }: { category: string }) {
-  return (
-    <span
-      className="text-xs px-2 py-0.5 rounded"
-      style={{ color: "#9CA3AF", backgroundColor: "#1E2128" }}
-    >
-      {category}
-    </span>
-  );
-}
-
-function ConfidenceMeterLarge({ value }: { value: number }) {
-  const pct = (value / 5) * 100;
-  const color = value >= 4 ? "#3ECF8E" : value >= 2 ? "#EAB308" : "#EF4444";
-  return (
-    <div className="flex items-center gap-3">
-      <div className="text-5xl font-bold" style={{ color }}>
-        {value}
-      </div>
-      <div>
-        <div className="text-sm mb-1" style={{ color: "#6B7280" }}>
-          / 5 confidence
-        </div>
-        <div className="rounded-full overflow-hidden" style={{ width: 120, height: 6, backgroundColor: "#1E2128" }}>
-          <div style={{ width: `${pct}%`, backgroundColor: color, height: "100%", borderRadius: "9999px" }} />
-        </div>
-      </div>
-    </div>
-  );
-}
+import { modelLabel } from "@/lib/models";
+import { PageHeader } from "@/components/shell/PageHeader";
+import {
+  Chip,
+  ConfidenceMeter,
+  SEVERITY_COLOR,
+  SectionLabel,
+  bySeverity,
+  isSeverity,
+} from "@/components/ui";
+import { FindingCard } from "./finding-card";
+import { LowerFindings } from "./lower-findings";
 
 function renderMd(md: string): string {
-  return marked(md) as string;
+  return marked.parse(md) as string;
 }
 
-function FindingCard({ finding, prUrl }: { finding: Finding; prUrl: string }) {
-  const ghFileUrl = `${prUrl}/files`;
-  return (
-    <div
-      className="rounded-xl overflow-hidden"
-      style={{ border: `1px solid ${SEVERITY_COLOR[finding.severity]}33` }}
-    >
-      <div
-        className="px-4 py-3 flex flex-wrap items-center gap-2"
-        style={{ backgroundColor: SEVERITY_BG[finding.severity] ?? "#111318", borderBottom: "1px solid #1E2128" }}
-      >
-        <SeverityChip severity={finding.severity} />
-        <CategoryChip category={finding.category} />
-        <span className="text-sm font-medium ml-1" style={{ color: "#E5E7EB" }}>
-          {finding.title}
-        </span>
-        <a
-          href={ghFileUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-auto text-xs font-mono"
-          style={{ color: "#6B7280" }}
-        >
-          {finding.path}:{finding.line}
-          {finding.endLine ? `–${finding.endLine}` : ""}
-        </a>
-      </div>
-
-      <div className="p-4 space-y-3" style={{ backgroundColor: "#0D0F12" }}>
-        <div
-          className="prose-dark text-sm"
-          dangerouslySetInnerHTML={{ __html: renderMd(finding.body) }}
-        />
-
-        {finding.suggestion && (
-          <div>
-            <div className="text-xs font-semibold mb-1 uppercase tracking-wider" style={{ color: "#6B7280" }}>
-              Suggestion
-            </div>
-            <pre
-              className="text-xs overflow-x-auto p-3 rounded-lg font-mono"
-              style={{ backgroundColor: "#111318", border: "1px solid #1E2128", color: "#3ECF8E" }}
-            >
-              {finding.suggestion}
-            </pre>
-          </div>
-        )}
-
-        <Collapsible label="Fix prompt">
-          <pre
-            className="text-xs whitespace-pre-wrap font-mono"
-            style={{ color: "#9CA3AF" }}
-          >
-            {finding.fixPrompt}
-          </pre>
-        </Collapsible>
-      </div>
-    </div>
-  );
+/**
+ * Compact path label for the file rail. Uses the last two segments so that
+ * same-named files in different directories (middleware/auth.ts vs
+ * routes/auth.ts) stay distinguishable.
+ */
+function shortPath(path: string): string {
+  const parts = path.split("/");
+  return parts.length <= 2 ? path : parts.slice(-2).join("/");
 }
+
+const EFFORT_LABEL: Record<number, string> = {
+  1: "Trivial",
+  2: "Small",
+  3: "Moderate",
+  4: "Large",
+  5: "Very large",
+};
 
 export default async function ReviewDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -137,180 +49,300 @@ export default async function ReviewDetailPage({ params }: { params: Promise<{ i
 
   if (!review || review.userId !== session.user.id) notFound();
 
-  const record = review.record!;
-  const result = record.result;
-  const modelShort = review.model?.includes("/") ? review.model.split("/")[1] : (review.model ?? "—");
+  const record = review.record;
+  if (!record) notFound();
 
-  const sortedFindings = [...result.findings].sort((a, b) => {
-    const rank = { critical: 4, major: 3, minor: 2, trivial: 1 };
-    return (rank[b.severity as keyof typeof rank] ?? 0) - (rank[a.severity as keyof typeof rank] ?? 0);
-  });
+  const { result, files, pr } = record;
+
+  const sorted = [...result.findings].sort(bySeverity);
+  const high = sorted.filter((f) => f.severity === "critical" || f.severity === "major");
+  const lower = sorted.filter((f) => f.severity === "minor" || f.severity === "trivial");
+
+  // Markdown is rendered on the server so `marked` never ships to the client.
+  const bodyHtml = new Map(sorted.map((f, i) => [i, renderMd(f.body)]));
+  const indexOf = new Map(sorted.map((f, i) => [f, i]));
+
+  // Findings per file, for the left rail.
+  const findingsPerFile = new Map<string, number>();
+  for (const f of sorted) {
+    findingsPerFile.set(f.path, (findingsPerFile.get(f.path) ?? 0) + 1);
+  }
+
+  const severityTotals = sorted.reduce<Record<string, number>>((acc, f) => {
+    acc[f.severity] = (acc[f.severity] ?? 0) + 1;
+    return acc;
+  }, {});
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1 text-sm" style={{ color: "#6B7280" }}>
-          <a href="/" style={{ color: "#6B7280" }}>
-            Dashboard
-          </a>
-          <span>/</span>
-          <span style={{ color: "#9CA3AF" }}>
-            {review.owner}/{review.repo}#{review.number}
-          </span>
-        </div>
-        <h1 className="text-xl font-bold" style={{ color: "#E5E7EB" }}>
-          {record.pr.title}
-        </h1>
-        <div className="flex flex-wrap gap-3 mt-2">
+    <>
+      <PageHeader
+        crumbs={[
+          { label: "Komodo", href: "/" },
+          { label: "Reviews", href: "/" },
+          { label: `${review.owner}/${review.repo}#${review.number}` },
+        ]}
+        actions={
           <a
-            href={record.pr.url}
+            href={pr.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs"
-            style={{ color: "#3ECF8E" }}
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-border bg-surface-2 text-xs text-text-muted hover:text-text hover:border-border-strong transition-colors"
           >
-            View on GitHub →
+            <ExternalLink size={13} />
+            View on GitHub
           </a>
-          <span className="text-xs" style={{ color: "#6B7280" }}>
-            {new Date(review.createdAt).toLocaleString()}
-          </span>
-        </div>
-      </div>
+        }
+      />
 
-      {/* Verdict card */}
-      <div className="rounded-xl p-6" style={{ backgroundColor: "#111318", border: "1px solid #1E2128" }}>
-        <div className="flex flex-wrap items-start gap-6">
-          <ConfidenceMeterLarge value={result.confidence} />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium mb-3" style={{ color: "#E5E7EB" }}>
-              {result.verdict}
-            </p>
-            <div className="flex flex-wrap gap-4 text-xs" style={{ color: "#6B7280" }}>
-              <span>
-                Effort: <span style={{ color: "#9CA3AF" }}>{result.effort}/5</span>
-              </span>
-              <span>
-                Model: <span className="font-mono" style={{ color: "#9CA3AF" }}>{modelShort}</span>
-              </span>
-              <span>
-                Cost: <span style={{ color: "#9CA3AF" }}>${Number(review.costUsd ?? 0).toFixed(4)}</span>
-              </span>
-              <span>
-                Credits: <span style={{ color: "#9CA3AF" }}>{review.creditsCharged}</span>
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary */}
-      <div className="rounded-xl p-5" style={{ backgroundColor: "#111318", border: "1px solid #1E2128" }}>
-        <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#6B7280" }}>
-          Summary
-        </h2>
-        <div className="prose-dark text-sm" dangerouslySetInnerHTML={{ __html: renderMd(result.summary) }} />
-      </div>
-
-      {/* Diagram */}
-      {result.diagram && (
-        <div className="rounded-xl p-5" style={{ backgroundColor: "#111318", border: "1px solid #1E2128" }}>
-          <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#6B7280" }}>
-            Flow diagram
-          </h2>
-          <pre className="text-xs overflow-x-auto font-mono" style={{ color: "#9CA3AF" }}>
-            {result.diagram}
-          </pre>
-        </div>
-      )}
-
-      {/* Walkthrough */}
-      {result.walkthrough.length > 0 && (
-        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #1E2128" }}>
-          <div className="px-4 py-3" style={{ borderBottom: "1px solid #1E2128" }}>
-            <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#6B7280" }}>
-              Walkthrough
-            </h2>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ borderBottom: "1px solid #1E2128", backgroundColor: "#0D0F12" }}>
-                {["Files", "Summary"].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-widest"
-                    style={{ color: "#4B5563" }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {result.walkthrough.map((row, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #161A22" }}>
-                  <td className="px-4 py-2.5 align-top w-48">
-                    <div className="flex flex-col gap-1">
-                      {row.files.map((f) => (
-                        <span key={f} className="text-xs font-mono truncate max-w-[180px]" style={{ color: "#6B7280" }}>
-                          {f}
+      <div className="flex-1 grid lg:grid-cols-[240px_minmax(0,1fr)] gap-0">
+        {/* ---- Left rail: files + finding counts ---- */}
+        <aside className="hidden lg:block border-r border-border">
+          <div className="sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto p-4">
+            <SectionLabel className="mb-3">Files ({files.length})</SectionLabel>
+            <ul className="space-y-0.5">
+              {files.map((f) => {
+                const count = findingsPerFile.get(f.path) ?? 0;
+                return (
+                  <li key={f.path}>
+                    <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2 transition-colors">
+                      <span
+                        className="flex-1 min-w-0 font-mono text-[11px] text-text-muted truncate"
+                        title={f.path}
+                      >
+                        {shortPath(f.path)}
+                      </span>
+                      {count > 0 && (
+                        <span className="shrink-0 text-[10px] font-semibold tabular-nums rounded-full bg-surface-2 border border-border px-1.5 text-text-muted">
+                          {count}
                         </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2 px-2 pb-1 text-[10px] tabular-nums">
+                      {f.additions > 0 && <span className="text-accent">+{f.additions}</span>}
+                      {f.deletions > 0 && <span className="text-critical">−{f.deletions}</span>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </aside>
+
+        {/* ---- Right pane ---- */}
+        <main className="min-w-0 px-6 py-8 max-w-4xl">
+          {/* Verdict */}
+          <section className="bg-surface border border-border rounded-xl overflow-hidden mb-8">
+            <div className="flex flex-col md:flex-row">
+              <div className="flex-1 min-w-0 p-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <span
+                    className="text-5xl font-bold leading-none tabular-nums tracking-tight"
+                    style={{
+                      color:
+                        result.confidence >= 4
+                          ? "var(--color-accent)"
+                          : result.confidence >= 2
+                            ? "var(--color-minor)"
+                            : "var(--color-critical)",
+                    }}
+                  >
+                    {result.confidence}
+                  </span>
+                  <span className="text-xl text-text-faint leading-none">/5</span>
+                  <ConfidenceMeter score={result.confidence} size="lg" showLabel={false} />
+                </div>
+
+                <p className="text-sm text-text leading-relaxed mb-4 max-w-lg">{result.verdict}</p>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-text-dim">
+                  <span>
+                    Effort:{" "}
+                    <strong className="font-medium text-text">
+                      {EFFORT_LABEL[result.effort] ?? result.effort} ({result.effort}/5)
+                    </strong>
+                  </span>
+                  <span>
+                    Model:{" "}
+                    <strong className="font-medium text-text">{modelLabel(review.model)}</strong>
+                  </span>
+                  <span>
+                    Cost:{" "}
+                    <strong className="font-medium text-text tabular-nums">
+                      ${Number(review.costUsd ?? 0).toFixed(4)}
+                    </strong>
+                  </span>
+                  <span>
+                    Credits:{" "}
+                    <strong className="font-medium text-text tabular-nums">
+                      {review.creditsCharged}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              <div className="md:w-[280px] shrink-0 border-t md:border-t-0 md:border-l border-border p-6">
+                <a
+                  href={pr.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-sm font-medium text-text hover:text-accent transition-colors leading-snug mb-1.5"
+                >
+                  {pr.title}
+                </a>
+                <div className="font-mono text-[11px] text-text-faint mb-3">
+                  {pr.owner}/{pr.repo}#{pr.number}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                  <Chip mono>{pr.baseRef}</Chip>
+                  <span className="text-text-faint text-[11px]">←</span>
+                  <Chip mono>{pr.headRef}</Chip>
+                </div>
+                <div className="text-xs text-text-dim">
+                  by {pr.author} ·{" "}
+                  <code className="font-mono text-[11px] text-text-faint">
+                    {pr.headSha.slice(0, 7)}
+                  </code>
+                </div>
+                <div className="text-xs text-text-faint mt-1.5">
+                  {new Date(review.createdAt).toLocaleString()}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Findings */}
+          <section className="mb-10">
+            <div className="flex items-center justify-between gap-4 pb-2.5 mb-3.5 border-b border-border">
+              <SectionLabel>Findings ({sorted.length})</SectionLabel>
+              {sorted.length > 0 && (
+                <div className="flex items-center gap-2.5">
+                  {Object.entries(severityTotals).map(([severity, n]) => (
+                    <span
+                      key={severity}
+                      className="inline-flex items-center gap-1 text-[11px] tabular-nums"
+                      style={{
+                        color: isSeverity(severity) ? SEVERITY_COLOR[severity] : undefined,
+                      }}
+                    >
+                      <span className="inline-block size-1.5 rounded-full bg-current" />
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {sorted.length === 0 ? (
+              <div className="rounded-xl border border-accent-border bg-accent-dim px-6 py-8 text-center">
+                <p className="text-sm text-accent font-medium">No findings</p>
+                <p className="text-xs text-text-dim mt-1">This pull request looks clean.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-2">
+                  {high.map((f) => (
+                    <FindingCard
+                      key={`${f.path}:${f.line}:${indexOf.get(f)}`}
+                      finding={f}
+                      html={bodyHtml.get(indexOf.get(f)!) ?? ""}
+                      prUrl={pr.url}
+                      defaultOpen
+                    />
+                  ))}
+                </div>
+
+                {lower.length > 0 && (
+                  <LowerFindings count={lower.length}>
+                    <div className="flex flex-col gap-2 mt-2">
+                      {lower.map((f) => (
+                        <FindingCard
+                          key={`${f.path}:${f.line}:${indexOf.get(f)}`}
+                          finding={f}
+                          html={bodyHtml.get(indexOf.get(f)!) ?? ""}
+                          prUrl={pr.url}
+                        />
                       ))}
                     </div>
-                  </td>
-                  <td className="px-4 py-2.5 text-sm" style={{ color: "#9CA3AF" }}>
-                    {row.summary}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  </LowerFindings>
+                )}
+              </>
+            )}
+          </section>
 
-      {/* Files strip */}
-      {record.files.length > 0 && (
-        <div className="rounded-xl p-4" style={{ backgroundColor: "#111318", border: "1px solid #1E2128" }}>
-          <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#6B7280" }}>
-            Files ({record.files.length})
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {record.files.map((f) => (
-              <span
-                key={f.path}
-                className="text-xs font-mono px-2 py-1 rounded"
-                style={{ backgroundColor: "#1E2128", color: "#9CA3AF" }}
-              >
-                {f.path}
-                <span className="ml-1.5 text-[10px]" style={{ color: "#4B5563" }}>
-                  +{f.additions} -{f.deletions}
-                </span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+          {/* Walkthrough */}
+          {result.walkthrough.length > 0 && (
+            <section className="mb-10">
+              <SectionLabel className="pb-2.5 mb-3.5 border-b border-border block">
+                Walkthrough
+              </SectionLabel>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      {["Files", "Change summary"].map((h) => (
+                        <th
+                          key={h}
+                          className="px-0 pr-4 pb-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.09em] text-text-dim"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.walkthrough.map((row, i) => (
+                      <tr key={i} className="border-b border-border last:border-b-0">
+                        <td className="pr-4 py-3 align-top w-2/5">
+                          <div className="flex flex-col gap-1">
+                            {row.files.map((f) => (
+                              <code
+                                key={f}
+                                className="font-mono text-[11px] text-text-muted break-all"
+                              >
+                                {f}
+                              </code>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 text-[13px] text-text leading-relaxed align-top">
+                          {row.summary}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
-      {/* Findings */}
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#6B7280" }}>
-          Findings ({sortedFindings.length})
-        </h2>
-        {sortedFindings.length === 0 ? (
-          <div
-            className="rounded-xl p-8 text-center text-sm"
-            style={{ backgroundColor: "#111318", border: "1px solid #1E2128", color: "#4B5563" }}
-          >
-            No findings — this PR looks clean!
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {sortedFindings.map((f, i) => (
-              <FindingCard key={i} finding={f} prUrl={record.pr.url} />
-            ))}
-          </div>
-        )}
+          {/* Summary */}
+          <section className="mb-10">
+            <SectionLabel className="pb-2.5 mb-3.5 border-b border-border block">
+              Summary
+            </SectionLabel>
+            <div className="bg-surface border border-border rounded-lg p-5">
+              <div
+                className="prose-dark"
+                dangerouslySetInnerHTML={{ __html: renderMd(result.summary) }}
+              />
+            </div>
+          </section>
+
+          {/* Diagram */}
+          {result.diagram && (
+            <section className="mb-10">
+              <SectionLabel className="pb-2.5 mb-3.5 border-b border-border block">
+                Flow diagram
+              </SectionLabel>
+              <div className="bg-surface border border-border rounded-lg p-5 overflow-x-auto">
+                <pre className="font-mono text-xs text-text-muted leading-relaxed">
+                  {result.diagram}
+                </pre>
+              </div>
+            </section>
+          )}
+        </main>
       </div>
-    </div>
+    </>
   );
 }

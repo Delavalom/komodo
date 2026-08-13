@@ -1,11 +1,20 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getDb, reviews, creditLedger } from "@/db";
-import { eq, desc, sum, count, max, avg } from "drizzle-orm";
+import { eq, desc, sum, count, avg } from "drizzle-orm";
+import { FileText, Plus } from "lucide-react";
+import { PageBody, PageHeader } from "@/components/shell/PageHeader";
+import {
+  ConfidenceMeter,
+  EmptyState,
+  LinkButton,
+  SEVERITY_COLOR,
+  StatCard,
+  isSeverity,
+} from "@/components/ui";
 
 function formatRelativeTime(date: Date): string {
-  const now = Date.now();
-  const diff = now - date.getTime();
+  const diff = Date.now() - date.getTime();
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
@@ -16,29 +25,31 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
-function ConfidenceMeter({ value, max: maxVal = 5 }: { value: number | null; max?: number }) {
-  const pct = value != null ? (value / maxVal) * 100 : 0;
-  const color = value == null ? "#1E2128" : value >= 4 ? "#3ECF8E" : value >= 2 ? "#EAB308" : "#EF4444";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="w-16 rounded-full overflow-hidden" style={{ height: 4, backgroundColor: "#1E2128" }}>
-        <div style={{ width: `${pct}%`, backgroundColor: color, height: "100%" }} />
-      </div>
-      <span className="text-xs" style={{ color: "#9CA3AF" }}>
-        {value ?? "—"}/{maxVal}
-      </span>
-    </div>
-  );
+function shortModel(model: string | null): string {
+  if (!model) return "—";
+  return model.includes("/") ? model.split("/")[1] : model;
 }
 
-function ModelLabel({ model }: { model: string | null }) {
-  if (!model) return <span style={{ color: "#6B7280" }}>—</span>;
-  const short =
-    model.includes("/") ? model.split("/")[1] : model;
+/** Per-severity counts with coloured dots — finding density at a glance. */
+function SeverityDots({ counts }: { counts: Record<string, number> }) {
+  const entries = Object.entries(counts).filter(([, n]) => n > 0);
+  if (entries.length === 0) {
+    return <span className="text-xs text-text-faint">clean</span>;
+  }
   return (
-    <span className="text-xs font-mono" style={{ color: "#9CA3AF" }}>
-      {short}
-    </span>
+    <div className="flex items-center gap-2">
+      {entries.map(([severity, n]) => (
+        <span
+          key={severity}
+          title={`${n} ${severity}`}
+          className="inline-flex items-center gap-1 text-[11px] tabular-nums"
+          style={{ color: isSeverity(severity) ? SEVERITY_COLOR[severity] : undefined }}
+        >
+          <span className="inline-block size-1.5 rounded-full bg-current" />
+          {n}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -57,12 +68,14 @@ export default async function DashboardPage() {
       .orderBy(desc(reviews.createdAt))
       .limit(50),
 
-    db.select({ total: sum(creditLedger.delta) }).from(creditLedger).where(eq(creditLedger.userId, userId)),
+    db
+      .select({ total: sum(creditLedger.delta) })
+      .from(creditLedger)
+      .where(eq(creditLedger.userId, userId)),
 
     db
       .select({
         totalReviews: count(reviews.id),
-        criticalCaught: count(reviews.id),
         avgConfidence: avg(reviews.confidence),
       })
       .from(reviews)
@@ -71,110 +84,111 @@ export default async function DashboardPage() {
 
   const balance = Number(balanceRows[0]?.total ?? 0);
   const totalReviews = Number(stats[0]?.totalReviews ?? 0);
-  const avgConf = stats[0]?.avgConfidence ? Number(stats[0].avgConfidence).toFixed(1) : "—";
+  const avgConf = stats[0]?.avgConfidence ? Number(stats[0].avgConfidence).toFixed(1) : null;
 
-  const criticalCount = userReviews.reduce((acc, r) => {
-    const rec = r.record;
-    if (!rec) return acc;
-    return acc + rec.result.findings.filter((f) => f.severity === "critical").length;
-  }, 0);
+  // Per-review severity breakdown, computed once and reused by the table below.
+  const severityByReview = new Map<string, Record<string, number>>();
+  let criticalCount = 0;
+
+  for (const r of userReviews) {
+    const counts: Record<string, number> = {};
+    for (const f of r.record?.result.findings ?? []) {
+      counts[f.severity] = (counts[f.severity] ?? 0) + 1;
+      if (f.severity === "critical") criticalCount++;
+    }
+    severityByReview.set(r.id, counts);
+  }
 
   return (
-    <div>
-      {/* KPI stat row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {[
-          { label: "Total reviews", value: totalReviews },
-          { label: "Critical bugs caught", value: criticalCount },
-          { label: "Avg confidence", value: `${avgConf}/5` },
-          { label: "Credits balance", value: balance.toLocaleString() },
-        ].map(({ label, value }) => (
-          <div
-            key={label}
-            className="rounded-xl p-4"
-            style={{ backgroundColor: "#111318", border: "1px solid #1E2128" }}
-          >
-            <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "#6B7280" }}>
-              {label}
-            </div>
-            <div className="text-2xl font-bold" style={{ color: "#E5E7EB" }}>
-              {value}
-            </div>
-          </div>
-        ))}
-      </div>
+    <>
+      <PageHeader
+        crumbs={[{ label: "Komodo", href: "/" }, { label: "Reviews" }]}
+        actions={
+          <LinkButton href="/new" variant="primary" size="sm">
+            <Plus size={14} />
+            New review
+          </LinkButton>
+        }
+      />
 
-      {/* Reviews table */}
-      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #1E2128" }}>
-        <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid #1E2128" }}>
-          <h2 className="text-sm font-semibold" style={{ color: "#E5E7EB" }}>
-            Recent reviews
-          </h2>
-          <a
-            href="/new"
-            className="text-xs px-3 py-1.5 rounded-lg font-medium"
-            style={{ backgroundColor: "#3ECF8E", color: "#0A0B0D" }}
-          >
-            + New review
-          </a>
+      <PageBody>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <StatCard label="Total reviews" value={totalReviews || null} />
+          <StatCard label="Critical bugs caught" value={totalReviews ? criticalCount : null} />
+          <StatCard label="Avg confidence" value={avgConf ? `${avgConf}/5` : null} />
+          <StatCard label="Credits balance" value={balance.toLocaleString()} accent />
         </div>
 
-        {userReviews.length === 0 ? (
-          <div className="text-center py-16" style={{ color: "#4B5563" }}>
-            <div className="text-3xl mb-3">🦎</div>
-            <p className="text-sm">No reviews yet.</p>
-            <a href="/new" className="text-sm mt-2 inline-block" style={{ color: "#3ECF8E" }}>
-              Run your first review →
-            </a>
+        <div className="bg-surface border border-border rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h2 className="text-sm font-semibold text-text">Recent reviews</h2>
           </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ borderBottom: "1px solid #1E2128", backgroundColor: "#0D0F12" }}>
-                {["PR", "Repo", "Model", "Confidence", "Findings", "When"].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-widest"
-                    style={{ color: "#4B5563" }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {userReviews.map((r) => (
-                <tr
-                  key={r.id}
-                  style={{ borderBottom: "1px solid #161A22" }}
-                  className="hover:bg-[#111318] transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <a href={`/reviews/${r.id}`} className="hover:underline" style={{ color: "#3ECF8E" }}>
-                      #{r.number} {r.title.length > 40 ? r.title.slice(0, 40) + "…" : r.title}
-                    </a>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs" style={{ color: "#9CA3AF" }}>
-                    {r.owner}/{r.repo}
-                  </td>
-                  <td className="px-4 py-3">
-                    <ModelLabel model={r.model} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <ConfidenceMeter value={r.confidence} />
-                  </td>
-                  <td className="px-4 py-3 text-center" style={{ color: "#9CA3AF" }}>
-                    {r.findingsCount}
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: "#6B7280" }}>
-                    {formatRelativeTime(new Date(r.createdAt))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
+
+          {userReviews.length === 0 ? (
+            <EmptyState
+              icon={<FileText size={28} strokeWidth={1.5} />}
+              title="No reviews yet"
+              description="Paste a GitHub pull request URL and Komodo will review it with the model you pick."
+              action={
+                <LinkButton href="/new" variant="primary" size="sm">
+                  <Plus size={14} />
+                  Run your first review
+                </LinkButton>
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-elevated">
+                    {["Pull request", "Model", "Confidence", "Findings", "When"].map((h) => (
+                      <th
+                        key={h}
+                        className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.09em] text-text-faint whitespace-nowrap"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {userReviews.map((r) => (
+                    <tr
+                      key={r.id}
+                      className="border-b border-border last:border-b-0 hover:bg-hover transition-colors"
+                    >
+                      <td className="px-4 py-3 max-w-md">
+                        <a href={`/reviews/${r.id}`} className="block group">
+                          <div className="text-[13px] font-medium text-text group-hover:text-accent transition-colors truncate">
+                            {r.title}
+                          </div>
+                          <div className="text-[11px] font-mono text-text-faint mt-0.5">
+                            {r.owner}/{r.repo}#{r.number}
+                          </div>
+                        </a>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-[11px] font-mono text-text-muted whitespace-nowrap">
+                          {shortModel(r.model)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <ConfidenceMeter score={r.confidence} size="sm" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <SeverityDots counts={severityByReview.get(r.id) ?? {}} />
+                      </td>
+                      <td className="px-4 py-3 text-xs text-text-dim whitespace-nowrap">
+                        {formatRelativeTime(new Date(r.createdAt))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </PageBody>
+    </>
   );
 }

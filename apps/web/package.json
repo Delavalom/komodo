@@ -13,12 +13,14 @@
     "@komodo/core": "workspace:*",
     "@polar-sh/sdk": "^0.34.0",
     "drizzle-orm": "^0.44.0",
+    "lucide-react": "^0.468.0",
     "marked": "^15.0.0",
     "next": "^15.3.0",
     "next-auth": "beta",
     "pg": "^8.13.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {

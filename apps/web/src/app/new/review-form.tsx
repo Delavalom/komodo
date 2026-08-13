@@ -2,32 +2,34 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2, TriangleAlert } from "lucide-react";
+import { Button, Toggle, cn } from "@/components/ui";
+import { MODELS } from "@/lib/models";
 
-const MODELS = [
-  { id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", hint: "≈ 15–80 credits" },
-  { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", hint: "≈ 50–300 credits" },
-  { id: "openai/gpt-5.1", label: "GPT-5.1", hint: "≈ 20–100 credits" },
-  { id: "openai/gpt-5.1-codex", label: "GPT-5.1 Codex", hint: "≈ 30–150 credits" },
-  { id: "google/gemini-3-pro", label: "Gemini 3 Pro", hint: "≈ 10–60 credits" },
-  { id: "deepseek/deepseek-v3.2", label: "DeepSeek V3.2", hint: "≈ 5–20 credits" },
-];
+const MIN_BALANCE = 25;
 
-export function ReviewForm({ balance }: { balance: number }) {
+export function ReviewForm({
+  balance,
+  defaultModel,
+  defaultPostToGithub,
+}: {
+  balance: number;
+  defaultModel: string;
+  defaultPostToGithub: boolean;
+}) {
   const router = useRouter();
   const [prUrl, setPrUrl] = useState("");
-  const [model, setModel] = useState(MODELS[0].id);
-  const [postToGithub, setPostToGithub] = useState(true);
+  const [model, setModel] = useState(defaultModel);
+  const [postToGithub, setPostToGithub] = useState(defaultPostToGithub);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState("");
 
-  const selectedModel = MODELS.find((m) => m.id === model) ?? MODELS[0];
+  const insufficient = balance < MIN_BALANCE;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    setProgress("Submitting review…");
 
     try {
       const res = await fetch("/api/reviews", {
@@ -45,167 +47,145 @@ export function ReviewForm({ balance }: { balance: number }) {
       setError("Network error — please try again");
     } finally {
       setLoading(false);
-      setProgress("");
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    backgroundColor: "#111318",
-    border: "1px solid #1E2128",
-    borderRadius: "0.5rem",
-    color: "#E5E7EB",
-    padding: "0.625rem 0.875rem",
-    fontSize: "0.875rem",
-    width: "100%",
-    outline: "none",
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {/* PR URL */}
-      <div>
-        <label className="block text-sm font-medium mb-2" style={{ color: "#9CA3AF" }}>
-          PR URL
+      <div className="bg-surface border border-border rounded-xl p-5">
+        <label htmlFor="pr-url" className="block text-sm font-medium text-text mb-1">
+          Pull request URL
         </label>
+        <p className="text-xs text-text-dim mb-3">
+          Any pull request you can access with your GitHub token.
+        </p>
         <input
+          id="pr-url"
           type="url"
           required
           placeholder="https://github.com/owner/repo/pull/123"
           value={prUrl}
           onChange={(e) => setPrUrl(e.target.value)}
-          style={inputStyle}
           disabled={loading}
+          className="w-full h-10 px-3 rounded-lg bg-elevated border border-border text-sm text-text placeholder:text-text-faint font-mono focus:outline-none focus:border-accent-border focus:ring-2 focus:ring-accent/20 transition-colors disabled:opacity-50"
         />
       </div>
 
-      {/* Model select */}
-      <div>
-        <label className="block text-sm font-medium mb-2" style={{ color: "#9CA3AF" }}>
-          Model
-        </label>
-        <div className="grid gap-2">
-          {MODELS.map((m) => (
-            <label
-              key={m.id}
-              className="flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors"
-              style={{
-                backgroundColor: model === m.id ? "#161E18" : "#111318",
-                border: `1px solid ${model === m.id ? "#3ECF8E" : "#1E2128"}`,
-              }}
-            >
-              <div className="flex items-center gap-3">
+      {/* Model */}
+      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-border">
+          <h2 className="text-sm font-semibold text-text">Model</h2>
+          <p className="text-xs text-text-dim mt-0.5">
+            Charged at 1.5× the model&apos;s cost. Ranges are per review and vary with diff size.
+          </p>
+        </div>
+        <div className="p-3 grid sm:grid-cols-2 gap-2">
+          {MODELS.map((m) => {
+            const selected = model === m.id;
+            return (
+              <label
+                key={m.id}
+                className={cn(
+                  "flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition-colors",
+                  selected
+                    ? "border-accent-border bg-accent-dim"
+                    : "border-border bg-elevated hover:border-border-strong",
+                  loading && "pointer-events-none opacity-60",
+                )}
+              >
                 <input
                   type="radio"
                   name="model"
                   value={m.id}
-                  checked={model === m.id}
+                  checked={selected}
                   onChange={() => setModel(m.id)}
                   className="sr-only"
                   disabled={loading}
                 />
-                <div
-                  className="w-3.5 h-3.5 rounded-full border-2 flex-shrink-0"
-                  style={{
-                    borderColor: model === m.id ? "#3ECF8E" : "#4B5563",
-                    backgroundColor: model === m.id ? "#3ECF8E" : "transparent",
-                  }}
+                <span
+                  className={cn(
+                    "size-3.5 rounded-full border-2 shrink-0 transition-colors",
+                    selected ? "border-accent bg-accent" : "border-text-faint",
+                  )}
                 />
-                <span className="text-sm font-medium" style={{ color: "#E5E7EB" }}>
-                  {m.label}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium text-text truncate">
+                    {m.label}
+                  </span>
+                  <span className="block text-[11px] text-text-dim mt-0.5">
+                    {m.vendor} · {m.hint}
+                  </span>
                 </span>
-              </div>
-              <span className="text-xs" style={{ color: "#6B7280" }}>
-                {m.hint}
-              </span>
-            </label>
-          ))}
+              </label>
+            );
+          })}
         </div>
       </div>
 
-      {/* Post to GitHub checkbox */}
-      <label className="flex items-center gap-3 cursor-pointer">
-        <div className="relative">
-          <input
-            type="checkbox"
-            checked={postToGithub}
-            onChange={(e) => setPostToGithub(e.target.checked)}
-            className="sr-only"
-            disabled={loading}
-          />
-          <div
-            className="w-5 h-5 rounded flex items-center justify-center"
-            style={{
-              backgroundColor: postToGithub ? "#3ECF8E" : "#1E2128",
-              border: `1px solid ${postToGithub ? "#3ECF8E" : "#374151"}`,
-            }}
-          >
-            {postToGithub && (
-              <svg className="w-3 h-3" fill="none" stroke="#0A0B0D" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            )}
+      {/* Post to GitHub */}
+      <div className="bg-surface border border-border rounded-xl px-5 py-4">
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text">Post review to GitHub</div>
+            <p className="text-xs text-text-dim mt-1 leading-relaxed">
+              Publish the findings as a pull request review using your GitHub token. Turn off to
+              keep the review private to Komodo.
+            </p>
+          </div>
+          <div className="shrink-0 pt-0.5">
+            <Toggle
+              checked={postToGithub}
+              onChange={setPostToGithub}
+              disabled={loading}
+              label="Post review to GitHub"
+            />
           </div>
         </div>
-        <div>
-          <span className="text-sm font-medium" style={{ color: "#E5E7EB" }}>
-            Post review to GitHub
-          </span>
-          <p className="text-xs mt-0.5" style={{ color: "#6B7280" }}>
-            Post findings as a review comment on the PR using your GitHub token
-          </p>
-        </div>
-      </label>
-
-      {/* Balance info */}
-      <div className="text-xs" style={{ color: "#6B7280" }}>
-        Your balance:{" "}
-        <span style={{ color: balance < 25 ? "#EF4444" : "#3ECF8E" }} className="font-semibold">
-          {balance} credits
-        </span>
-        {balance < 25 && (
-          <span className="ml-2" style={{ color: "#EF4444" }}>
-            — need at least 25 to review.{" "}
-            <a href="/credits" style={{ color: "#3ECF8E" }}>
-              Add credits →
-            </a>
-          </span>
-        )}
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="text-sm px-4 py-3 rounded-lg" style={{ backgroundColor: "#1A0D0D", border: "1px solid #7F1D1D", color: "#FCA5A5" }}>
-          {error}
+      {insufficient && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-major/30 bg-major/10 px-4 py-3">
+          <TriangleAlert size={16} className="text-major shrink-0 mt-px" />
+          <p className="text-xs text-major leading-relaxed">
+            You have <strong className="font-semibold">{balance} credits</strong> — at least{" "}
+            {MIN_BALANCE} are needed to start a review.{" "}
+            <a href="/credits" className="underline hover:no-underline">
+              Add credits
+            </a>
+          </p>
         </div>
       )}
 
-      {/* Submit */}
-      <button
-        type="submit"
-        disabled={loading || balance < 25}
-        className="w-full py-3 rounded-lg font-semibold text-sm transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-        style={{ backgroundColor: "#3ECF8E", color: "#0A0B0D" }}
-      >
-        {loading ? (
-          <>
-            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-            Running review — this can take up to 5 minutes…
-          </>
-        ) : (
-          "Run review"
-        )}
-      </button>
+      {error && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-critical/30 bg-critical/10 px-4 py-3">
+          <TriangleAlert size={16} className="text-critical shrink-0 mt-px" />
+          <p className="text-xs text-critical leading-relaxed">{error}</p>
+        </div>
+      )}
 
-      {loading && progress && (
-        <p className="text-xs text-center" style={{ color: "#6B7280" }}>
-          {progress}
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-text-dim">
+          Balance:{" "}
+          <span className={cn("font-semibold", insufficient ? "text-major" : "text-accent")}>
+            {balance.toLocaleString()} credits
+          </span>
+        </p>
+        <Button type="submit" variant="primary" disabled={loading || insufficient}>
+          {loading ? (
+            <>
+              <Loader2 size={15} className="animate-spin" />
+              Reviewing…
+            </>
+          ) : (
+            "Run review"
+          )}
+        </Button>
+      </div>
+
+      {loading && (
+        <p className="text-xs text-text-dim text-center">
+          Large diffs can take a few minutes. Leaving this page cancels the request.
         </p>
       )}
     </form>
