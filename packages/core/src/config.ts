@@ -67,6 +67,12 @@ export const KomodoConfigSchema = z.object({
       status_check: z.boolean().default(false),
     })
     .prefault({}),
+  local: z
+    .object({
+      base_branch: z.string().default("auto"),
+      auto_ui: z.boolean().default(true),
+    })
+    .prefault({}),
 });
 
 export type KomodoConfig = z.infer<typeof KomodoConfigSchema>;

@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { effectivePathFilters, type KomodoConfig } from "./config.js";
 import { commentableLines, filterPaths } from "./diff.js";
+import type { DiffFile, DiffMeta } from "./diff-source.js";
 import {
   findingToComment,
   GitHubClient,
@@ -173,4 +174,49 @@ function snapLine(line: number, commentable: Set<number>): number | undefined {
     if (commentable.has(line - delta)) return line - delta;
   }
   return undefined;
+}
+
+export function buildReviewRecord(opts: {
+  meta: DiffMeta;
+  files: DiffFile[];
+  result: ReviewResult;
+  provider: string;
+  model?: string;
+}): ReviewRecord {
+  const { meta, files, result, provider, model } = opts;
+  return {
+    version: 1,
+    id: `${meta.owner}-${meta.repo}-${meta.number || "local"}-${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    provider,
+    model,
+    pr: {
+      owner: meta.owner,
+      repo: meta.repo,
+      number: meta.number,
+      title: meta.title,
+      author: meta.author,
+      url: meta.url,
+      baseRef: meta.baseRef,
+      headRef: meta.headRef,
+      headSha: meta.headSha,
+    },
+    files: files.map(({ path, additions, deletions, status, patch }) => ({
+      path,
+      additions,
+      deletions,
+      status,
+      patch,
+    })),
+    result,
+    posted: false,
+  };
+}
+
+export function saveReviewRecord(record: ReviewRecord, outDir?: string): string {
+  const dir = outDir ?? join(process.cwd(), ".komodo", "reviews");
+  mkdirSync(dir, { recursive: true });
+  const recordPath = join(dir, `${record.id}.json`);
+  writeFileSync(recordPath, JSON.stringify(record, null, 2));
+  return recordPath;
 }

@@ -31,18 +31,25 @@ export async function uiCommand(opts: { port: string }): Promise<void> {
         ? readdirSync(reviewsDir)
             .filter((f) => f.endsWith(".json"))
             .map((f) => {
-              const record = JSON.parse(readFileSync(join(reviewsDir, f), "utf8"));
-              return {
-                id: record.id,
-                createdAt: record.createdAt,
-                provider: record.provider,
-                pr: record.pr,
-                confidence: record.result.confidence,
-                findings: record.result.findings.length,
-                posted: record.posted,
-              };
+              try {
+                const record = JSON.parse(readFileSync(join(reviewsDir, f), "utf8"));
+                const pr = record.pr ?? record.meta;
+                if (!pr || !record.result) return null;
+                return {
+                  id: record.id ?? f.replace(".json", ""),
+                  createdAt: record.createdAt ?? new Date().toISOString(),
+                  provider: record.provider ?? "unknown",
+                  pr,
+                  confidence: record.result.confidence,
+                  findings: record.result.findings?.length ?? 0,
+                  posted: record.posted ?? false,
+                };
+              } catch {
+                return null;
+              }
             })
-            .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+            .filter(Boolean)
+            .sort((a: any, b: any) => (a.createdAt < b.createdAt ? 1 : -1))
         : [];
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(list));
@@ -52,8 +59,16 @@ export async function uiCommand(opts: { port: string }): Promise<void> {
     if (detail) {
       const file = join(reviewsDir, `${detail[1]}.json`);
       if (normalize(file).startsWith(reviewsDir) && existsSync(file)) {
+        const record = JSON.parse(readFileSync(file, "utf8"));
+        if (!record.pr && record.meta) {
+          record.pr = record.meta;
+          delete record.meta;
+        }
+        if (!record.id) record.id = detail[1];
+        if (!record.createdAt) record.createdAt = new Date().toISOString();
+        if (record.posted === undefined) record.posted = false;
         res.writeHead(200, { "Content-Type": "application/json" });
-        createReadStream(file).pipe(res);
+        res.end(JSON.stringify(record));
       } else {
         res.writeHead(404).end("not found");
       }

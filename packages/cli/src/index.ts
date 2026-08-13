@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { diffCommand } from "./commands/diff.js";
 import { initCommand } from "./commands/init.js";
 import { prCommand } from "./commands/pr.js";
 import { uiCommand } from "./commands/ui.js";
+import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
 
 const program = new Command();
@@ -33,6 +35,18 @@ program
   .description("Serve the local review viewer for this repo's .komodo/reviews")
   .option("-p, --port <port>", "port", "4400")
   .action(uiCommand);
+
+program
+  .command("diff")
+  .description("Output annotated diff JSON for the current branch (used by the skill)")
+  .option("--base <branch>", "base branch to diff against (default: auto-detect)")
+  .action(diffCommand);
+
+program
+  .command("validate")
+  .argument("<path>", "Path to a ReviewRecord JSON file to validate and save")
+  .description("Validate a review record and save it to .komodo/reviews/")
+  .action(validateCommand);
 
 program
   .command("config")
