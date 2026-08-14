@@ -2,7 +2,7 @@ import type { ReviewRecord } from "../types";
 import { fetchReview } from "../api";
 import { useResource } from "../store";
 import { ConfidenceMeter } from "./ConfidenceMeter";
-import { FindingCard } from "./FindingCard";
+import { JudgementCard } from "./JudgementCard";
 import { MarkdownBlock } from "./MarkdownBlock";
 import { MermaidBlock } from "./MermaidBlock";
 
@@ -60,7 +60,7 @@ export function ReviewDetail({ id, onBack }: Props) {
   const review = state.data;
   const { pr, result, files } = review;
 
-  const sorted = [...result.findings].sort(
+  const sorted = [...result.judgements].sort(
     (a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0),
   );
   const highPriority = sorted.filter((f) => f.severity === "critical" || f.severity === "major");
@@ -68,10 +68,10 @@ export function ReviewDetail({ id, onBack }: Props) {
 
   const effortLabel = EFFORT_LABEL[result.effort] ?? String(result.effort);
 
-  // Findings per file, shown as counts in the left rail.
-  const findingsPerFile = new Map<string, number>();
+  // Judgements per file, shown as counts in the left rail.
+  const judgementsPerFile = new Map<string, number>();
   for (const f of sorted) {
-    findingsPerFile.set(f.path, (findingsPerFile.get(f.path) ?? 0) + 1);
+    judgementsPerFile.set(f.path, (judgementsPerFile.get(f.path) ?? 0) + 1);
   }
 
   return (
@@ -96,7 +96,7 @@ export function ReviewDetail({ id, onBack }: Props) {
             <h2 className="section-heading section-heading--rail">Files ({files.length})</h2>
             <ul className="rail-files">
               {files.map((f) => {
-                const count = findingsPerFile.get(f.path) ?? 0;
+                const count = judgementsPerFile.get(f.path) ?? 0;
                 return (
                   <li key={f.path} className="rail-file">
                     <div className="rail-file__top">
@@ -163,32 +163,32 @@ export function ReviewDetail({ id, onBack }: Props) {
             </div>
           </div>
 
-          {/* Findings */}
+          {/* Judgements */}
           {sorted.length > 0 && (
             <section className="detail-section">
               <h2 className="section-heading">
-                Findings <span className="findings-count-badge">{sorted.length}</span>
+                Judgements <span className="judgements-count-badge">{sorted.length}</span>
               </h2>
 
               {highPriority.length > 0 && (
-                <div className="findings-group">
+                <div className="judgements-group">
                   {highPriority.map((f, i) => (
-                    <FindingCard key={`${f.path}:${f.line}:${i}`} finding={f} pr={pr} defaultOpen />
+                    <JudgementCard key={`${f.path}:${f.line}:${i}`} judgement={f} pr={pr} defaultOpen />
                   ))}
                 </div>
               )}
 
               {lowPriority.length > 0 && (
-                <details className="findings-lower">
-                  <summary className="findings-lower__summary">
-                    <span className="findings-lower__caret">▶</span>
+                <details className="judgements-lower">
+                  <summary className="judgements-lower__summary">
+                    <span className="judgements-lower__caret">▶</span>
                     Lower priority ({lowPriority.length})
                   </summary>
-                  <div className="findings-group findings-group--lower">
+                  <div className="judgements-group judgements-group--lower">
                     {lowPriority.map((f, i) => (
-                      <FindingCard
+                      <JudgementCard
                         key={`${f.path}:${f.line}:${i}`}
-                        finding={f}
+                        judgement={f}
                         pr={pr}
                         defaultOpen={false}
                       />

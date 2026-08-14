@@ -2,16 +2,16 @@
 
 import { useState } from "react";
 import { Bot, Check, ChevronDown, Copy } from "lucide-react";
-import type { Finding } from "@komodo/core";
-import { CategoryChip, SeverityChip, cn, SEVERITY_COLOR, isSeverity } from "@/components/ui";
+import type { Judgement } from "@komodo/core";
+import { CHIP_CLASS, KIND_TINT, SeverityChip, cn, SEVERITY_COLOR, isSeverity } from "@/components/ui";
 
-export function FindingCard({
-  finding,
+export function JudgementCard({
+  judgement,
   html,
   prUrl,
   defaultOpen = false,
 }: {
-  finding: Finding;
+  judgement: Judgement;
   /** Pre-rendered markdown from the server — marked never runs in the browser. */
   html: string;
   prUrl: string;
@@ -21,13 +21,13 @@ export function FindingCard({
   const [promptOpen, setPromptOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const color = isSeverity(finding.severity) ? SEVERITY_COLOR[finding.severity] : "#6b7280";
-  const loc = finding.endLine
-    ? `${finding.path}:${finding.line}-${finding.endLine}`
-    : `${finding.path}:${finding.line}`;
+  const color = isSeverity(judgement.severity) ? SEVERITY_COLOR[judgement.severity] : "#6b7280";
+  const loc = judgement.endLine
+    ? `${judgement.path}:${judgement.line}-${judgement.endLine}`
+    : `${judgement.path}:${judgement.line}`;
 
   function copyPrompt() {
-    void navigator.clipboard.writeText(finding.fixPrompt).then(() => {
+    void navigator.clipboard.writeText(judgement.fixPrompt).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -44,12 +44,21 @@ export function FindingCard({
         className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-hover transition-colors"
       >
         <span className="flex gap-1.5 shrink-0">
-          <SeverityChip severity={finding.severity} />
-          <CategoryChip category={finding.category} />
+          <SeverityChip severity={judgement.severity} />
+          <span
+            className={CHIP_CLASS}
+            style={{
+              color: KIND_TINT[judgement.kind].color,
+              borderColor: KIND_TINT[judgement.kind].border,
+              background: KIND_TINT[judgement.kind].bg,
+            }}
+          >
+            {judgement.kind}
+          </span>
         </span>
 
         <span className="flex-1 min-w-0 text-[13px] font-medium text-text truncate">
-          {finding.title}
+          {judgement.title}
         </span>
 
         <a
@@ -75,13 +84,21 @@ export function FindingCard({
         <div className="px-4 pb-4 pt-3.5 border-t border-border">
           <div className="prose-dark" dangerouslySetInnerHTML={{ __html: html }} />
 
-          {finding.suggestion && (
+          <p className="mt-3.5 mb-0 border-l-2 border-accent bg-elevated px-3.5 py-3 font-serif text-base leading-normal text-text">
+            {judgement.ask}
+          </p>
+
+          <p className="mt-2.5 mb-0 text-xs leading-[1.7] text-text-dim">
+            Read from {judgement.sources.join(", ")}. {judgement.sourceNote}
+          </p>
+
+          {judgement.suggestion && (
             <div className="mt-4">
               <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-dim mb-1.5">
                 Suggested fix
               </div>
               <pre className="rounded-md border border-border bg-elevated px-3.5 py-3 overflow-x-auto text-xs leading-relaxed font-mono text-[#c9d1d9]">
-                {finding.suggestion}
+                {judgement.suggestion}
               </pre>
             </div>
           )}
@@ -100,7 +117,7 @@ export function FindingCard({
             {promptOpen && (
               <div className="relative mt-2">
                 <pre className="rounded-md border border-border bg-elevated px-3.5 py-3 pr-20 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed font-mono text-text-muted">
-                  {finding.fixPrompt}
+                  {judgement.fixPrompt}
                 </pre>
                 <button
                   onClick={copyPrompt}

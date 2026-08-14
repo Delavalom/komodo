@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, TriangleAlert } from "lucide-react";
-import { Button, Toggle, cn } from "@/components/ui";
+import { Button, cn } from "@/components/ui";
 import { MODELS } from "@/lib/models";
 
 const MIN_BALANCE = 25;
@@ -11,16 +11,13 @@ const MIN_BALANCE = 25;
 export function ReviewForm({
   balance,
   defaultModel,
-  defaultPostToGithub,
 }: {
   balance: number;
   defaultModel: string;
-  defaultPostToGithub: boolean;
 }) {
   const router = useRouter();
   const [prUrl, setPrUrl] = useState("");
   const [model, setModel] = useState(defaultModel);
-  const [postToGithub, setPostToGithub] = useState(defaultPostToGithub);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +32,7 @@ export function ReviewForm({
       const res = await fetch("/api/reviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prUrl, model, postToGithub }),
+        body: JSON.stringify({ prUrl, model }),
       });
       const data = (await res.json()) as { id?: string; error?: string };
       if (!res.ok) {
@@ -120,27 +117,6 @@ export function ReviewForm({
               </label>
             );
           })}
-        </div>
-      </div>
-
-      {/* Post to GitHub */}
-      <div className="bg-surface border border-border rounded-xl px-5 py-4">
-        <div className="flex items-start justify-between gap-6">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-text">Post review to GitHub</div>
-            <p className="text-xs text-text-dim mt-1 leading-relaxed">
-              Publish the findings as a pull request review using your GitHub token. Turn off to
-              keep the review private to Komodo.
-            </p>
-          </div>
-          <div className="shrink-0 pt-0.5">
-            <Toggle
-              checked={postToGithub}
-              onChange={setPostToGithub}
-              disabled={loading}
-              label="Post review to GitHub"
-            />
-          </div>
         </div>
       </div>
 

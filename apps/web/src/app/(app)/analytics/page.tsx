@@ -59,7 +59,7 @@ export default async function AnalyticsPage() {
   const severityCounts: Record<string, number> = {};
   const modelCounts = new Map<string, number>();
   const confidenceBuckets = [0, 0, 0, 0, 0]; // index 0 => score 1
-  let totalFindings = 0;
+  let totalJudgements = 0;
   let totalCredits = 0;
   let totalCost = 0;
   let confidenceSum = 0;
@@ -69,9 +69,9 @@ export default async function AnalyticsPage() {
     const key = dayKey(new Date(r.createdAt));
     if (perDay.has(key)) perDay.set(key, (perDay.get(key) ?? 0) + 1);
 
-    for (const f of r.record?.result.findings ?? []) {
+    for (const f of r.record?.result.judgements ?? []) {
       severityCounts[f.severity] = (severityCounts[f.severity] ?? 0) + 1;
-      totalFindings++;
+      totalJudgements++;
     }
 
     if (r.model) modelCounts.set(r.model, (modelCounts.get(r.model) ?? 0) + 1);
@@ -112,7 +112,7 @@ export default async function AnalyticsPage() {
   }));
 
   const avgConfidence = confidenceN > 0 ? (confidenceSum / confidenceN).toFixed(1) : null;
-  const avgFindings = rows.length > 0 ? (totalFindings / rows.length).toFixed(1) : null;
+  const avgJudgements = rows.length > 0 ? (totalJudgements / rows.length).toFixed(1) : null;
 
   return (
     <>
@@ -128,7 +128,7 @@ export default async function AnalyticsPage() {
       <PageBody>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <StatCard label="Reviews" value={rows.length} />
-          <StatCard label="Findings" value={totalFindings || null} hint={avgFindings ? `${avgFindings} per review` : undefined} />
+          <StatCard label="Judgements" value={totalJudgements || null} hint={avgJudgements ? `${avgJudgements} per review` : undefined} />
           <StatCard label="Avg confidence" value={avgConfidence ? `${avgConfidence}/5` : null} />
           <StatCard
             label="Credits spent"
@@ -145,7 +145,7 @@ export default async function AnalyticsPage() {
 
           <div className="grid lg:grid-cols-2 gap-4">
             <ChartCard
-              title="Findings by severity"
+              title="Judgements by severity"
               subtitle="Across all reviews"
             >
               {severityData.length > 0 ? <BarList data={severityData} /> : <NoData />}

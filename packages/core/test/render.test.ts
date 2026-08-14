@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { KomodoConfigSchema } from "../src/config.js";
 import type { PRMeta } from "../src/github.js";
 import {
-  renderFindingComment,
+  renderJudgementComment,
   renderReviewBody,
   renderWalkthroughComment,
   WALKTHROUGH_MARKER,
 } from "../src/render/markdown.js";
-import type { Finding, ReviewResult } from "../src/schema.js";
+import type { Judgement, ReviewResult } from "../src/schema.js";
 
 const pr: PRMeta = {
   owner: "acme",
@@ -24,13 +24,25 @@ const pr: PRMeta = {
   labels: [],
 };
 
-const finding: Finding = {
+const judgement: Judgement = {
   path: "src/db.ts",
   line: 12,
   severity: "critical",
-  category: "security",
-  title: "SQL injection via string interpolation",
-  body: "User input is interpolated directly into the query.",
+  kind: "Risk",
+  tag: "how users are looked up",
+  title: "User input is pasted straight into the query.",
+  lede: "Anyone who can type into the search box can ask the database for anything it holds.",
+  detail: "Passing the value as a parameter closes it and costs nothing at runtime.",
+  ask: "Is there a reason this has to build the query by hand?",
+  sources: ["the diff"],
+  sourceNote: "Read from the diff alone. Nothing in the change explains the choice.",
+  code: "src/db.ts:12   db.query(`SELECT * FROM users WHERE id = ${id}`)",
+  options: [
+    { label: "No — parameterize it before merge", bucket: "Blocks" },
+    { label: "Yes — the input is already trusted here", bucket: "Agreed" },
+    { label: "I have a question first", bucket: "Asked" },
+    { label: "Not my call — hand it to someone who knows", bucket: "Passed on" },
+  ],
   suggestion: 'db.query("SELECT * FROM users WHERE id = $1", [id]);',
   fixPrompt: "In src/db.ts line 12, replace string interpolation with a parameterized query.",
 };
@@ -42,7 +54,7 @@ const result: ReviewResult = {
   verdict: "Blocking security issue in the query layer.",
   effort: 3,
   diagram: "sequenceDiagram\n  A->>B: pay()",
-  findings: [finding],
+  judgements: [judgement],
 };
 
 describe("renderWalkthroughComment", () => {
@@ -60,11 +72,13 @@ describe("renderWalkthroughComment", () => {
   });
 });
 
-describe("renderFindingComment", () => {
-  const md = renderFindingComment(finding);
-  it("has severity, category, suggestion block, and agent prompt", () => {
+describe("renderJudgementComment", () => {
+  const md = renderJudgementComment(judgement);
+  it("has severity, kind, the question, provenance, suggestion block and agent prompt", () => {
     expect(md).toContain("🔴 Critical");
-    expect(md).toContain("🔒 Security");
+    expect(md).toContain("A risk was taken");
+    expect(md).toContain("**The question:** Is there a reason this has to build the query by hand?");
+    expect(md).toContain("Read from the diff.");
     expect(md).toContain("```suggestion\ndb.query(");
     expect(md).toContain("Prompt for AI agents");
   });
@@ -72,9 +86,9 @@ describe("renderFindingComment", () => {
 
 describe("renderReviewBody", () => {
   it("summarizes counts", () => {
-    expect(renderReviewBody(result)).toContain("1 finding");
+    expect(renderReviewBody(result)).toContain("1 judgement");
   });
   it("handles clean reviews", () => {
-    expect(renderReviewBody({ ...result, findings: [] })).toContain("no blocking issues");
+    expect(renderReviewBody({ ...result, judgements: [] })).toContain("nothing worth judging");
   });
 });

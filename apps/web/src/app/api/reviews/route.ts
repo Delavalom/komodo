@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import os from "os";
 import { auth } from "@/auth";
-import { getDb, reviews } from "@/db";
+import { getDb, judgements, reviews } from "@/db";
 import { getBalance, calculateCreditsCharged, deductCredits, MIN_REVIEW_BALANCE } from "@/lib/credits";
 import { parsePRRef, GitHubClient, OpenRouterProvider, KomodoConfigSchema, runReview } from "@komodo/core";
 
@@ -18,11 +18,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "prUrl and model are required" }, { status: 400 });
   }
 
-  const { prUrl, model, postToGithub = true } = body as {
-    prUrl: string;
-    model: string;
-    postToGithub?: boolean;
-  };
+  const { prUrl, model } = body as { prUrl: string; model: string };
 
   let ref: ReturnType<typeof parsePRRef>;
   try {
@@ -56,12 +52,14 @@ export async function POST(req: NextRequest) {
   const github = new GitHubClient(session.accessToken);
 
   try {
+    // Komodo no longer posts on the reviewer's behalf: the human answers each
+    // judgement and posts the result themselves from the close screen.
     const { record } = await runReview({
       ref,
       provider,
       config,
       github,
-      post: postToGithub,
+      post: false,
       outDir: os.tmpdir(),
     });
 
@@ -70,24 +68,55 @@ export async function POST(req: NextRequest) {
     const creditsCharged = calculateCreditsCharged(costUsd);
 
     const db = getDb();
-    const [inserted] = await db
-      .insert(reviews)
-      .values({
-        userId,
-        owner: ref.owner,
-        repo: ref.repo,
-        number: ref.number,
-        title: record.pr.title,
-        url: record.pr.url,
-        provider: "openrouter",
-        model,
-        confidence: record.result.confidence,
-        findingsCount: record.result.findings.length,
-        costUsd: String(costUsd),
-        creditsCharged,
-        record,
-      })
-      .returning({ id: reviews.id });
+    const inserted = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(reviews)
+        .values({
+          userId,
+          owner: ref.owner,
+          repo: ref.repo,
+          number: ref.number,
+          title: record.pr.title,
+          url: record.pr.url,
+          provider: "openrouter",
+          model,
+          confidence: record.result.confidence,
+          findingsCount: record.result.judgements.length,
+          costUsd: String(costUsd),
+          creditsCharged,
+          record,
+        })
+        .returning({ id: reviews.id });
+
+      // Materialize the judgements so the cross-PR queue can query them directly.
+      if (record.result.judgements.length) {
+        await tx.insert(judgements).values(
+          record.result.judgements.map((j, ordinal) => ({
+            reviewId: row.id,
+            userId,
+            ordinal,
+            kind: j.kind,
+            tag: j.tag,
+            title: j.title,
+            lede: j.lede,
+            detail: j.detail,
+            ask: j.ask,
+            sources: j.sources,
+            sourceNote: j.sourceNote,
+            code: j.code,
+            options: j.options,
+            path: j.path,
+            line: j.line,
+            endLine: j.endLine ?? null,
+            severity: j.severity,
+            suggestion: j.suggestion ?? null,
+            fixPrompt: j.fixPrompt,
+          })),
+        );
+      }
+
+      return row;
+    });
 
     await deductCredits(userId, creditsCharged, `review:${ref.owner}/${ref.repo}#${ref.number}`, usage?.generationId ?? null);
 

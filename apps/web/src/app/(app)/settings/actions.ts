@@ -23,7 +23,6 @@ export async function updateSettings(
   try {
     await saveUserSettings(session.user.id, {
       defaultModel: settings.defaultModel,
-      postToGithubDefault: Boolean(settings.postToGithubDefault),
       reviewProfile: settings.reviewProfile,
     });
     return { ok: true };

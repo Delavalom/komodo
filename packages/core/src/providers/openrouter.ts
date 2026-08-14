@@ -1,5 +1,13 @@
 import { ReviewResultSchema, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { buildReviewPrompt } from "./prompt.js";
+import {
+  RereadResultSchema,
+  buildRereadPrompt,
+  rereadJsonSchema,
+  type RereadInput,
+  type RereadProvider,
+  type RereadResult,
+} from "./reread.js";
 import type { ReviewInput, ReviewProvider } from "./types.js";
 
 export interface OpenRouterUsage {
@@ -15,7 +23,7 @@ export interface OpenRouterUsage {
  * Used by Komodo Cloud; the caller supplies the API key and model and
  * receives usage/cost for credit accounting.
  */
-export class OpenRouterProvider implements ReviewProvider {
+export class OpenRouterProvider implements ReviewProvider, RereadProvider {
   readonly name = "openrouter";
   lastUsage?: OpenRouterUsage;
 
@@ -25,8 +33,15 @@ export class OpenRouterProvider implements ReviewProvider {
     private baseUrl = "https://openrouter.ai/api/v1",
   ) {}
 
-  async review(input: ReviewInput, onProgress?: (msg: string) => void): Promise<ReviewResult> {
-    onProgress?.(`Calling ${this.model} via OpenRouter…`);
+  /**
+   * One structured-output completion. Records usage on `lastUsage` so the
+   * caller can charge credits for whatever it just asked for.
+   */
+  private async complete(
+    prompt: string,
+    schemaName: string,
+    jsonSchema: Record<string, unknown>,
+  ): Promise<unknown> {
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -43,11 +58,11 @@ export class OpenRouterProvider implements ReviewProvider {
             content:
               "You are Komodo, an AI code review engine. Respond ONLY with JSON matching the provided schema.",
           },
-          { role: "user", content: buildReviewPrompt(input) },
+          { role: "user", content: prompt },
         ],
         response_format: {
           type: "json_schema",
-          json_schema: { name: "review_result", strict: true, schema: reviewResultJsonSchema() },
+          json_schema: { name: schemaName, strict: true, schema: jsonSchema },
         },
       }),
     });
@@ -66,7 +81,20 @@ export class OpenRouterProvider implements ReviewProvider {
     const content: string = data.choices?.[0]?.message?.content ?? "";
     const jsonStart = content.indexOf("{");
     const jsonEnd = content.lastIndexOf("}");
-    if (jsonStart === -1) throw new Error("OpenRouter returned no JSON review payload.");
-    return ReviewResultSchema.parse(JSON.parse(content.slice(jsonStart, jsonEnd + 1)));
+    if (jsonStart === -1) throw new Error("OpenRouter returned no JSON payload.");
+    return JSON.parse(content.slice(jsonStart, jsonEnd + 1));
+  }
+
+  async review(input: ReviewInput, onProgress?: (msg: string) => void): Promise<ReviewResult> {
+    onProgress?.(`Calling ${this.model} via OpenRouter…`);
+    return ReviewResultSchema.parse(
+      await this.complete(buildReviewPrompt(input), "review_result", reviewResultJsonSchema()),
+    );
+  }
+
+  async reread(input: RereadInput): Promise<RereadResult> {
+    return RereadResultSchema.parse(
+      await this.complete(buildRereadPrompt(input), "reread_result", rereadJsonSchema()),
+    );
   }
 }

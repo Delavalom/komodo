@@ -5,8 +5,8 @@ import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/components/ui";
 
-/** Collapsed group for minor/trivial findings, so the high-severity list stays scannable. */
-export function LowerFindings({ count, children }: { count: number; children: ReactNode }) {
+/** Collapsed group for minor/trivial judgements, so the high-severity list stays scannable. */
+export function LowerJudgements({ count, children }: { count: number; children: ReactNode }) {
   const [open, setOpen] = useState(false);
 
   return (

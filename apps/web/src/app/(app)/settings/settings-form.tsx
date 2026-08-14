@@ -16,7 +16,6 @@ export function SettingsForm({ initial, login }: { initial: Settings; login: str
 
   const dirty =
     draft.defaultModel !== saved.defaultModel ||
-    draft.postToGithubDefault !== saved.postToGithubDefault ||
     draft.reviewProfile !== saved.reviewProfile;
 
   function apply() {
@@ -36,7 +35,7 @@ export function SettingsForm({ initial, login }: { initial: Settings; login: str
       <SettingGroup title="Reviews">
         <SettingRow
           title="Review profile"
-          description="Quiet surfaces only the most important findings. Assertive reports more, which some reviewers find nitpicky."
+          description="Quiet raises only the judgements that matter most. Assertive raises more, which some reviewers find nitpicky."
         >
           <div className="grid sm:grid-cols-3 gap-2">
             {REVIEW_PROFILES.map((p) => {
@@ -69,18 +68,6 @@ export function SettingsForm({ initial, login }: { initial: Settings; login: str
             })}
           </div>
         </SettingRow>
-
-        <SettingRow
-          title="Post reviews to GitHub"
-          description="When on, new reviews default to publishing findings as a pull request review. You can override this per review."
-          control={
-            <Toggle
-              checked={draft.postToGithubDefault}
-              onChange={(next) => setDraft({ ...draft, postToGithubDefault: next })}
-              label="Post reviews to GitHub"
-            />
-          }
-        />
 
         <SettingRow
           title="Default model"

@@ -92,7 +92,7 @@ export default async function DashboardPage() {
 
   for (const r of userReviews) {
     const counts: Record<string, number> = {};
-    for (const f of r.record?.result.findings ?? []) {
+    for (const f of r.record?.result.judgements ?? []) {
       counts[f.severity] = (counts[f.severity] ?? 0) + 1;
       if (f.severity === "critical") criticalCount++;
     }
@@ -141,7 +141,7 @@ export default async function DashboardPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-elevated">
-                    {["Pull request", "Model", "Confidence", "Findings", "When"].map((h) => (
+                    {["Pull request", "Model", "Confidence", "Judgements", "When"].map((h) => (
                       <th
                         key={h}
                         className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.09em] text-text-faint whitespace-nowrap"

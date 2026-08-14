@@ -8,6 +8,14 @@ export { ClaudeProvider } from "./claude.js";
 export { CodexProvider, codexLoggedIn } from "./codex.js";
 export { OpenRouterProvider, type OpenRouterUsage } from "./openrouter.js";
 export { buildReviewPrompt } from "./prompt.js";
+export {
+  RereadResultSchema,
+  buildRereadPrompt,
+  rereadJsonSchema,
+  type RereadInput,
+  type RereadProvider,
+  type RereadResult,
+} from "./reread.js";
 export type { ReviewInput, ReviewProvider } from "./types.js";
 
 export interface ProviderStatus {

@@ -1,9 +1,9 @@
 import type { KomodoConfig } from "../config.js";
 import {
-  CATEGORY_LABEL,
+  KIND_LABEL,
   SEVERITY_LABEL,
   SEVERITY_RANK,
-  type Finding,
+  type Judgement,
   type ReviewResult,
 } from "../schema.js";
 import type { PRMeta } from "../github.js";
@@ -25,15 +25,15 @@ export function renderWalkthroughComment(pr: PRMeta, result: ReviewResult, confi
   const m = config.modules;
 
   if (m.confidence.enabled) {
-    const grouped = countBySeverity(result.findings);
-    const findingsLine = result.findings.length
+    const grouped = countBySeverity(result.judgements);
+    const judgementsLine = result.judgements.length
       ? Object.entries(grouped)
           .map(([sev, n]) => `${SEVERITY_LABEL[sev as keyof typeof SEVERITY_LABEL]}: ${n}`)
           .join(" · ")
-      : "No blocking findings";
+      : "Nothing to judge";
     parts.push(
       `${confidenceBadge(result.confidence)} — ${result.verdict}\n\n` +
-        `**Review effort:** ${result.effort}/5 · **Findings:** ${findingsLine}`,
+        `**Review effort:** ${result.effort}/5 · **Judgements:** ${judgementsLine}`,
     );
   }
 
@@ -61,44 +61,48 @@ export function renderWalkthroughComment(pr: PRMeta, result: ReviewResult, confi
   return parts.join("\n\n");
 }
 
-export function renderFindingComment(f: Finding): string {
+export function renderJudgementComment(j: Judgement): string {
   const parts: string[] = [
-    `**${SEVERITY_LABEL[f.severity]} · ${CATEGORY_LABEL[f.category]}**`,
-    `**${f.title}**`,
-    f.body,
+    `**${SEVERITY_LABEL[j.severity]} · ${KIND_LABEL[j.kind]}** — ${j.tag}`,
+    `**${j.title}**`,
+    j.lede,
+    j.detail,
+    `> **The question:** ${j.ask}`,
+    `<sub>Read from ${j.sources.join(", ")}. ${j.sourceNote}</sub>`,
   ];
-  if (f.suggestion) {
-    parts.push(`\`\`\`suggestion\n${f.suggestion}\n\`\`\``);
+  if (j.suggestion) {
+    parts.push(`\`\`\`suggestion\n${j.suggestion}\n\`\`\``);
   }
   parts.push(
-    `<details>\n<summary>🤖 Prompt for AI agents</summary>\n\n\`\`\`\n${f.fixPrompt}\n\`\`\`\n\n</details>`,
+    `<details>\n<summary>🤖 Prompt for AI agents</summary>\n\n\`\`\`\n${j.fixPrompt}\n\`\`\`\n\n</details>`,
   );
   return parts.join("\n\n");
 }
 
 export function renderReviewBody(result: ReviewResult): string {
-  if (!result.findings.length) {
-    return `🦎 **Komodo** found no blocking issues. ${result.verdict}`;
+  if (!result.judgements.length) {
+    return `🦎 **Komodo** found nothing worth judging. ${result.verdict}`;
   }
-  const counts = countBySeverity(result.findings);
+  const counts = countBySeverity(result.judgements);
   const summary = Object.entries(counts)
     .map(([sev, n]) => `${n} ${sev}`)
     .join(", ");
-  return `🦎 **Komodo** flagged ${result.findings.length} finding${result.findings.length > 1 ? "s" : ""} (${summary}). See inline comments; each includes a committable suggestion or an agent fix prompt where applicable.`;
+  const n = result.judgements.length;
+  return `🦎 **Komodo** raised ${n} judgement${n > 1 ? "s" : ""} (${summary}). Each inline comment states what was decided and the question it puts to you.`;
 }
 
 export function renderDescriptionBlock(result: ReviewResult): string {
   return `## Summary by Komodo\n\n${result.summary}`;
 }
 
-export function sortFindings(findings: Finding[]): Finding[] {
-  return [...findings].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
+export function sortJudgements(judgements: Judgement[]): Judgement[] {
+  return [...judgements].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
 }
 
-function countBySeverity(findings: Finding[]): Record<string, number> {
+function countBySeverity(judgements: Judgement[]): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const f of sortFindings(findings)) {
-    out[f.severity] = (out[f.severity] ?? 0) + 1;
+  for (const j of sortJudgements(judgements)) {
+    out[j.severity] = (out[j.severity] ?? 0) + 1;
   }
   return out;
 }

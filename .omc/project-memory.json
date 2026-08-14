@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1785804039885,
+  "lastScanned": 1786645246070,
   "projectRoot": "/Users/delavalom/delavalom-labs/komodo",
   "techStack": {
     "languages": [
@@ -38,7 +38,10 @@
     "isMonorepo": true,
     "workspaces": [],
     "mainDirectories": [],
-    "gitBranches": null
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
   },
   "customNotes": [],
   "directoryMap": {
@@ -46,41 +49,84 @@
       "path": "apps",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1785804039872,
+      "lastAccessed": 1786645246056,
       "keyFiles": []
+    },
+    "copy_example": {
+      "path": "copy_example",
+      "purpose": null,
+      "fileCount": 21,
+      "lastAccessed": 1786645246056,
+      "keyFiles": [
+        "Screenshot 2026-07-31 at 9.38.56 pm.png",
+        "Screenshot 2026-07-31 at 9.39.10 pm.png",
+        "Screenshot 2026-07-31 at 9.41.33 pm.png",
+        "Screenshot 2026-07-31 at 9.41.52 pm.png",
+        "Screenshot 2026-07-31 at 9.42.11 pm.png"
+      ]
     },
     "packages": {
       "path": "packages",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1785804039872,
+      "lastAccessed": 1786645246057,
       "keyFiles": []
     },
     "skills": {
       "path": "skills",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1785804039875,
+      "lastAccessed": 1786645246062,
       "keyFiles": []
     }
   },
   "hotPaths": [
     {
+      "path": "apps/web/src/db/schema.ts",
+      "accessCount": 8,
+      "lastAccessed": 1786669198196,
+      "type": "file"
+    },
+    {
       "path": "apps/web/src/app/reviews/[id]/page.tsx",
-      "accessCount": 4,
-      "lastAccessed": 1785810370824,
+      "accessCount": 6,
+      "lastAccessed": 1786645336155,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/app/api/reviews/route.ts",
+      "accessCount": 6,
+      "lastAccessed": 1786669222774,
       "type": "file"
     },
     {
       "path": "apps/web/src/app/globals.css",
-      "accessCount": 3,
-      "lastAccessed": 1785809458447,
+      "accessCount": 5,
+      "lastAccessed": 1786645324537,
       "type": "file"
     },
     {
-      "path": "apps/web/src/db/schema.ts",
+      "path": "packages/core/src/schema.ts",
+      "accessCount": 5,
+      "lastAccessed": 1786668841438,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/app/page.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1786645331746,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/providers/prompt.ts",
       "accessCount": 3,
-      "lastAccessed": 1785809665421,
+      "lastAccessed": 1786668867564,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/providers/openrouter.ts",
+      "accessCount": 3,
+      "lastAccessed": 1786668904546,
       "type": "file"
     },
     {
@@ -105,12 +151,6 @@
       "path": "apps/web/src/app/layout.tsx",
       "accessCount": 2,
       "lastAccessed": 1785809554892,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/page.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809624838,
       "type": "file"
     },
     {
@@ -174,6 +214,18 @@
       "type": "file"
     },
     {
+      "path": "apps/web/src/components/ui/Card.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1786645603015,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/providers/index.ts",
+      "accessCount": 2,
+      "lastAccessed": 1786668910934,
+      "type": "file"
+    },
+    {
       "path": "apps/web/src/components/ui/cn.ts",
       "accessCount": 1,
       "lastAccessed": 1785809369303,
@@ -189,12 +241,6 @@
       "path": "apps/web/src/components/ui/Button.tsx",
       "accessCount": 1,
       "lastAccessed": 1785809381619,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/Card.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809385960,
       "type": "file"
     },
     {
@@ -315,6 +361,24 @@
       "path": "apps/web/src/lib/settings-shared.ts",
       "accessCount": 1,
       "lastAccessed": 1785810182840,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/auth.ts",
+      "accessCount": 1,
+      "lastAccessed": 1786645661089,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/providers/types.ts",
+      "accessCount": 1,
+      "lastAccessed": 1786668803544,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/providers/reread.ts",
+      "accessCount": 1,
+      "lastAccessed": 1786668881600,
       "type": "file"
     }
   ],

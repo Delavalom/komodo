@@ -6,6 +6,7 @@ import {
   ChevronsRight,
   CreditCard,
   FileText,
+  Gavel,
   LogOut,
   Plus,
   Settings,
@@ -23,6 +24,7 @@ interface NavItem {
 }
 
 const PRIMARY: NavItem[] = [
+  { href: "/queue", label: "Your queue", icon: Gavel },
   { href: "/analytics", label: "Analytics", icon: ChartPie },
   { href: "/", label: "Reviews", icon: FileText, exact: true },
   { href: "/new", label: "New review", icon: Plus },

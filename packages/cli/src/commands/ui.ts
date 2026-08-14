@@ -41,7 +41,7 @@ export async function uiCommand(opts: { port: string }): Promise<void> {
                   provider: record.provider ?? "unknown",
                   pr,
                   confidence: record.result.confidence,
-                  findings: record.result.findings?.length ?? 0,
+                  judgements: record.result.judgements?.length ?? 0,
                   posted: record.posted ?? false,
                 };
               } catch {

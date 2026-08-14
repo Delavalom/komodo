@@ -224,14 +224,14 @@ code, pre {
   white-space: nowrap;
 }
 
-.findings-count {
+.judgements-count {
   font-size: 13px;
   color: var(--text-dim);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
-.findings-count--nonzero {
+.judgements-count--nonzero {
   color: var(--c-major);
 }
 
@@ -587,7 +587,7 @@ code, pre {
   border-bottom: 1px solid var(--border);
 }
 
-.findings-count-badge {
+.judgements-count-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -607,17 +607,17 @@ code, pre {
 /* ========================
    Findings
    ======================== */
-.findings-group {
+.judgements-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.findings-lower {
+.judgements-lower {
   margin-top: 10px;
 }
 
-.findings-lower__summary {
+.judgements-lower__summary {
   list-style: none;
   cursor: pointer;
   font-size: 12px;
@@ -629,28 +629,28 @@ code, pre {
   gap: 6px;
 }
 
-.findings-lower__summary::-webkit-details-marker {
+.judgements-lower__summary::-webkit-details-marker {
   display: none;
 }
 
-.findings-lower__caret {
+.judgements-lower__caret {
   font-size: 9px;
   color: var(--text-dim);
   transition: transform 0.15s;
 }
 
-details[open] .findings-lower__caret {
+details[open] .judgements-lower__caret {
   transform: rotate(90deg);
 }
 
-.findings-group--lower {
+.judgements-group--lower {
   margin-top: 8px;
 }
 
 /* ========================
    Finding Card
    ======================== */
-.finding-card {
+.judgement-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-left-width: 3px;
@@ -658,12 +658,12 @@ details[open] .findings-lower__caret {
   overflow: hidden;
 }
 
-.finding-card--critical { border-left-color: var(--c-critical); }
-.finding-card--major    { border-left-color: var(--c-major); }
-.finding-card--minor    { border-left-color: var(--c-minor); }
-.finding-card--trivial  { border-left-color: var(--c-trivial); }
+.judgement-card--critical { border-left-color: var(--c-critical); }
+.judgement-card--major    { border-left-color: var(--c-major); }
+.judgement-card--minor    { border-left-color: var(--c-minor); }
+.judgement-card--trivial  { border-left-color: var(--c-trivial); }
 
-.finding-card__header {
+.judgement-card__header {
   width: 100%;
   display: flex;
   align-items: center;
@@ -678,11 +678,11 @@ details[open] .findings-lower__caret {
   transition: background 0.1s;
 }
 
-.finding-card__header:hover {
+.judgement-card__header:hover {
   background: var(--bg-hover);
 }
 
-.finding-card__chips {
+.judgement-card__chips {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
@@ -711,7 +711,7 @@ details[open] .findings-lower__caret {
   font-size: 11px;
 }
 
-.finding-card__title {
+.judgement-card__title {
   flex: 1;
   font-weight: 500;
   font-size: 13px;
@@ -720,7 +720,7 @@ details[open] .findings-lower__caret {
   line-height: 1.4;
 }
 
-.finding-card__loc {
+.judgement-card__loc {
   flex-shrink: 0;
 }
 
@@ -737,24 +737,41 @@ details[open] .findings-lower__caret {
   text-decoration: underline;
 }
 
-.finding-card__chevron {
+.judgement-card__chevron {
   font-size: 10px;
   color: var(--text-dim);
   flex-shrink: 0;
   transition: transform 0.15s;
 }
 
-.finding-card__body {
+.judgement-card__body {
   padding: 14px 16px 16px;
   border-top: 1px solid var(--border);
 }
 
-.finding-card__suggestion {
+.judgement-card__ask {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-left: 2px solid var(--accent);
+  background: var(--elevated);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.judgement-card__sources {
+  margin: 10px 0 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.judgement-card__suggestion {
   margin-top: 16px;
 }
 
-.finding-card__suggestion-label,
-.finding-card__prompt-label {
+.judgement-card__suggestion-label,
+.judgement-card__prompt-label {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -763,7 +780,7 @@ details[open] .findings-lower__caret {
   margin-bottom: 6px;
 }
 
-.finding-card__prompt-section {
+.judgement-card__prompt-section {
   margin-top: 14px;
 }
 
@@ -787,7 +804,7 @@ details[open] .findings-lower__caret {
   border-color: var(--border-strong);
 }
 
-.finding-card__prompt {
+.judgement-card__prompt {
   margin-top: 8px;
   position: relative;
 }
@@ -1098,11 +1115,11 @@ details[open] .findings-lower__caret {
     font-size: 40px;
   }
 
-  .finding-card__loc {
+  .judgement-card__loc {
     display: none;
   }
 
-  .finding-card__header {
+  .judgement-card__header {
     flex-wrap: wrap;
     gap: 8px;
   }

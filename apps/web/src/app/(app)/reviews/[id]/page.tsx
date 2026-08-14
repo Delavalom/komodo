@@ -14,8 +14,8 @@ import {
   bySeverity,
   isSeverity,
 } from "@/components/ui";
-import { FindingCard } from "./finding-card";
-import { LowerFindings } from "./lower-findings";
+import { JudgementCard } from "./judgement-card";
+import { LowerJudgements } from "./lower-judgements";
 
 function renderMd(md: string): string {
   return marked.parse(md) as string;
@@ -54,18 +54,18 @@ export default async function ReviewDetailPage({ params }: { params: Promise<{ i
 
   const { result, files, pr } = record;
 
-  const sorted = [...result.findings].sort(bySeverity);
+  const sorted = [...result.judgements].sort(bySeverity);
   const high = sorted.filter((f) => f.severity === "critical" || f.severity === "major");
   const lower = sorted.filter((f) => f.severity === "minor" || f.severity === "trivial");
 
   // Markdown is rendered on the server so `marked` never ships to the client.
-  const bodyHtml = new Map(sorted.map((f, i) => [i, renderMd(f.body)]));
+  const bodyHtml = new Map(sorted.map((j, i) => [i, renderMd(`${j.lede}\n\n${j.detail}`)]));
   const indexOf = new Map(sorted.map((f, i) => [f, i]));
 
-  // Findings per file, for the left rail.
-  const findingsPerFile = new Map<string, number>();
+  // Judgements per file, for the left rail.
+  const judgementsPerFile = new Map<string, number>();
   for (const f of sorted) {
-    findingsPerFile.set(f.path, (findingsPerFile.get(f.path) ?? 0) + 1);
+    judgementsPerFile.set(f.path, (judgementsPerFile.get(f.path) ?? 0) + 1);
   }
 
   const severityTotals = sorted.reduce<Record<string, number>>((acc, f) => {
@@ -101,7 +101,7 @@ export default async function ReviewDetailPage({ params }: { params: Promise<{ i
             <SectionLabel className="mb-3">Files ({files.length})</SectionLabel>
             <ul className="space-y-0.5">
               {files.map((f) => {
-                const count = findingsPerFile.get(f.path) ?? 0;
+                const count = judgementsPerFile.get(f.path) ?? 0;
                 return (
                   <li key={f.path}>
                     <div className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2 transition-colors">
@@ -210,10 +210,10 @@ export default async function ReviewDetailPage({ params }: { params: Promise<{ i
             </div>
           </section>
 
-          {/* Findings */}
+          {/* Judgements */}
           <section className="mb-10">
             <div className="flex items-center justify-between gap-4 pb-2.5 mb-3.5 border-b border-border">
-              <SectionLabel>Findings ({sorted.length})</SectionLabel>
+              <SectionLabel>Judgements ({sorted.length})</SectionLabel>
               {sorted.length > 0 && (
                 <div className="flex items-center gap-2.5">
                   {Object.entries(severityTotals).map(([severity, n]) => (
@@ -234,16 +234,16 @@ export default async function ReviewDetailPage({ params }: { params: Promise<{ i
 
             {sorted.length === 0 ? (
               <div className="rounded-xl border border-accent-border bg-accent-dim px-6 py-8 text-center">
-                <p className="text-sm text-accent font-medium">No findings</p>
+                <p className="text-sm text-accent font-medium">Nothing to judge</p>
                 <p className="text-xs text-text-dim mt-1">This pull request looks clean.</p>
               </div>
             ) : (
               <>
                 <div className="flex flex-col gap-2">
                   {high.map((f) => (
-                    <FindingCard
+                    <JudgementCard
                       key={`${f.path}:${f.line}:${indexOf.get(f)}`}
-                      finding={f}
+                      judgement={f}
                       html={bodyHtml.get(indexOf.get(f)!) ?? ""}
                       prUrl={pr.url}
                       defaultOpen
@@ -252,18 +252,18 @@ export default async function ReviewDetailPage({ params }: { params: Promise<{ i
                 </div>
 
                 {lower.length > 0 && (
-                  <LowerFindings count={lower.length}>
+                  <LowerJudgements count={lower.length}>
                     <div className="flex flex-col gap-2 mt-2">
                       {lower.map((f) => (
-                        <FindingCard
+                        <JudgementCard
                           key={`${f.path}:${f.line}:${indexOf.get(f)}`}
-                          finding={f}
+                          judgement={f}
                           html={bodyHtml.get(indexOf.get(f)!) ?? ""}
                           prUrl={pr.url}
                         />
                       ))}
                     </div>
-                  </LowerFindings>
+                  </LowerJudgements>
                 )}
               </>
             )}

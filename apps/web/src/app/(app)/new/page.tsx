@@ -27,11 +27,7 @@ export default async function NewReviewPage() {
           </p>
         </div>
 
-        <ReviewForm
-          balance={balance}
-          defaultModel={settings.defaultModel}
-          defaultPostToGithub={settings.postToGithubDefault}
-        />
+        <ReviewForm balance={balance} defaultModel={settings.defaultModel} />
       </PageBody>
     </>
   );

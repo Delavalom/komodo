@@ -4,7 +4,7 @@ import { effectivePathFilters, type KomodoConfig } from "./config.js";
 import { commentableLines, filterPaths } from "./diff.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
 import {
-  findingToComment,
+  judgementToComment,
   GitHubClient,
   type PRFile,
   type PRMeta,
@@ -13,13 +13,13 @@ import {
 import type { ReviewProvider } from "./providers/types.js";
 import {
   renderDescriptionBlock,
-  renderFindingComment,
+  renderJudgementComment,
   renderReviewBody,
   renderWalkthroughComment,
-  sortFindings,
+  sortJudgements,
   WALKTHROUGH_MARKER,
 } from "./render/markdown.js";
-import { SEVERITY_RANK, type Finding, type ReviewRecord, type ReviewResult } from "./schema.js";
+import { SEVERITY_RANK, type Judgement, type ReviewRecord, type ReviewResult } from "./schema.js";
 
 export interface RunReviewOptions {
   ref: PRRef;
@@ -40,7 +40,7 @@ export interface RunReviewOutcome {
   record: ReviewRecord;
   recordPath: string;
   reviewUrl?: string;
-  droppedFindings: Finding[];
+  droppedJudgements: Judgement[];
 }
 
 export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcome> {
@@ -58,11 +58,11 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
 
   const result = await provider.review({ pr, files, config, repoDir: opts.repoDir }, onProgress);
 
-  const { valid, dropped } = validateFindings(result, files, config);
-  const finalResult: ReviewResult = { ...result, findings: sortFindings(valid) };
+  const { valid, dropped } = validateJudgements(result, files, config);
+  const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
 
   const record: ReviewRecord = {
-    version: 1,
+    version: 2,
     id: `${ref.owner}-${ref.repo}-${ref.number}-${Date.now()}`,
     createdAt: new Date().toISOString(),
     provider: provider.name,
@@ -100,8 +100,8 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     const walkthrough = renderWalkthroughComment(pr, finalResult, config);
     await github.upsertWalkthroughComment(ref, WALKTHROUGH_MARKER, walkthrough);
 
-    const comments = finalResult.findings.map((f) => findingToComment(f, renderFindingComment(f)));
-    const hasBlocking = finalResult.findings.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK.major);
+    const comments = finalResult.judgements.map((f) => judgementToComment(f, renderJudgementComment(f)));
+    const hasBlocking = finalResult.judgements.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK.major);
     const event =
       hasBlocking && config.post.request_changes ? ("REQUEST_CHANGES" as const) : ("COMMENT" as const);
     let review: { html_url: string };
@@ -132,38 +132,38 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     writeFileSync(recordPath, JSON.stringify(record, null, 2));
   }
 
-  return { record, recordPath, reviewUrl, droppedFindings: dropped };
+  return { record, recordPath, reviewUrl, droppedJudgements: dropped };
 }
 
-/** Drop findings below min_severity or anchored to lines GitHub can't comment on. */
-function validateFindings(
+/** Drop judgements below min_severity or anchored to lines GitHub can't comment on. */
+function validateJudgements(
   result: ReviewResult,
   files: PRFile[],
   config: KomodoConfig,
-): { valid: Finding[]; dropped: Finding[] } {
+): { valid: Judgement[]; dropped: Judgement[] } {
   const lineIndex = new Map<string, Set<number>>();
   for (const f of files) {
     if (f.patch) lineIndex.set(f.path, commentableLines(f.patch).right);
   }
-  const valid: Finding[] = [];
-  const dropped: Finding[] = [];
-  for (const finding of result.findings) {
-    if (SEVERITY_RANK[finding.severity] < SEVERITY_RANK[config.min_severity]) {
-      dropped.push(finding);
+  const valid: Judgement[] = [];
+  const dropped: Judgement[] = [];
+  for (const judgement of result.judgements) {
+    if (SEVERITY_RANK[judgement.severity] < SEVERITY_RANK[config.min_severity]) {
+      dropped.push(judgement);
       continue;
     }
-    const lines = lineIndex.get(finding.path);
-    if (!lines?.has(finding.line) || (finding.endLine !== undefined && !lines.has(finding.endLine))) {
-      // Try to salvage single-line findings by snapping to the nearest commentable line within 3.
-      const snapped = lines ? snapLine(finding.line, lines) : undefined;
-      if (snapped !== undefined && finding.endLine === undefined) {
-        valid.push({ ...finding, line: snapped });
+    const lines = lineIndex.get(judgement.path);
+    if (!lines?.has(judgement.line) || (judgement.endLine !== undefined && !lines.has(judgement.endLine))) {
+      // Try to salvage single-line judgements by snapping to the nearest commentable line within 3.
+      const snapped = lines ? snapLine(judgement.line, lines) : undefined;
+      if (snapped !== undefined && judgement.endLine === undefined) {
+        valid.push({ ...judgement, line: snapped });
       } else {
-        dropped.push(finding);
+        dropped.push(judgement);
       }
       continue;
     }
-    valid.push(finding);
+    valid.push(judgement);
   }
   return { valid, dropped };
 }
@@ -185,7 +185,7 @@ export function buildReviewRecord(opts: {
 }): ReviewRecord {
   const { meta, files, result, provider, model } = opts;
   return {
-    version: 1,
+    version: 2,
     id: `${meta.owner}-${meta.repo}-${meta.number || "local"}-${Date.now()}`,
     createdAt: new Date().toISOString(),
     provider,

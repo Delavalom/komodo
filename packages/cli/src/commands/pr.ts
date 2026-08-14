@@ -41,16 +41,19 @@ export async function prCommand(
   const r = outcome.record.result;
   console.log(pc.bold(`\n🦎 Komodo review — ${prRef.owner}/${prRef.repo}#${prRef.number}`));
   console.log(`${"🟩".repeat(r.confidence)}${"⬜".repeat(5 - r.confidence)} ${pc.bold(`${r.confidence}/5`)} — ${r.verdict}`);
-  if (r.findings.length) {
+  if (r.judgements.length) {
     console.log("");
-    for (const f of r.findings) {
-      console.log(`  ${SEVERITY_LABEL[f.severity]}  ${f.path}:${f.line}  ${f.title}`);
+    for (const j of r.judgements) {
+      console.log(`  ${SEVERITY_LABEL[j.severity]}  ${j.path}:${j.line}  ${j.title}`);
+      console.log(pc.dim(`      ${j.ask}`));
     }
   } else {
-    console.log(pc.green("  No blocking findings."));
+    console.log(pc.green("  Nothing to judge."));
   }
-  if (outcome.droppedFindings.length) {
-    console.log(pc.dim(`  (${outcome.droppedFindings.length} finding(s) dropped: below min_severity or unanchorable)`));
+  if (outcome.droppedJudgements.length) {
+    console.log(
+      pc.dim(`  (${outcome.droppedJudgements.length} judgement(s) dropped: below min_severity or unanchorable)`),
+    );
   }
   if (outcome.reviewUrl) console.log(`\n${pc.bold("Posted:")} ${outcome.reviewUrl}`);
   console.log(`${pc.bold("Saved:")} ${outcome.recordPath}`);

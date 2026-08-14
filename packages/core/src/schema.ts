@@ -1,17 +1,20 @@
 import { z } from "zod";
 
 export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
-export const CATEGORIES = [
-  "security",
-  "correctness",
-  "performance",
-  "maintainability",
-  "data-integrity",
-  "stability",
-] as const;
+
+/**
+ * What kind of thing the reader is being asked to judge. This replaces the old
+ * `category` taxonomy: categories described the defect, kinds describe the
+ * decision. "Unsure" is Komodo admitting it could not read enough to be sure.
+ */
+export const JUDGEMENT_KINDS = ["Choice", "Risk", "Behaviour", "Domain", "Unsure"] as const;
+
+/** Where an answer lands in the posted review. */
+export const BUCKETS = ["Blocks", "Agreed", "Asked", "Passed on"] as const;
 
 export type Severity = (typeof SEVERITIES)[number];
-export type Category = (typeof CATEGORIES)[number];
+export type JudgementKind = (typeof JUDGEMENT_KINDS)[number];
+export type Bucket = (typeof BUCKETS)[number];
 
 export const SEVERITY_RANK: Record<Severity, number> = {
   critical: 3,
@@ -27,17 +30,23 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   trivial: "🔵 Trivial",
 };
 
-export const CATEGORY_LABEL: Record<Category, string> = {
-  security: "🔒 Security",
-  correctness: "🎯 Correctness",
-  performance: "🚀 Performance",
-  maintainability: "📐 Maintainability",
-  "data-integrity": "🗄️ Data integrity",
-  stability: "🩺 Stability",
+export const KIND_LABEL: Record<JudgementKind, string> = {
+  Choice: "A choice was made",
+  Risk: "A risk was taken",
+  Behaviour: "Behaviour changes",
+  Domain: "Reaches outside this change",
+  Unsure: "Komodo is unsure",
 };
 
-export const FindingSchema = z.object({
-  path: z.string().describe("Repo-relative file path the finding is in"),
+export const JudgementOptionSchema = z.object({
+  label: z
+    .string()
+    .describe("The answer as the reader would say it out loud, e.g. \"Yes — fifteen minutes is fine\""),
+  bucket: z.enum(BUCKETS).describe("Where this answer lands in the posted review"),
+});
+
+export const JudgementSchema = z.object({
+  path: z.string().describe("Repo-relative file path the judgement is about"),
   line: z
     .number()
     .int()
@@ -46,13 +55,47 @@ export const FindingSchema = z.object({
     .number()
     .int()
     .optional()
-    .describe("For multi-line findings: last line of the range (line is then the first)"),
+    .describe("For multi-line judgements: last line of the range (line is then the first)"),
   severity: z.enum(SEVERITIES),
-  category: z.enum(CATEGORIES),
-  title: z.string().describe("One-sentence statement of the defect"),
-  body: z
+  kind: z.enum(JUDGEMENT_KINDS),
+  tag: z
     .string()
-    .describe("Explanation: why it's a problem and the concrete failure scenario. GitHub markdown."),
+    .describe("Four to six words on what area this touches, e.g. \"changes how logging out works\""),
+  title: z
+    .string()
+    .describe("One complete sentence stating what is true, ending in a period. No jargon, no severity words."),
+  lede: z
+    .string()
+    .describe(
+      "Two or three sentences of plain language: what this does and what it costs. Consequence first, mechanism second. Written for someone who has not read the diff.",
+    ),
+  detail: z
+    .string()
+    .describe("One or two more sentences: the alternative, or why it was probably done this way."),
+  ask: z
+    .string()
+    .describe(
+      "The single question the reader must answer, phrased as a real question a person can say yes or no to. Never 'is this ok?'",
+    ),
+  sources: z
+    .array(z.string())
+    .describe(
+      "What was actually read to reach this, e.g. [\"the diff\", \"PR description\", \"ADR-0004 · stateless services\"]. Never claim a source you were not given.",
+    ),
+  sourceNote: z
+    .string()
+    .describe("One or two sentences on what those sources say and why they make this a blocker or a preference."),
+  code: z
+    .string()
+    .describe(
+      "A short plain-text excerpt for the collapsed 'Show me the code' block: file:line plus the relevant call or value, one per line. No fences.",
+    ),
+  options: z
+    .array(JudgementOptionSchema)
+    .length(4)
+    .describe(
+      "Exactly four answers. The first two are the real alternatives for THIS judgement. The third must be an 'I have a question first' (Asked). The fourth must hand it off (Passed on).",
+    ),
   suggestion: z
     .string()
     .optional()
@@ -88,16 +131,17 @@ export const ReviewResultSchema = z.object({
     .string()
     .optional()
     .describe("Mermaid sequenceDiagram source (no fences) when the PR changes a flow/interaction; else omit"),
-  findings: z.array(FindingSchema),
+  judgements: z.array(JudgementSchema),
 });
 
-export type Finding = z.infer<typeof FindingSchema>;
+export type JudgementOption = z.infer<typeof JudgementOptionSchema>;
+export type Judgement = z.infer<typeof JudgementSchema>;
 export type WalkthroughEntry = z.infer<typeof WalkthroughEntrySchema>;
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 
 /** A stored review run: result + the metadata the UI needs to render it. */
 export interface ReviewRecord {
-  version: 1;
+  version: 2;
   id: string;
   createdAt: string;
   provider: string;

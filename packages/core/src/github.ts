@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { Finding } from "./schema.js";
+import type { Judgement } from "./schema.js";
 
 export interface PRRef {
   owner: string;
@@ -25,6 +25,19 @@ export interface PRFile {
   additions: number;
   deletions: number;
   patch?: string;
+}
+
+/** An inline review comment as GitHub returns it. */
+export interface ReviewComment {
+  id: number;
+  /** Set when this comment is a reply to another inline comment. */
+  in_reply_to_id?: number;
+  path: string;
+  line: number | null;
+  body: string;
+  html_url: string;
+  created_at: string;
+  user: { login: string } | null;
 }
 
 export interface InlineComment {
@@ -139,6 +152,40 @@ export class GitHubClient {
     });
   }
 
+  /**
+   * Post a single inline comment on the diff, outside of any review. Used when
+   * a reviewer asks the author a question about one judgement.
+   */
+  async createReviewComment(
+    ref: PRRef,
+    headSha: string,
+    path: string,
+    line: number,
+    body: string,
+  ): Promise<ReviewComment> {
+    return this.request("POST", `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/comments`, {
+      commit_id: headSha,
+      path,
+      line,
+      side: "RIGHT",
+      body,
+    });
+  }
+
+  /** Every inline review comment on the PR. Replies carry `in_reply_to_id`. */
+  async listReviewComments(ref: PRRef): Promise<ReviewComment[]> {
+    const out: ReviewComment[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const batch = await this.request<ReviewComment[]>(
+        "GET",
+        `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/comments?per_page=100&page=${page}`,
+      );
+      out.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
   /** Create or update the marker-tagged walkthrough comment. */
   async upsertWalkthroughComment(ref: PRRef, marker: string, body: string): Promise<{ html_url: string }> {
     const comments = await this.request<any[]>(
@@ -177,12 +224,12 @@ export class GitHubClient {
   }
 }
 
-export function findingToComment(f: Finding, body: string): InlineComment {
-  const multi = f.endLine !== undefined && f.endLine > f.line;
+export function judgementToComment(j: Judgement, body: string): InlineComment {
+  const multi = j.endLine !== undefined && j.endLine > j.line;
   return {
-    path: f.path,
-    line: multi ? f.endLine! : f.line,
-    ...(multi ? { start_line: f.line, start_side: "RIGHT" as const } : {}),
+    path: j.path,
+    line: multi ? j.endLine! : j.line,
+    ...(multi ? { start_line: j.line, start_side: "RIGHT" as const } : {}),
     side: "RIGHT",
     body,
   };

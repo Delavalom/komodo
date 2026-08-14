@@ -1,20 +1,28 @@
 export type Severity = "critical" | "major" | "minor" | "trivial";
-export type Category =
-  | "security"
-  | "correctness"
-  | "performance"
-  | "maintainability"
-  | "data-integrity"
-  | "stability";
+export type JudgementKind = "Choice" | "Risk" | "Behaviour" | "Domain" | "Unsure";
+export type Bucket = "Blocks" | "Agreed" | "Asked" | "Passed on";
 
-export interface Finding {
+export interface JudgementOption {
+  label: string;
+  bucket: Bucket;
+}
+
+/** Mirrors `Judgement` in @komodo/core — this viewer is deliberately dependency-free. */
+export interface Judgement {
   path: string;
   line: number;
   endLine?: number;
   severity: Severity;
-  category: Category;
+  kind: JudgementKind;
+  tag: string;
   title: string;
-  body: string;
+  lede: string;
+  detail: string;
+  ask: string;
+  sources: string[];
+  sourceNote: string;
+  code: string;
+  options: JudgementOption[];
   suggestion?: string;
   fixPrompt: string;
 }
@@ -31,7 +39,7 @@ export interface ReviewResult {
   verdict: string;
   effort: number;
   diagram?: string;
-  findings: Finding[];
+  judgements: Judgement[];
 }
 
 export interface PR {
@@ -72,6 +80,6 @@ export interface ReviewSummary {
   provider: string;
   pr: PR;
   confidence: number;
-  findings: number;
+  judgements: number;
   posted: boolean;
 }

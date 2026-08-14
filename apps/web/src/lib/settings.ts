@@ -19,7 +19,6 @@ export async function getUserSettings(userId: string): Promise<Settings> {
 
   return {
     defaultModel: row.defaultModel,
-    postToGithubDefault: row.postToGithubDefault,
     reviewProfile: isReviewProfile(row.reviewProfile)
       ? row.reviewProfile
       : DEFAULT_SETTINGS.reviewProfile,
@@ -33,14 +32,12 @@ export async function saveUserSettings(userId: string, settings: Settings): Prom
     .values({
       userId,
       defaultModel: settings.defaultModel,
-      postToGithubDefault: settings.postToGithubDefault,
       reviewProfile: settings.reviewProfile,
     })
     .onConflictDoUpdate({
       target: userSettings.userId,
       set: {
         defaultModel: settings.defaultModel,
-        postToGithubDefault: settings.postToGithubDefault,
         reviewProfile: settings.reviewProfile,
         updatedAt: new Date(),
       },

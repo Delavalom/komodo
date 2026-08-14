@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Finding, PR } from "../types";
+import type { Judgement, PR } from "../types";
 import { MarkdownBlock } from "./MarkdownBlock";
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -16,47 +16,38 @@ const SEVERITY_LABEL: Record<string, string> = {
   trivial: "Trivial",
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  security: "Security",
-  correctness: "Correctness",
-  performance: "Performance",
-  maintainability: "Maintainability",
-  "data-integrity": "Data Integrity",
-  stability: "Stability",
-};
-
 interface Props {
-  finding: Finding;
+  judgement: Judgement;
   pr: Pick<PR, "owner" | "repo" | "number">;
   defaultOpen?: boolean;
 }
 
-export function FindingCard({ finding, pr, defaultOpen = false }: Props) {
+export function JudgementCard({ judgement, pr, defaultOpen = false }: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const [promptOpen, setPromptOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const color = SEVERITY_COLOR[finding.severity] ?? "var(--text-dim)";
+  const color = SEVERITY_COLOR[judgement.severity] ?? "var(--text-dim)";
   const diffUrl = `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}/files`;
-  const locLabel = finding.endLine
-    ? `${finding.path}:${finding.line}-${finding.endLine}`
-    : `${finding.path}:${finding.line}`;
+  const locLabel = judgement.endLine
+    ? `${judgement.path}:${judgement.line}-${judgement.endLine}`
+    : `${judgement.path}:${judgement.line}`;
 
   function copyPrompt() {
-    navigator.clipboard.writeText(finding.fixPrompt).then(() => {
+    navigator.clipboard.writeText(judgement.fixPrompt).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   }
 
   return (
-    <div className={`finding-card finding-card--${finding.severity}`}>
+    <div className={`judgement-card judgement-card--${judgement.severity}`}>
       <button
-        className="finding-card__header"
+        className="judgement-card__header"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <div className="finding-card__chips">
+        <div className="judgement-card__chips">
           <span
             className="chip"
             style={{
@@ -65,14 +56,14 @@ export function FindingCard({ finding, pr, defaultOpen = false }: Props) {
               borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
             }}
           >
-            {SEVERITY_LABEL[finding.severity]}
+            {SEVERITY_LABEL[judgement.severity]}
           </span>
-          <span className="chip chip--cat">{CATEGORY_LABEL[finding.category]}</span>
+          <span className="chip chip--cat">{judgement.kind}</span>
         </div>
 
-        <span className="finding-card__title">{finding.title}</span>
+        <span className="judgement-card__title">{judgement.title}</span>
 
-        <span className="finding-card__loc">
+        <span className="judgement-card__loc">
           <a
             href={diffUrl}
             target="_blank"
@@ -84,23 +75,29 @@ export function FindingCard({ finding, pr, defaultOpen = false }: Props) {
           </a>
         </span>
 
-        <span className="finding-card__chevron">{open ? "▲" : "▼"}</span>
+        <span className="judgement-card__chevron">{open ? "▲" : "▼"}</span>
       </button>
 
       {open && (
-        <div className="finding-card__body">
-          <MarkdownBlock content={finding.body} />
+        <div className="judgement-card__body">
+          <MarkdownBlock content={`${judgement.lede}\n\n${judgement.detail}`} />
 
-          {finding.suggestion && (
-            <div className="finding-card__suggestion">
-              <div className="finding-card__suggestion-label">Suggested fix</div>
+          <p className="judgement-card__ask">{judgement.ask}</p>
+
+          <p className="judgement-card__sources">
+            Read from {judgement.sources.join(", ")}. {judgement.sourceNote}
+          </p>
+
+          {judgement.suggestion && (
+            <div className="judgement-card__suggestion">
+              <div className="judgement-card__suggestion-label">Suggested fix</div>
               <pre className="code-block">
-                <code>{finding.suggestion}</code>
+                <code>{judgement.suggestion}</code>
               </pre>
             </div>
           )}
 
-          <div className="finding-card__prompt-section">
+          <div className="judgement-card__prompt-section">
             <button
               className="prompt-toggle"
               onClick={() => setPromptOpen((v) => !v)}
@@ -110,8 +107,8 @@ export function FindingCard({ finding, pr, defaultOpen = false }: Props) {
             </button>
 
             {promptOpen && (
-              <div className="finding-card__prompt">
-                <pre className="code-block code-block--prompt">{finding.fixPrompt}</pre>
+              <div className="judgement-card__prompt">
+                <pre className="code-block code-block--prompt">{judgement.fixPrompt}</pre>
                 <button
                   className={`copy-btn${copied ? " copy-btn--copied" : ""}`}
                   onClick={copyPrompt}

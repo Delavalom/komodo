@@ -27,14 +27,6 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   trivial: "Trivial",
 };
 
-export const CATEGORY_LABEL: Record<string, string> = {
-  security: "Security",
-  correctness: "Correctness",
-  performance: "Performance",
-  maintainability: "Maintainability",
-  "data-integrity": "Data Integrity",
-  stability: "Stability",
-};
 
 export function isSeverity(value: string): value is Severity {
   return value in SEVERITY_RANK;

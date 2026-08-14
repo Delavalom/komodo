@@ -35,6 +35,8 @@
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* --font-newsreader is supplied by next/font in the root layout. */
+  --font-serif: var(--font-newsreader), Georgia, "Times New Roman", serif;
 }
 
 html {

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "./cn";
-import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_LABEL, isSeverity } from "./severity";
+import { SEVERITY_COLOR, SEVERITY_LABEL, isSeverity } from "./severity";
 
 const BASE =
   "inline-flex items-center rounded-sm border px-2 py-px text-[10px] font-bold uppercase " +
@@ -23,20 +23,6 @@ export function SeverityChip({ severity }: { severity: string }) {
   );
 }
 
-export function CategoryChip({ category }: { category: string }) {
-  return (
-    <span
-      className={cn(
-        BASE,
-        "bg-surface-2 text-text-muted border-border normal-case tracking-normal font-medium text-[11px]",
-      )}
-    >
-      {CATEGORY_LABEL[category] ?? category}
-    </span>
-  );
-}
-
-/** Neutral pill — repo names, branches, models, file paths. */
 export function Chip({
   children,
   mono = false,

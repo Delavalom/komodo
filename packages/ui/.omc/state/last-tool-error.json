@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd packages/ui && sed -n '1,60p' src/components/FindingCard.tsx\",\"description\":\"Read FindingCard component\"}",
+  "error": "Exit code 1\n(eval):cd:1: no such file or directory: packages/ui",
+  "timestamp": "2026-08-14T00:56:54.281Z",
+  "retry_count": 1
+}

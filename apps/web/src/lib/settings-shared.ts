@@ -9,13 +9,11 @@ export type ReviewProfile = "quiet" | "chill" | "assertive";
 
 export interface Settings {
   defaultModel: string;
-  postToGithubDefault: boolean;
   reviewProfile: ReviewProfile;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultModel: DEFAULT_MODEL,
-  postToGithubDefault: true,
   reviewProfile: "chill",
 };
 

@@ -1,41 +1,28 @@
 import type { Metadata } from "next";
+import { Newsreader } from "next/font/google";
 import "./globals.css";
-import { auth } from "@/auth";
-import { getBalance } from "@/lib/credits";
-import { AppShell } from "@/components/shell/AppShell";
+
+/**
+ * The judgement flow is set in a serif so the prose reads like writing rather
+ * than UI chrome. Exposed as --font-serif and picked up by `font-serif`.
+ */
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  weight: ["300", "400", "500", "600"],
+  variable: "--font-newsreader",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Komodo — AI Code Review",
   description: "AI-powered PR reviews backed by real GitHub tokens",
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth();
-  const user = session?.user as { id?: string; login?: string; avatarUrl?: string } | undefined;
-
-  // Signed out (sign-in page): render full-bleed with no shell chrome.
-  if (!user?.id) {
-    return (
-      <html lang="en">
-        <body className="min-h-screen">{children}</body>
-      </html>
-    );
-  }
-
-  const balance = await getBalance(user.id);
-
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen">
-        <AppShell
-          login={user.login ?? ""}
-          name={session?.user?.name}
-          avatarUrl={user.avatarUrl}
-          balance={balance}
-        >
-          {children}
-        </AppShell>
-      </body>
+    <html lang="en" className={newsreader.variable}>
+      <body className="min-h-screen">{children}</body>
     </html>
   );
 }

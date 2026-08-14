@@ -39,7 +39,7 @@ export function ReviewList() {
             <th>Pull Request</th>
             <th>Provider</th>
             <th>Confidence</th>
-            <th>Findings</th>
+            <th>Judgements</th>
             <th>When</th>
             <th>Status</th>
           </tr>
@@ -68,10 +68,10 @@ export function ReviewList() {
               <td>
                 <span
                   className={
-                    r.findings > 0 ? "findings-count findings-count--nonzero" : "findings-count"
+                    r.judgements > 0 ? "judgements-count judgements-count--nonzero" : "judgements-count"
                   }
                 >
-                  {r.findings}
+                  {r.judgements}
                 </span>
               </td>
               <td className="when">{timeAgo(r.createdAt)}</td>
