@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { getDb, reviews } from "@/db";
 import { modelLabel } from "@/lib/models";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
-import { EmptyState, LinkButton, SEVERITY_COLOR, SEVERITY_ORDER, StatCard } from "@/components/ui";
+import { EmptyState, LinkButton, SEVERITY_COLOR, SEVERITY_ORDER, StatCard } from "@komodo/ui";
 import { ChartCard, BarList, ColumnChart, NoData } from "./charts";
 import type { BarDatum, ColumnDatum } from "./charts";
 

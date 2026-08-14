@@ -82,6 +82,18 @@
   },
   "hotPaths": [
     {
+      "path": "apps/web/src/app/globals.css",
+      "accessCount": 11,
+      "lastAccessed": 1786737237468,
+      "type": "file"
+    },
+    {
+      "path": "packages/ui/src/components/ReviewDetail.tsx",
+      "accessCount": 10,
+      "lastAccessed": 1786737345941,
+      "type": "file"
+    },
+    {
       "path": "apps/web/src/db/schema.ts",
       "accessCount": 8,
       "lastAccessed": 1786669198196,
@@ -100,12 +112,6 @@
       "type": "file"
     },
     {
-      "path": "apps/web/src/app/globals.css",
-      "accessCount": 5,
-      "lastAccessed": 1786645324537,
-      "type": "file"
-    },
-    {
       "path": "packages/core/src/schema.ts",
       "accessCount": 5,
       "lastAccessed": 1786668841438,
@@ -118,6 +124,12 @@
       "type": "file"
     },
     {
+      "path": "packages/ui/src/components/MermaidBlock.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1786737141054,
+      "type": "file"
+    },
+    {
       "path": "packages/core/src/providers/prompt.ts",
       "accessCount": 3,
       "lastAccessed": 1786668867564,
@@ -127,6 +139,12 @@
       "path": "packages/core/src/providers/openrouter.ts",
       "accessCount": 3,
       "lastAccessed": 1786668904546,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/package.json",
+      "accessCount": 3,
+      "lastAccessed": 1786736613716,
       "type": "file"
     },
     {
@@ -193,24 +211,6 @@
       "path": "apps/web/src/app/settings/settings-form.tsx",
       "accessCount": 2,
       "lastAccessed": 1785810189555,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/package.json",
-      "accessCount": 2,
-      "lastAccessed": 1785810200522,
-      "type": "file"
-    },
-    {
-      "path": "packages/ui/src/components/MermaidBlock.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785810334837,
-      "type": "file"
-    },
-    {
-      "path": "packages/ui/src/components/ReviewDetail.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785810364176,
       "type": "file"
     },
     {

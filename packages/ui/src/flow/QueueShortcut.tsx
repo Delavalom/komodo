@@ -1,11 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { Shortcuts } from "@/components/ui";
+import { Shortcuts } from "../kit";
+import { useNav } from "../nav";
 
 /** Enter takes the top of the queue. Renders nothing. */
 export function QueueShortcut({ href }: { href: string }) {
-  const router = useRouter();
+  const { push } = useNav();
 
   return (
     <Shortcuts
@@ -16,7 +16,7 @@ export function QueueShortcut({ href }: { href: string }) {
         const el = e.target as HTMLElement | null;
         if (el && /^(A|BUTTON)$/.test(el.tagName)) return;
         e.preventDefault();
-        router.push(href);
+        push(href);
       }}
     />
   );

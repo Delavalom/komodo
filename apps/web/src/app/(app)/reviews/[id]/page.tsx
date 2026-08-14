@@ -13,7 +13,7 @@ import {
   SectionLabel,
   bySeverity,
   isSeverity,
-} from "@/components/ui";
+} from "@komodo/ui";
 import { JudgementCard } from "./judgement-card";
 import { LowerJudgements } from "./lower-judgements";
 

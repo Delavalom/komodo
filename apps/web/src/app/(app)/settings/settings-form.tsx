@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Button, SettingGroup, SettingRow, Toggle, cn, useToast } from "@/components/ui";
+import { Button, SettingGroup, SettingRow, Toggle, cn, useToast } from "@komodo/ui";
 import { MODELS } from "@/lib/models";
 import { REVIEW_PROFILES, type ReviewProfile, type Settings } from "@/lib/settings-shared";
 import { updateSettings } from "./actions";

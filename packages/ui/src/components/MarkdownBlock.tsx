@@ -1,3 +1,5 @@
+"use client";
+
 import { marked } from "marked";
 import { useMemo } from "react";
 
@@ -12,5 +14,5 @@ export function MarkdownBlock({ content }: Props) {
     return typeof result === "string" ? result : "";
   }, [content]);
 
-  return <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className="prose-dark" dangerouslySetInnerHTML={{ __html: html }} />;
 }

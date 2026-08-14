@@ -1,4 +1,9 @@
+"use client";
+
 import { useCallback, useRef, useState } from "react";
+
+const LOADING_CLASS = "text-xs text-text-dim py-4";
+const RENDERED_CLASS = "flex justify-center min-h-[40px] [&_svg]:max-w-full [&_svg]:h-auto";
 
 // Singleton state so we only initialise the library once across renders.
 let initialised = false;
@@ -40,8 +45,8 @@ async function renderDiagram(diagram: string): Promise<string> {
 export function MermaidBlock({ diagram }: { diagram: string }) {
   const [error, setError] = useState<string | null>(null);
   // Bumped on every attach/detach so an in-flight render that resolves late
-  // can tell it is stale. React 18 ref callbacks cannot return a cleanup
-  // function, so the token replaces one.
+  // can tell it is stale. React ref callbacks that return a cleanup function
+  // would fight the imperative className swap below, so the token replaces one.
   const token = useRef(0);
 
   const host = useCallback(
@@ -49,13 +54,13 @@ export function MermaidBlock({ diagram }: { diagram: string }) {
       const current = ++token.current;
       if (!node) return;
 
-      node.className = "mermaid-loading";
+      node.className = LOADING_CLASS;
       node.textContent = "Rendering diagram…";
 
       void renderDiagram(diagram).then(
         (svg) => {
           if (token.current !== current) return;
-          node.className = "mermaid-block";
+          node.className = RENDERED_CLASS;
           node.innerHTML = svg;
           setError(null);
         },
@@ -69,6 +74,11 @@ export function MermaidBlock({ diagram }: { diagram: string }) {
     [diagram],
   );
 
-  if (error) return <pre className="mermaid-error">{error}</pre>;
+  if (error)
+    return (
+      <pre className="text-xs text-critical bg-critical/[0.08] border border-critical/20 rounded-md px-3 py-2.5 whitespace-pre-wrap">
+        {error}
+      </pre>
+    );
   return <div ref={host} />;
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
-import { ToastProvider } from "@/components/ui";
+import { ToastProvider } from "@komodo/ui";
 
 const COLLAPSE_KEY = "komodo:sidebar-collapsed";
 

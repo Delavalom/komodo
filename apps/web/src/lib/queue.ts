@@ -1,17 +1,16 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import type { JudgementThread, QueueEntry, ReviewJudgements } from "@komodo/core";
 import { getDb, judgementMessages, judgements, reviews } from "@/db";
-import type { JudgementRow, Review } from "@/db";
+import { toJudgementView, toReviewView, toThreadMessage } from "./view";
 
-/** Roughly how long one judgement takes to answer, for the queue's time estimate. */
-const SECONDS_PER_JUDGEMENT = 45;
-
-export interface QueueEntry {
-  judgement: JudgementRow;
-  review: Review;
-  /** True when the author has replied and the reviewer has not looked yet. */
-  hasReply: boolean;
-}
+/**
+ * The read half of the ReviewStore port, backed by Postgres.
+ *
+ * Every function here returns the shared view types from @komodo/core rather
+ * than Drizzle rows, so the screens consuming them can live in packages/ui and
+ * work identically against the CLI's file-backed store.
+ */
 
 /**
  * Everything waiting on this reviewer, across every pull request: judgements
@@ -57,22 +56,18 @@ export async function loadQueue(userId: string): Promise<QueueEntry[]> {
     for (const m of authored) replied.add(m.judgementId);
   }
 
-  return waiting.map((r) => ({ ...r, hasReply: replied.has(r.judgement.id) }));
-}
-
-/** "about 8 minutes" — the queue's honest estimate of what it will cost you. */
-export function estimateTime(count: number): string {
-  const minutes = Math.round((count * SECONDS_PER_JUDGEMENT) / 60);
-  if (minutes < 1) return "under a minute";
-  if (minutes === 1) return "about a minute";
-  return `about ${minutes} minutes`;
+  return waiting.map((r) => ({
+    judgement: toJudgementView(r.judgement),
+    review: toReviewView(r.review),
+    hasReply: replied.has(r.judgement.id),
+  }));
 }
 
 /** Every judgement in one review, in the order Komodo raised them. */
 export async function loadReviewJudgements(
   reviewId: string,
   userId: string,
-): Promise<{ review: Review; rows: JudgementRow[] } | null> {
+): Promise<ReviewJudgements | null> {
   const db = getDb();
   const [review] = await db
     .select()
@@ -87,11 +82,14 @@ export async function loadReviewJudgements(
     .where(eq(judgements.reviewId, reviewId))
     .orderBy(asc(judgements.ordinal));
 
-  return { review, rows };
+  return { review: toReviewView(review), judgements: rows.map(toJudgementView) };
 }
 
 /** One judgement, its review, and the whole reply thread. */
-export async function loadThread(judgementId: string, userId: string) {
+export async function loadThread(
+  judgementId: string,
+  userId: string,
+): Promise<JudgementThread | null> {
   const db = getDb();
   const [row] = await db
     .select({ judgement: judgements, review: reviews })
@@ -107,7 +105,11 @@ export async function loadThread(judgementId: string, userId: string) {
     .where(eq(judgementMessages.judgementId, judgementId))
     .orderBy(asc(judgementMessages.createdAt));
 
-  return { ...row, messages };
+  return {
+    judgement: toJudgementView(row.judgement),
+    review: toReviewView(row.review),
+    messages: messages.map(toThreadMessage),
+  };
 }
 
 export async function countUnanswered(userId: string): Promise<number> {

@@ -1,7 +1,16 @@
+"use client";
+
 import type { ReviewSummary } from "../types";
 import { fetchReviews } from "../api";
 import { useResource } from "../store";
-import { ConfidenceMeter } from "./ConfidenceMeter";
+import { ConfidenceMeter } from "../kit";
+
+/* No colour here — callers pick it, so the error variant does not have to
+   fight a base utility for the same property. */
+const STATE_MSG = "py-16 px-6 text-center text-sm leading-[1.7]";
+const TH = "pr-5 pb-3 text-left text-[11px] font-semibold tracking-[0.09em] uppercase text-text-dim whitespace-nowrap last:pr-0";
+const TD = "py-4 pr-5 align-middle last:pr-0";
+const BADGE = "inline-block px-[9px] py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -18,65 +27,84 @@ function timeAgo(dateStr: string): string {
 export function ReviewList() {
   const state = useResource<ReviewSummary[]>("reviews", fetchReviews);
 
-  if (state.status === "loading") return <div className="state-msg">Loading reviews…</div>;
+  if (state.status === "loading")
+    return <div className={`${STATE_MSG} text-text-muted`}>Loading reviews…</div>;
   if (state.status === "error")
-    return <div className="state-msg state-msg--error">{state.error}</div>;
+    return <div className={`${STATE_MSG} text-critical`}>{state.error}</div>;
 
   const reviews = state.data;
 
   if (reviews.length === 0)
     return (
-      <div className="state-msg">
-        No reviews yet. Run <code>komodo-review pr &lt;url&gt;</code> to create one.
+      <div className={`${STATE_MSG} text-text-muted`}>
+        No reviews yet. Run{" "}
+        <code className="bg-surface px-[7px] py-0.5 rounded text-xs text-accent border border-border">
+          komodo-review pr &lt;url&gt;
+        </code>{" "}
+        to create one.
       </div>
     );
 
   return (
-    <div className="review-list">
-      <table className="review-table">
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
         <thead>
-          <tr>
-            <th>Pull Request</th>
-            <th>Provider</th>
-            <th>Confidence</th>
-            <th>Judgements</th>
-            <th>When</th>
-            <th>Status</th>
+          <tr className="border-b border-border">
+            <th className={TH}>Pull Request</th>
+            <th className={TH}>Provider</th>
+            <th className={TH}>Confidence</th>
+            <th className={TH}>Judgements</th>
+            <th className={TH}>When</th>
+            <th className={TH}>Status</th>
           </tr>
         </thead>
         <tbody>
           {reviews.map((r) => (
             <tr
               key={r.id}
-              className="review-row"
+              className="border-b border-border transition-colors hover:bg-hover cursor-pointer"
               onClick={() => {
                 window.location.hash = `#/reviews/${encodeURIComponent(r.id)}`;
               }}
             >
-              <td>
-                <div className="pr-title">{r.pr.title}</div>
-                <div className="pr-ref">
+              <td className={TD}>
+                <div className="text-[13px] font-medium text-text mb-[3px] max-w-[380px] leading-[1.4] max-[800px]:max-w-none">
+                  {r.pr.title}
+                </div>
+                <div className="font-mono text-[11px] text-text-dim">
                   {r.pr.owner}/{r.pr.repo}#{r.pr.number}
                 </div>
               </td>
-              <td>
-                <span className="provider-badge">{r.provider}</span>
+              <td className={TD}>
+                <span
+                  className={`${BADGE} bg-surface-2 text-text-muted border border-border capitalize`}
+                >
+                  {r.provider}
+                </span>
               </td>
-              <td>
+              <td className={TD}>
                 <ConfidenceMeter score={r.confidence} size="sm" />
               </td>
-              <td>
+              <td className={TD}>
                 <span
-                  className={
-                    r.judgements > 0 ? "judgements-count judgements-count--nonzero" : "judgements-count"
-                  }
+                  className={`text-[13px] font-medium tabular-nums ${
+                    r.judgements > 0 ? "text-major" : "text-text-dim"
+                  }`}
                 >
                   {r.judgements}
                 </span>
               </td>
-              <td className="when">{timeAgo(r.createdAt)}</td>
-              <td>
-                <span className={`status-badge status-badge--${r.posted ? "posted" : "local"}`}>
+              <td className={`${TD} text-xs text-text-muted whitespace-nowrap`}>
+                {timeAgo(r.createdAt)}
+              </td>
+              <td className={TD}>
+                <span
+                  className={`${BADGE} ${
+                    r.posted
+                      ? "bg-accent-dim text-accent border border-accent-border"
+                      : "bg-surface-2 text-text-dim border border-border"
+                  }`}
+                >
                   {r.posted ? "Posted" : "Local"}
                 </span>
               </td>

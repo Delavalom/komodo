@@ -1,27 +1,29 @@
 "use client";
 
 import { useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { closeThread } from "../../../actions";
+import type { ReviewActions } from "@komodo/core/store";
+import { useNav } from "../nav";
 
 export function ThreadActions({
   judgementId,
   reviewId,
   withdrawn,
   answered,
+  actions,
 }: {
   judgementId: string;
   reviewId: string;
   withdrawn: boolean;
   answered: boolean;
+  actions: ReviewActions;
 }) {
-  const router = useRouter();
+  const { push } = useNav();
   const [pending, startTransition] = useTransition();
 
   function close() {
     startTransition(async () => {
-      await closeThread(judgementId);
-      router.push("/queue");
+      await actions.closeThread(judgementId);
+      push("/queue");
     });
   }
 
@@ -52,13 +54,13 @@ export function ThreadActions({
           </button>
         )}
         <button
-          onClick={() => router.push("/queue")}
+          onClick={() => push("/queue")}
           className="inline-flex items-center h-8 px-3.5 rounded-lg border border-border bg-surface-2 text-text-muted text-xs hover:text-text transition-colors"
         >
           {withdrawn || answered ? "Keep it open" : "Back to the queue"}
         </button>
         <button
-          onClick={() => router.push(`/reviews/${reviewId}/judge`)}
+          onClick={() => push(`/reviews/${reviewId}/judge`)}
           className="inline-flex items-center h-8 px-3.5 rounded-lg text-text-faint text-xs hover:text-text-muted transition-colors"
         >
           Rest of this pull request →

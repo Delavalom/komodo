@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/auth";
-import { Button } from "@/components/ui";
+import { Button } from "@komodo/ui";
 
 export default async function SignInPage() {
   const session = await auth();

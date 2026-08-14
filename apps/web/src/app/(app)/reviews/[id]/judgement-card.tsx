@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Bot, Check, ChevronDown, Copy } from "lucide-react";
 import type { Judgement } from "@komodo/core";
-import { CHIP_CLASS, KIND_TINT, SeverityChip, cn, SEVERITY_COLOR, isSeverity } from "@/components/ui";
+import { CHIP_CLASS, KIND_TINT, SeverityChip, cn, SEVERITY_COLOR, isSeverity } from "@komodo/ui";
 
 export function JudgementCard({
   judgement,

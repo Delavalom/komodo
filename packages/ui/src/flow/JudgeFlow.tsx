@@ -1,24 +1,25 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import type { JudgementRow } from "@/db";
-import { BUCKET_TINT, CHIP_CLASS, EYEBROW_CLASS, KIND_TINT, Shortcuts } from "@/components/ui";
-import { answerJudgement, askQuestion, undoAnswer } from "../../../actions";
-import { JudgeHeader, type Pip } from "../../../judge-header";
+import type { JudgementView, ReviewActions } from "@komodo/core/store";
+import { BUCKET_TINT, CHIP_CLASS, EYEBROW_CLASS, KIND_TINT, Shortcuts } from "../kit";
+import { useNav } from "../nav";
+import { JudgeHeader, type Pip } from "./JudgeHeader";
 
 export function JudgeFlow({
   reviewId,
   prLabel,
   rows,
   startAt,
+  actions,
 }: {
   reviewId: string;
   prLabel: string;
-  rows: JudgementRow[];
+  rows: JudgementView[];
   startAt: number;
+  actions: ReviewActions;
 }) {
-  const router = useRouter();
+  const { push } = useNav();
   const [i, setI] = useState(startAt);
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -35,7 +36,7 @@ export function JudgeFlow({
     if (after !== -1) return setI(after);
     const anywhere = rows.findIndex((r) => r.bucket === null);
     if (anywhere !== -1) return setI(anywhere);
-    router.push(`/reviews/${reviewId}/close`);
+    push(`/reviews/${reviewId}/close`);
   }
 
   function pick(n: number) {
@@ -50,7 +51,7 @@ export function JudgeFlow({
     }
     startTransition(async () => {
       try {
-        await answerJudgement(d.id, n);
+        await actions.answer(d.id, n);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not record that.");
       }
@@ -61,7 +62,7 @@ export function JudgeFlow({
     if (!draft.trim() || pending) return;
     startTransition(async () => {
       try {
-        const res = await askQuestion(d.id, draft, blocking);
+        const res = await actions.ask(d.id, draft, blocking);
         setComposing(false);
         setDraft("");
         if (!res.delivered) {
@@ -78,7 +79,7 @@ export function JudgeFlow({
     setError(null);
     startTransition(async () => {
       try {
-        await undoAnswer(d.id);
+        await actions.undoAnswer(d.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not change that.");
       }
@@ -248,7 +249,7 @@ function Answered({
   onUndo,
   onNext,
 }: {
-  row: JudgementRow;
+  row: JudgementView;
   remaining: number;
   total: number;
   pending: boolean;

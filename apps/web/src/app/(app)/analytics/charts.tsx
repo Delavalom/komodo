@@ -1,4 +1,4 @@
-import { cn } from "@/components/ui";
+import { cn } from "@komodo/ui";
 
 /*
  * Server-rendered charts — no chart library, no client JS.

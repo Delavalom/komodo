@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Breadcrumbs } from "@/components/ui";
-import type { Crumb } from "@/components/ui";
+import { Breadcrumbs } from "@komodo/ui";
+import type { Crumb } from "@komodo/ui";
 
 /**
  * Sticky topbar: breadcrumbs left, page actions right.

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@komodo/core": "workspace:*",
+    "@komodo/tokens": "workspace:*",
+    "@komodo/ui": "workspace:*",
     "@polar-sh/sdk": "^0.34.0",
     "drizzle-orm": "^0.44.0",
     "lucide-react": "^0.468.0",

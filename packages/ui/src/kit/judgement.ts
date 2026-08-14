@@ -1,4 +1,4 @@
-import type { Bucket, JudgementKind } from "@komodo/core";
+import type { Bucket, JudgementKind } from "@komodo/core/store";
 
 /** Chip colours per judgement kind: text, border, background. */
 export const KIND_TINT: Record<JudgementKind, { color: string; border: string; bg: string }> = {

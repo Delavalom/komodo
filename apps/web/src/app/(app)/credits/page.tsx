@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { getDb, creditLedger } from "@/db";
 import { getBalance } from "@/lib/credits";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
-import { SectionLabel } from "@/components/ui";
+import { SectionLabel } from "@komodo/ui";
 import { BuyCredits } from "./buy-credits";
 
 const REASON_LABEL: Record<string, string> = {

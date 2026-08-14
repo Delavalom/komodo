@@ -1,4 +1,5 @@
 export * from "./schema.js";
+export * from "./store.js";
 export * from "./config.js";
 export * from "./diff.js";
 export * from "./diff-source.js";

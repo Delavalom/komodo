@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
-import { cn } from "@/components/ui";
+import { cn } from "@komodo/ui";
 
 /** Collapsed group for minor/trivial judgements, so the high-severity list stays scannable. */
 export function LowerJudgements({ count, children }: { count: number; children: ReactNode }) {

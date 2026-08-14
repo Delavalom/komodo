@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, TriangleAlert } from "lucide-react";
-import { Button, cn } from "@/components/ui";
+import { Button, cn } from "@komodo/ui";
 import { MODELS } from "@/lib/models";
 
 const MIN_BALANCE = 25;

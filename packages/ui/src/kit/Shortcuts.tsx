@@ -1,6 +1,6 @@
 "use client";
 
-import { useMountEffect } from "@/lib/use-mount-effect";
+import { useMountEffect } from "../lib/use-mount-effect";
 
 /**
  * A window-level keydown listener that closes over whatever props it was

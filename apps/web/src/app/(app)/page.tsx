@@ -11,7 +11,7 @@ import {
   SEVERITY_COLOR,
   StatCard,
   isSeverity,
-} from "@/components/ui";
+} from "@komodo/ui";
 
 function formatRelativeTime(date: Date): string {
   const diff = Date.now() - date.getTime();

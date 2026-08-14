@@ -1,0 +1,22 @@
+{
+  "name": "@komodo/tokens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The single definition site for Komodo's design tokens",
+  "exports": {
+    "./theme.css": "./theme.css",
+    "./base.css": "./base.css",
+    "./prose.css": "./prose.css"
+  },
+  "files": [
+    "theme.css",
+    "base.css",
+    "prose.css"
+  ],
+  "scripts": {
+    "build": "echo 'no build'",
+    "typecheck": "echo 'no types'",
+    "test": "echo 'no tests'"
+  }
+}

@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import { useNav } from "../nav";
 
 export interface Pip {
   /** Answered, current, or still ahead of you. */
@@ -24,6 +26,8 @@ export function JudgeHeader({
   pips?: Pip[];
   counter: string;
 }) {
+  const { Link } = useNav();
+
   return (
     <header className="h-14 shrink-0 flex items-center justify-between gap-4 px-5 border-b border-border bg-surface">
       <div className="flex items-center gap-2.5 text-[13px] text-text-muted min-w-0">

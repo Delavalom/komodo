@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { cn } from "@/components/ui";
+import { cn } from "@komodo/ui";
 
 interface NavItem {
   href: string;

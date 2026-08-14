@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@komodo/core"],
+  transpilePackages: ["@komodo/core", "@komodo/ui"],
   experimental: {
     serverActions: {
       allowedOrigins: ["localhost:3000"],

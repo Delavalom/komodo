@@ -1,3 +1,5 @@
+"use client";
+
 import { useSyncExternalStore } from "react";
 
 export type Async<T> =
@@ -36,6 +38,22 @@ class Resource<T> {
 
   getSnapshot = (): Async<T> => this.state;
 
+  /**
+   * Re-run the loader and publish the result.
+   *
+   * Deliberately keeps the current data on screen while the request is in
+   * flight — this fires after a mutation, and dropping back to "loading" would
+   * flash the whole screen for what is usually a few milliseconds of disk read.
+   */
+  reload = (): void => {
+    if (!this.started) return;
+    this.loader().then(
+      (data) => this.set({ status: "ok", data }),
+      (e: unknown) =>
+        this.set({ status: "error", error: e instanceof Error ? e.message : String(e) }),
+    );
+  };
+
   private set(next: Async<T>) {
     this.state = next;
     for (const l of this.listeners) l();
@@ -43,6 +61,16 @@ class Resource<T> {
 }
 
 const cache = new Map<string, Resource<unknown>>();
+
+/**
+ * Re-fetch every live resource.
+ *
+ * The cloud app gets this for free from `revalidatePath` after a server action;
+ * the SPA has to ask. Called after any mutation through the local store.
+ */
+export function invalidate(): void {
+  for (const resource of cache.values()) resource.reload();
+}
 
 /** Load (and memoise) an async value by key. Re-renders reuse the same request. */
 export function useResource<T>(key: string, loader: () => Promise<T>): Async<T> {

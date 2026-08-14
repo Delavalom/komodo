@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, useToast } from "@/components/ui";
+import { Button, useToast } from "@komodo/ui";
 
 const CREDIT_PACKS = [
   { key: "POLAR_PRODUCT_500", credits: 500, label: "500 credits", price: "$5", hint: "~30 reviews" },

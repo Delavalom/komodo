@@ -1,7 +1,8 @@
 import { notFound, redirect } from "next/navigation";
+import { JudgeFlow } from "@komodo/ui";
 import { auth } from "@/auth";
+import { cloudActions } from "@/lib/cloud-actions";
 import { loadReviewJudgements } from "@/lib/queue";
-import { JudgeFlow } from "./judge-flow";
 
 export default async function JudgePage({
   params,
@@ -19,24 +20,25 @@ export default async function JudgePage({
   const loaded = await loadReviewJudgements(id, session.user.id);
   if (!loaded) notFound();
 
-  const { review, rows } = loaded;
-  if (!rows.length) redirect(`/reviews/${id}/close`);
+  const { review, judgements } = loaded;
+  if (!judgements.length) redirect(`/reviews/${id}/close`);
 
   const requested = Number(at);
   const startAt =
-    Number.isInteger(requested) && requested >= 0 && requested < rows.length
+    Number.isInteger(requested) && requested >= 0 && requested < judgements.length
       ? requested
       : Math.max(
           0,
-          rows.findIndex((r) => r.bucket === null),
+          judgements.findIndex((j) => j.bucket === null),
         );
 
   return (
     <JudgeFlow
       reviewId={review.id}
       prLabel={`#${review.number} · ${review.title}`}
-      rows={rows}
+      rows={judgements}
       startAt={startAt}
+      actions={cloudActions}
     />
   );
 }

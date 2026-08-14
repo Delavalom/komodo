@@ -4,14 +4,16 @@ import { and, asc, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
   GitHubClient,
+  isBlocking,
   renderJudgementComment,
+  renderVerdict,
   type Bucket,
-  type Judgement,
   type PRRef,
 } from "@komodo/core";
 import { auth } from "@/auth";
 import { getDb, judgementMessages, judgements, reviews } from "@/db";
-import type { JudgementRow, Review } from "@/db";
+import type { Review } from "@/db";
+import { toJudgementView } from "@/lib/view";
 
 /** Everything an action needs, after proving the caller owns the judgement. */
 async function loadOwnedJudgement(judgementId: string) {
@@ -35,27 +37,6 @@ function refOf(review: Review): PRRef {
   return { owner: review.owner, repo: review.repo, number: review.number };
 }
 
-/** The judgement as the model produced it, for prompts and comment rendering. */
-function toJudgement(j: JudgementRow): Judgement {
-  return {
-    path: j.path,
-    line: j.line,
-    endLine: j.endLine ?? undefined,
-    severity: j.severity as Judgement["severity"],
-    kind: j.kind,
-    tag: j.tag,
-    title: j.title,
-    lede: j.lede,
-    detail: j.detail,
-    ask: j.ask,
-    sources: j.sources,
-    sourceNote: j.sourceNote,
-    code: j.code,
-    options: j.options,
-    suggestion: j.suggestion ?? undefined,
-    fixPrompt: j.fixPrompt,
-  };
-}
 
 /** Record a plain answer (anything but "I have a question first"). */
 export async function answerJudgement(judgementId: string, optionIndex: number): Promise<void> {
@@ -138,7 +119,7 @@ export async function askQuestion(
     // GitHub rejects comments anchored to a stale commit.
     const pr = await github.getPR(refOf(review));
     const body =
-      `${renderJudgementComment(toJudgement(judgement))}\n\n---\n\n` +
+      `${renderJudgementComment(toJudgementView(judgement))}\n\n---\n\n` +
       `**A question from the reviewer:**\n\n${question}` +
       (blocking ? "\n\n<sub>Merge is blocked until this is answered.</sub>" : "");
 
@@ -200,12 +181,14 @@ export async function postReview(
     .where(and(eq(judgements.reviewId, reviewId), ne(judgements.status, "withdrawn")))
     .orderBy(asc(judgements.ordinal));
 
-  const unanswered = rows.filter((r) => r.bucket === null);
+  const views = rows.map(toJudgementView);
+
+  const unanswered = views.filter((j) => j.bucket === null);
   if (unanswered.length) {
     return { error: `${unanswered.length} judgement(s) still unanswered.` };
   }
 
-  const blocking = rows.some((r) => r.bucket === "Blocks" || (r.bucket === "Asked" && r.blocking));
+  const blocking = isBlocking(views);
   const event = blocking ? ("REQUEST_CHANGES" as const) : ("APPROVE" as const);
 
   const github = new GitHubClient(session!.accessToken);
@@ -214,7 +197,7 @@ export async function postReview(
     const result = await github.postReview(
       refOf(review),
       pr.headSha,
-      renderVerdict(rows, blocking),
+      renderVerdict(views, blocking),
       event,
       [],
     );
@@ -232,33 +215,3 @@ export async function postReview(
   }
 }
 
-const BUCKET_ORDER: Bucket[] = ["Blocks", "Agreed", "Asked", "Passed on"];
-
-const BUCKET_HEADING: Record<Bucket, string> = {
-  Blocks: "Blocking",
-  Agreed: "Agreed",
-  Asked: "Questions for you",
-  "Passed on": "Passed on",
-};
-
-/** The reviewer's words, grouped by bucket — not Komodo's summary. */
-function renderVerdict(rows: JudgementRow[], blocking: boolean): string {
-  const parts: string[] = [
-    blocking
-      ? "Reviewed with 🦎 Komodo. Some of this blocks merge."
-      : "Reviewed with 🦎 Komodo. Nothing here blocks merge.",
-  ];
-
-  for (const bucket of BUCKET_ORDER) {
-    const inBucket = rows.filter((r) => r.bucket === bucket);
-    if (!inBucket.length) continue;
-
-    const lines = inBucket.map((r) => {
-      const title = r.title.replace(/\.$/, "");
-      return r.note ? `- ${title} — _${r.note}_` : `- ${title} — ${r.optionLabel}`;
-    });
-    parts.push(`### ${BUCKET_HEADING[bucket]}\n\n${lines.join("\n")}`);
-  }
-
-  return parts.join("\n\n");
-}

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { postReview } from "../../../actions";
+import type { ReviewActions } from "@komodo/core/store";
+import { useNav } from "../nav";
 
 export function PostReview({
   reviewId,
@@ -10,14 +10,16 @@ export function PostReview({
   disabled,
   postedUrl,
   meta,
+  actions,
 }: {
   reviewId: string;
   blocking: boolean;
   disabled: boolean;
   postedUrl: string | null;
   meta: string;
+  actions: ReviewActions;
 }) {
-  const router = useRouter();
+  const { push, refresh } = useNav();
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,13 +29,13 @@ export function PostReview({
   function post() {
     setError(null);
     startTransition(async () => {
-      const res = await postReview(reviewId);
+      const res = await actions.postReview(reviewId);
       if (res.error) {
         setError(res.error);
         setConfirming(false);
         return;
       }
-      router.refresh();
+      refresh();
     });
   }
 
@@ -91,7 +93,7 @@ export function PostReview({
           </button>
         ) : (
           <button
-            onClick={() => router.push(`/reviews/${reviewId}/judge?at=0`)}
+            onClick={() => push(`/reviews/${reviewId}/judge?at=0`)}
             className="inline-flex items-center h-11 px-4 rounded-[10px] border border-border bg-surface-2 text-text-muted text-[13px] hover:text-text transition-colors"
           >
             Go back through them
