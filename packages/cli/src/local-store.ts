@@ -413,6 +413,11 @@ function toJudgementViews(record: StoredRecord): JudgementView[] {
  * The `meta` → `pr` rename and the missing id/createdAt/posted fields predate
  * the answer state, so a file from an earlier CLI still opens rather than
  * failing to parse.
+ *
+ * Pre-v2 records hold `findings` instead of `judgements`. There is no honest
+ * way to invent a judgement's ask and options from a finding, so they read as
+ * having none — one legacy file in the directory must not take the queue down
+ * with it.
  */
 function migrate(raw: unknown, fallbackId: string): StoredRecord {
   const record = raw as StoredRecord & { meta?: ReviewRecord["pr"] };
@@ -420,6 +425,7 @@ function migrate(raw: unknown, fallbackId: string): StoredRecord {
     record.pr = record.meta;
     delete record.meta;
   }
+  record.result.judgements ??= [];
   record.id ??= fallbackId;
   record.createdAt ??= new Date().toISOString();
   record.posted ??= false;

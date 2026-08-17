@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1786645246070,
-  "projectRoot": "/Users/delavalom/delavalom-labs/komodo",
+  "lastScanned": 1786976456190,
+  "projectRoot": "/Users/langelarveloperez/delavalom/komodo",
   "techStack": {
     "languages": [
       {
@@ -24,7 +24,8 @@
     "devCommand": null,
     "scripts": {
       "build": "pnpm -r build",
-      "test": "pnpm -r test",
+      "check:drift": "node scripts/check-drift.mjs",
+      "test": "pnpm check:drift && pnpm -r test",
       "typecheck": "pnpm -r typecheck"
     }
   },
@@ -37,7 +38,9 @@
   "structure": {
     "isMonorepo": true,
     "workspaces": [],
-    "mainDirectories": [],
+    "mainDirectories": [
+      "scripts"
+    ],
     "gitBranches": {
       "defaultBranch": "main",
       "branchingStrategy": null
@@ -49,14 +52,14 @@
       "path": "apps",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1786645246056,
+      "lastAccessed": 1786976456148,
       "keyFiles": []
     },
     "copy_example": {
       "path": "copy_example",
       "purpose": null,
       "fileCount": 21,
-      "lastAccessed": 1786645246056,
+      "lastAccessed": 1786976456149,
       "keyFiles": [
         "Screenshot 2026-07-31 at 9.38.56 pm.png",
         "Screenshot 2026-07-31 at 9.39.10 pm.png",
@@ -69,14 +72,23 @@
       "path": "packages",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1786645246057,
+      "lastAccessed": 1786976456154,
       "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1786976456154,
+      "keyFiles": [
+        "check-drift.mjs"
+      ]
     },
     "skills": {
       "path": "skills",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1786645246062,
+      "lastAccessed": 1786976456154,
       "keyFiles": []
     }
   },
@@ -113,8 +125,8 @@
     },
     {
       "path": "packages/core/src/schema.ts",
-      "accessCount": 5,
-      "lastAccessed": 1786668841438,
+      "accessCount": 6,
+      "lastAccessed": 1786740114924,
       "type": "file"
     },
     {

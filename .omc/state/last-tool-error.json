@@ -1,7 +1,0 @@
-{
-  "tool_name": "mcp__claude-in-chrome__computer",
-  "tool_input_preview": "{\"action\":\"screenshot\",\"tabId\":2358820}",
-  "error": "Error capturing screenshot: Frame with ID 0 is showing error page",
-  "timestamp": "2026-08-14T19:28:45.209Z",
-  "retry_count": 1
-}

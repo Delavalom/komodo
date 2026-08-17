@@ -104,10 +104,25 @@ export async function uiCommand(opts: { port: string }): Promise<void> {
 
     // ---- static UI with SPA fallback ----
     let filePath = join(uiDir, normalize(path).replace(/^\/+/, "") || "index.html");
-    if (!filePath.startsWith(uiDir) || !existsSync(filePath) || statSync(filePath).isDirectory()) {
+    const missing =
+      !filePath.startsWith(uiDir) || !existsSync(filePath) || statSync(filePath).isDirectory();
+    if (missing) {
+      // Only routes get index.html. An asked-for file that is not here means a
+      // tab left over from before a rebuild is chasing a hashed chunk that no
+      // longer exists: answering with HTML makes that a module-parse error at
+      // some later import, so say 404 and let the reload be the obvious fix.
+      if (extname(filePath)) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found. This asset is from an older build — reload the page.\n");
+        return;
+      }
       filePath = join(uiDir, "index.html");
     }
-    res.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream",
+      // index.html names the hashed bundles, so it must never be the stale part.
+      ...(extname(filePath) === ".html" ? { "Cache-Control": "no-store" } : {}),
+    });
     createReadStream(filePath).pipe(res);
   }
 
