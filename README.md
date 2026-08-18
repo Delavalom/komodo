@@ -4,7 +4,7 @@
 
 ```bash
 npx komodo-review init   # 1. detect your Claude/Codex login + GitHub auth
-npx komodo-review pr 42  # 2. review the PR, post to GitHub, view locally
+npx komodo-review pr 43  # 2. review the PR, post to GitHub, view locally
 ```
 
 ## How it works
