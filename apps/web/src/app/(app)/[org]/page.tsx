@@ -9,5 +9,5 @@ export default async function OrgRoot({
   const { org } = await params;
   const { organization } = await loadSnapshot();
   if (org !== organization.slug) notFound();
-  redirect(`/${org}/-/pull-requests`);
+  redirect(`/${org}/-/queue`);
 }

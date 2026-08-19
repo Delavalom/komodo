@@ -29,7 +29,7 @@ export type {
 
 /* Re-exporting does not bind the names locally, and the query shapes below
    need them. */
-import type { ImpactLevel, ReviewStatus, Verdict } from "@komodo/store";
+import type { Finding, ImpactLevel, Judgment, ReviewStatus, Verdict } from "@komodo/store";
 
 export type MemoryKind = "rule" | "file";
 
@@ -150,6 +150,37 @@ export interface PersonalSettings {
 }
 
 /* ── Query shapes ───────────────────────────────────────────────────────── */
+
+/**
+ * One row of the team's review queue: the judgment, plus the things a reviewer
+ * decides on at a glance. Everything past `repoFullName` is derived at read
+ * time — none of it is stored, so it cannot go stale against the row it
+ * describes.
+ */
+export interface QueueRow extends Judgment {
+  repoFullName: string;
+  /** additions + deletions, and the bucket it falls in. */
+  changedLines: number;
+  sizeLabel: "XS" | "S" | "M" | "L" | "XL";
+  /** How long this has been sitting since anything last happened to it. */
+  waitingDays: number;
+  /** Open, not a draft, and my review was asked for and not yet given. */
+  needsMyReview: boolean;
+  /** Komodo says blocked, or a human already requested changes. */
+  isBlocked: boolean;
+  isStale: boolean;
+  /** The worst few findings, P0 first — the pre-triage the queue exists for. */
+  topFindings: Finding[];
+}
+
+export type QueueLens = "all" | "mine" | "blocked" | "stale";
+
+export interface QueueQuery {
+  lens?: QueueLens;
+  search?: string;
+  author?: string;
+  repo?: string;
+}
 
 export interface JudgmentQuery {
   search?: string;

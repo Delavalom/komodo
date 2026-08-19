@@ -44,6 +44,8 @@ import type {
   Organization,
   OrgSettings,
   PersonalSettings,
+  QueueQuery,
+  QueueRow,
   RepoCluster,
   Repository,
   SeriesPoint,
@@ -81,6 +83,122 @@ export function useRepoIndex(): Map<string, Repository> {
 }
 
 export const fullName = (r: Repository) => `${r.owner}/${r.name}`;
+
+/* ── The queue ──────────────────────────────────────────────────────────── */
+
+/** Sitting this long with nobody acting on it is the thing worth surfacing. */
+const STALE_DAYS = 3;
+
+const SIZE_BUCKETS: readonly [number, QueueRow["sizeLabel"]][] = [
+  [10, "XS"],
+  [50, "S"],
+  [250, "M"],
+  [1000, "L"],
+];
+
+function sizeLabel(lines: number): QueueRow["sizeLabel"] {
+  for (const [limit, label] of SIZE_BUCKETS) if (lines < limit) return label;
+  return "XL";
+}
+
+/** The signed-in member, or null when nobody on the roster is marked. */
+export function useMe(): Member | null {
+  const members = useSnapshot().members;
+  return useMemo(() => members.find((m) => m.isYou) ?? null, [members]);
+}
+
+/**
+ * The team's review queue.
+ *
+ * Open, non-draft pull requests, each carrying the pre-triage that makes this
+ * worth opening instead of GitHub's review tab: Komodo's verdict, how long it
+ * has waited, how big it is, and its worst findings.
+ */
+export function useQueue(query: QueueQuery = {}): QueueRow[] {
+  const judgments = useSnapshot().judgments;
+  const findings = useSnapshot().findings;
+  const repoIndex = useRepoIndex();
+  const me = useMe();
+  const login = me?.githubLogin ?? null;
+
+  const { lens = "all", search, author, repo } = query;
+
+  return useMemo(() => {
+    const bySeverity = { P0: 0, P1: 1, P2: 2 } as const;
+    const findingsFor = new Map<string, Finding[]>();
+    for (const f of findings) {
+      const list = findingsFor.get(f.judgmentId);
+      if (list) list.push(f);
+      else findingsFor.set(f.judgmentId, [f]);
+    }
+
+    const rows: QueueRow[] = [];
+    for (const j of judgments) {
+      if (j.state !== "open" || j.isDraft) continue;
+
+      const repository = repoIndex.get(j.repoId);
+      const changedLines = j.additions + j.deletions;
+      const waitingDays = Math.floor((NOW - j.updatedAt) / DAY_MS);
+
+      // "Asked for and not yet given" — an approval or a changes-requested
+      // from me means the ball is back in the author's court.
+      const needsMyReview =
+        login !== null &&
+        j.requestedReviewers.includes(login) &&
+        !j.approvals.includes(login) &&
+        !j.changesRequested.includes(login);
+
+      rows.push({
+        ...j,
+        repoFullName: repository ? fullName(repository) : j.repoId,
+        changedLines,
+        sizeLabel: sizeLabel(changedLines),
+        waitingDays,
+        needsMyReview,
+        isBlocked: j.verdict === "blocked" || j.changesRequested.length > 0,
+        isStale: waitingDays >= STALE_DAYS,
+        topFindings: (findingsFor.get(j.id) ?? [])
+          .filter((f) => f.status === "open")
+          .sort((a, b) => bySeverity[a.severity] - bySeverity[b.severity])
+          .slice(0, 3),
+      });
+    }
+
+    const q = (search ?? "").trim().toLowerCase();
+    const filtered = rows.filter((r) => {
+      if (lens === "mine" && !r.needsMyReview) return false;
+      if (lens === "blocked" && !r.isBlocked) return false;
+      if (lens === "stale" && !r.isStale) return false;
+      if (author && r.author !== author) return false;
+      if (repo && r.repoFullName !== repo) return false;
+      if (q) {
+        const haystack = [r.title, r.author, r.repoFullName, `#${r.number}`]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+
+    // Longest wait first: the queue's job is to surface what is going stale,
+    // not what landed most recently.
+    return filtered.sort((a, b) => a.updatedAt - b.updatedAt);
+  }, [judgments, findings, repoIndex, login, lens, search, author, repo]);
+}
+
+/** Row counts behind each lens, so the tabs can carry a badge. */
+export function useQueueCounts(query: Omit<QueueQuery, "lens"> = {}) {
+  const all = useQueue({ ...query, lens: "all" });
+  return useMemo(
+    () => ({
+      all: all.length,
+      mine: all.filter((r) => r.needsMyReview).length,
+      blocked: all.filter((r) => r.isBlocked).length,
+      stale: all.filter((r) => r.isStale).length,
+    }),
+    [all],
+  );
+}
 
 /* ── Judgments ──────────────────────────────────────────────────────────── */
 

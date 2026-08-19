@@ -6,5 +6,5 @@ export default async function OrgIndex({
   params: Promise<{ org: string }>;
 }) {
   const { org } = await params;
-  redirect(`/${org}/-/pull-requests`);
+  redirect(`/${org}/-/queue`);
 }

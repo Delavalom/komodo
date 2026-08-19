@@ -8,6 +8,7 @@ import {
   Building2,
   ChevronsUpDown,
   Gift,
+  Inbox,
   LineChart,
   LogOut,
   Plus,
@@ -199,6 +200,7 @@ function HeaderActions() {
 }
 
 const NAV = [
+  { href: "queue", label: "Queue", short: "Queue", Icon: Inbox },
   { href: "analytics", label: "Analytics", short: "Analytics", Icon: LineChart },
   { href: "custom-context", label: "Memory", short: "Memory", Icon: MemoryNavIcon },
   {
