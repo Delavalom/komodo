@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { OrgHeader } from "@/components/shell/org-header";
 import { TrialBanner } from "@/components/shell/banner";
-import { ORG } from "@/lib/data/seed";
+import { loadSnapshot } from "@/lib/data/server";
 
 export default async function OrgLayout({
   children,
@@ -13,9 +13,10 @@ export default async function OrgLayout({
   params: Promise<{ org: string }>;
 }) {
   const { org } = await params;
-  // Only one organization exists in the dummy dataset; anything else is a 404,
-  // as it is on the original. docs/SPEC.md §10.
-  if (org !== ORG.slug) notFound();
+  // One organization per deployment; anything else is a 404, as it is on the
+  // original. docs/SPEC.md §10.
+  const { organization } = await loadSnapshot();
+  if (org !== organization.slug) notFound();
 
   return (
     <>

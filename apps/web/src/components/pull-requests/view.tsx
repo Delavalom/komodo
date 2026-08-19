@@ -27,7 +27,10 @@ import {
   useRepositories,
 } from "@/lib/data/queries";
 import { useDataStore } from "@/lib/data/store";
-import { useSetJudgmentFilters } from "@/lib/data/mutations";
+import {
+  useRetriggerReviews,
+  useSetJudgmentFilters,
+} from "@/lib/data/mutations";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { useUrlState } from "@/lib/use-url-state";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
@@ -72,7 +75,7 @@ export function PullRequestsView() {
   const authors = useAuthors();
   const persisted = useDataStore((s) => s.judgmentFilters);
   const setJudgmentFilters = useSetJudgmentFilters();
-  const retrigger = useDataStore((s) => s.retriggerReviews);
+  const retrigger = useRetriggerReviews();
 
   const [selected, setSelected] = React.useState<string[]>([]);
 

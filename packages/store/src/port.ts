@@ -94,6 +94,9 @@ export interface FindingInput {
 }
 
 export interface StoreWriter {
+  /** Replaces the single organization row. */
+  setOrganization(org: Organization): Promise<void>;
+
   upsertRepository(repo: Omit<Repository, "id"> & { id?: string }): Promise<string>;
 
   /** Idempotent on (repoId, number). Never touches the PR's judgment. */

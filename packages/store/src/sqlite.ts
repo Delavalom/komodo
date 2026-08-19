@@ -10,6 +10,8 @@
  * primary key — the poller can re-upsert the same PR forever, and a review
  * that dies halfway resumes onto the same row instead of a duplicate.
  */
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type {
@@ -159,6 +161,11 @@ export class SqliteStore implements KomodoStore {
   private closed = false;
 
   constructor(options: SqliteStoreOptions) {
+    // SQLite will create the file but not the directory holding it, and the
+    // default path is `.komodo/` — which does not exist on a first run.
+    if (options.path !== ":memory:") {
+      mkdirSync(dirname(options.path), { recursive: true });
+    }
     this.db = new DatabaseSync(options.path);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA foreign_keys = ON");
@@ -504,8 +511,7 @@ export class SqliteStore implements KomodoStore {
     this.db.prepare("DELETE FROM members WHERE id = ?").run(memberId);
   }
 
-  /** Replaces the single organization row. Used by the seeder. */
-  setOrganization(org: Organization): void {
+  async setOrganization(org: Organization): Promise<void> {
     this.db.prepare("DELETE FROM organizations").run();
     this.db
       .prepare(

@@ -1,112 +1,43 @@
 /**
- * Domain model.
+ * The web app's view of the model.
  *
- * convex/schema.ts mirrors this file. The one place the two diverge on purpose
- * is `Judgment`: the schema normalises it into `pullRequests` (git facts) and
- * `judgments` (the verdict), while this type is the joined read-model that
- * `api.judgments.list` returns. Change both together.
+ * Every entity Komodo persists is defined once in @komodo/store and re-exported
+ * here, so the app and the ingester can never drift apart on what a judgment
+ * is. Only shapes that never reach a database — query params, derived
+ * analytics, and the settings surfaces still held in local state — are
+ * declared below.
+ *
+ * These are types, erased at compile time, so importing them into a client
+ * component pulls in nothing from the store package at runtime.
  */
+export type {
+  Finding,
+  FindingStatus,
+  ImpactLevel,
+  Judgment,
+  Member,
+  MemberRole,
+  Organization,
+  PullRequest,
+  PullRequestState,
+  Repository,
+  ReviewStatus,
+  Severity,
+  Team,
+  Verdict,
+} from "@komodo/store";
 
-export type ImpactLevel = "low" | "medium" | "high" | "critical";
-
-export type ReviewStatus =
-  | "completed"
-  | "pending"
-  | "skipped"
-  | "error"
-  | "trial_ended"
-  | "usage_limit";
-
-export type Severity = "P0" | "P1" | "P2";
-
-export type FindingStatus = "open" | "addressed" | "dismissed";
-
-/**
- * The call Komodo makes on a pull request — the whole point of a judgment.
- * `null` until a review completes.
- */
-export type Verdict = "ship" | "ship_with_notes" | "needs_work" | "blocked";
+/* Re-exporting does not bind the names locally, and the query shapes below
+   need them. */
+import type { ImpactLevel, ReviewStatus, Verdict } from "@komodo/store";
 
 export type MemoryKind = "rule" | "file";
 
 export type MemoryStatus = "active" | "inactive";
 
-export type MemberRole = "admin" | "member";
-
 export type IntegrationProvider = "atlassian" | "linear" | "devin";
 
 export type IntegrationStatus = "connected" | "not_configured" | "error";
-
-export interface Organization {
-  slug: string;
-  name: string;
-  role: MemberRole;
-  trialEndsAt: number;
-  plan: "trial" | "pro" | "enterprise";
-}
-
-export interface Repository {
-  id: string;
-  owner: string;
-  name: string;
-  provider: "github" | "gitlab";
-  enabled: boolean;
-  reviewCount: number;
-}
-
-/** Git facts about the pull request under judgment. Never Komodo's opinion. */
-export interface PullRequest {
-  id: string;
-  repoId: string;
-  number: number;
-  title: string;
-  author: string;
-  url: string;
-  createdAt: number;
-  updatedAt: number;
-  mergedAt: number | null;
-}
-
-/**
- * Komodo's verdict on one pull request — what a human reads instead of the
- * diff. Flat because it is a read-model: everything from `prId` down is joined
- * in from `pullRequests`, not stored on the judgment row.
- */
-export interface Judgment {
-  id: string;
-  verdict: Verdict | null;
-  status: ReviewStatus;
-  impact: ImpactLevel;
-  score: number;
-  reviewCount: number;
-  addressedComments: number;
-  totalComments: number;
-  upvotes: number;
-  downvotes: number;
-
-  prId: string;
-  repoId: string;
-  number: number;
-  title: string;
-  author: string;
-  url: string;
-  createdAt: number;
-  updatedAt: number;
-  mergedAt: number | null;
-}
-
-/** One issue raised inside a judgment. */
-export interface Finding {
-  id: string;
-  judgmentId: string;
-  title: string;
-  body: string;
-  severity: Severity;
-  isSecurity: boolean;
-  status: FindingStatus;
-  filePath: string;
-  createdAt: number;
-}
 
 export interface MemoryFile {
   path: string;
@@ -144,15 +75,6 @@ export interface Integration {
   provider: IntegrationProvider;
   status: IntegrationStatus;
   connectedAt: number | null;
-}
-
-export interface Member {
-  id: string;
-  email: string;
-  name: string;
-  role: MemberRole;
-  avatarSeed: string;
-  isYou: boolean;
 }
 
 export interface ApiKey {

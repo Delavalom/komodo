@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { ORG } from "@/lib/data/seed";
+import { loadSnapshot } from "@/lib/data/server";
 
 export default async function OrgRoot({
   params,
@@ -7,6 +7,7 @@ export default async function OrgRoot({
   params: Promise<{ org: string }>;
 }) {
   const { org } = await params;
-  if (org !== ORG.slug) notFound();
+  const { organization } = await loadSnapshot();
+  if (org !== organization.slug) notFound();
   redirect(`/${org}/-/pull-requests`);
 }

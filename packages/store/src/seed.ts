@@ -218,6 +218,14 @@ export async function seedStore(
   const now = options.now ?? Date.UTC(2026, 7, 18, 12, 0, 0);
   const you = options.you ?? AUTHORS[0];
 
+  await store.setOrganization({
+    slug: "delavalom-labs",
+    name: "Delavalom Labs",
+    role: "admin",
+    trialEndsAt: Date.UTC(2026, 7, 31, 12, 0, 0),
+    plan: "trial",
+  });
+
   const repoIds: string[] = [];
   for (const name of REPO_NAMES) {
     repoIds.push(

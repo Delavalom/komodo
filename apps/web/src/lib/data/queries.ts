@@ -3,16 +3,19 @@
 /**
  * Read seam. docs/SPEC.md §12.
  *
- * Every hook is named after the Convex function it becomes and says so in its
- * doc comment. Bringing the backend online means changing each body from a
- * store read to `useQuery(api.…)` — one file, one hook at a time.
+ * The shared entities come from the server snapshot through useSnapshot();
+ * the configuration surfaces with no backing table yet still read local
+ * state. Each hook changed one line to cross over, which is what the seam was
+ * built for.
  *
  * Analytics are DERIVED here from the entity list, never stored, so a filtered
- * list and its summary widgets can never disagree.
+ * list and its summary widgets can never disagree. That is also why the
+ * snapshot is unpaginated: a team's review history is hundreds of rows.
  */
 import { useMemo } from "react";
 
-import { ORG, USAGE_FROM, USAGE_TO } from "@/lib/data/seed";
+import { USAGE_FROM, USAGE_TO } from "@/lib/data/seed";
+import { useSnapshot } from "@/lib/data/provider";
 import { useDataStore } from "@/lib/data/store";
 import {
   DAY_MS,
@@ -51,14 +54,13 @@ import type {
 
 /* ── Org ────────────────────────────────────────────────────────────────── */
 
-/** convex: api.orgs.get({ slug }) */
 export function useOrganization(): Organization {
-  return ORG;
+  return useSnapshot().organization;
 }
 
 /** convex: api.repos.list({ orgId }) */
 export function useRepositories(): Repository[] {
-  return useDataStore((s) => s.repos);
+  return useSnapshot().repositories;
 }
 
 /** convex: api.repos.list({ orgId, search }) */
@@ -84,7 +86,7 @@ export const fullName = (r: Repository) => `${r.owner}/${r.name}`;
 
 /** convex: api.judgments.list({ orgId, search, filters, sort }) */
 export function useJudgments(query: JudgmentQuery = {}): Judgment[] {
-  const prs = useDataStore((s) => s.judgments);
+  const prs = useSnapshot().judgments;
   const repoIndex = useRepoIndex();
 
   return useMemo(() => {
@@ -136,7 +138,7 @@ export function matchesComparison(value: number, expr: string): boolean {
 }
 
 export function useAuthors(): string[] {
-  const prs = useDataStore((s) => s.judgments);
+  const prs = useSnapshot().judgments;
   return useMemo(
     () => [...new Set(prs.map((p) => p.author))].sort(),
     [prs],
@@ -202,7 +204,7 @@ function bucketsFor(w: Window, granularity: Granularity): number[] {
  * destructured to primitives before it reaches any dependency array.
  */
 function useScopedJudgments(query: AnalyticsQuery) {
-  const prs = useDataStore((s) => s.judgments);
+  const prs = useSnapshot().judgments;
   const repoIndex = useRepoIndex();
   const { from, to } = timeframeWindow(query.timeframe);
   const repos = query.repos;
@@ -226,7 +228,7 @@ function useScopedJudgments(query: AnalyticsQuery) {
 }
 
 function useScopedFindings(query: AnalyticsQuery) {
-  const findings = useDataStore((s) => s.findings);
+  const findings = useSnapshot().findings;
   const { scoped } = useScopedJudgments(query);
   return useMemo(() => {
     const ids = new Set(scoped.map((p) => p.id));
@@ -590,7 +592,7 @@ export function useFindings(
   search: string,
 ): FindingRow[] {
   const findings = useScopedFindings(query);
-  const prs = useDataStore((s) => s.judgments);
+  const prs = useSnapshot().judgments;
   const repoIndex = useRepoIndex();
 
   return useMemo(() => {
@@ -713,7 +715,7 @@ export function useIntegrations(): Integration[] {
 
 /** convex: api.members.list({ orgId, search, role }) */
 export function useMembers(search = "", role: string = "all"): Member[] {
-  const members = useDataStore((s) => s.members);
+  const members = useSnapshot().members;
   return useMemo(() => {
     const q = search.trim().toLowerCase();
     return members.filter((m) => {
@@ -755,7 +757,7 @@ export const USAGE_WINDOW = { from: USAGE_FROM, to: USAGE_TO };
  * from a seed. This is the ONE place that happens — see CONVENTIONS.
  */
 export function useUsageDays(): UsageDay[] {
-  const prs = useDataStore((s) => s.judgments);
+  const prs = useSnapshot().judgments;
   return useMemo(() => {
     const out: UsageDay[] = [];
     for (let d = USAGE_FROM; d <= USAGE_TO; d += DAY_MS) {

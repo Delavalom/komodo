@@ -1,313 +1,36 @@
 /**
- * Deterministic dummy dataset. docs/SPEC.md §12.
+ * Local-only fixtures.
  *
- * Components never import this file — they go through lib/data/queries.ts.
+ * The review data — repositories, pull requests, judgments, findings, members
+ * and the organization — now comes from @komodo/store through the server
+ * loader, so it is shared rather than per-browser. What is left here is the
+ * configuration surface that has no backing table yet and still lives in
+ * local state.
+ *
  * Everything is derived from a hash-seeded PRNG and the pinned NOW, so the
  * server and the client render byte-identical output.
  */
 import { DAY_MS, NOW, pick, rng, startOfDay } from "@/lib/utils";
 import type {
   ApiKey,
-  Finding,
-  ImpactLevel,
   Integration,
-  Judgment,
-  Member,
   MemoryRule,
-  Organization,
   OrgSettings,
   PersonalSettings,
   RepoCluster,
-  Repository,
-  ReviewStatus,
-  Severity,
-  Verdict,
 } from "@/lib/types";
 
-export const ORG: Organization = {
-  slug: "delavalom-labs",
-  name: "Delavalom Labs",
-  role: "admin",
-  trialEndsAt: Date.UTC(2026, 7, 31, 12, 0, 0),
-  plan: "trial",
-};
-
-const REPO_NAMES = [
-  "komodo",
-  "gramkit",
-  "railpack",
-  "marketing",
-  "jobs",
-  "market-hq-dbt",
-  "ahq",
-  "arvlang",
-  "blender-mcp",
-  "buildolatam",
-  "chatbots-gpt",
-  "clone-notion-ai",
-  "7-labs",
-  "7exchange-waitlist",
-  "61149",
-] as const;
-
-export const REPOS: Repository[] = REPO_NAMES.map((name, i) => {
-  return {
-    id: `repo_${i + 1}`,
-    owner: "delavalom",
-    name,
-    provider: "github" as const,
-    enabled: true,
-    reviewCount: 0, // filled in below from the PR list
-  };
-});
-
-export const repoFullName = (repo: Repository) => `${repo.owner}/${repo.name}`;
-
-const AUTHORS = [
-  "Delavalom",
-  "mgutierrez",
-  "kbrennan",
-  "s-okonkwo",
-  "rvasquez",
-  "jlindqvist",
-] as const;
-
-const TITLE_SHAPES: readonly ((next: () => number) => string)[] = [
-  (n) => `feat(${pick(n, SCOPES)}): ${pick(n, FEATURES)}`,
-  (n) => `fix(${pick(n, SCOPES)}): ${pick(n, FIXES)}`,
-  (n) => `refactor(${pick(n, SCOPES)}): ${pick(n, REFACTORS)}`,
-  (n) => `chore(deps): bump ${pick(n, DEPS)}`,
-  (n) => `perf(${pick(n, SCOPES)}): ${pick(n, PERFS)}`,
-  (n) => `docs: ${pick(n, DOCS)}`,
-  (n) => `test(${pick(n, SCOPES)}): ${pick(n, TESTS)}`,
-];
-
-const SCOPES = [
-  "state", "api", "auth", "ui", "db", "worker", "router", "billing",
-  "cache", "search", "webhooks", "editor",
-] as const;
-
-const FEATURES = [
-  "remove obsolete state files and add new session data",
-  "add cursor-based pagination to the list endpoint",
-  "support multi-tenant workspace switching",
-  "introduce a background retry queue",
-  "add optimistic updates to the compose flow",
-  "expose per-repo review settings",
-  "add keyboard shortcuts to the results table",
-  "stream partial responses from the agent",
-  "persist filter chips to the query string",
-  "add a dry-run mode to the migration CLI",
-] as const;
-
-const FIXES = [
-  "guard against a null repository on first render",
-  "stop double-counting reviews on re-trigger",
-  "correct the timezone used for daily buckets",
-  "avoid a race when two syncs overlap",
-  "escape glob characters in file patterns",
-  "restore focus after closing the drawer",
-  "handle 429s from the provider with backoff",
-  "clamp the confidence score to 0..5",
-] as const;
-
-const REFACTORS = [
-  "extract the pagination hook",
-  "collapse three near-identical selectors",
-  "move formatters out of the component tree",
-  "replace the ad-hoc cache with an LRU",
-  "split the settings page into sections",
-] as const;
-
-const PERFS = [
-  "memoize the derived analytics series",
-  "batch the per-row status queries",
-  "drop an unnecessary full-table scan",
-  "lazy-load the diagram renderer",
-] as const;
-
-const DOCS = [
-  "document the webhook payload shape",
-  "add a runbook for failed syncs",
-  "explain the credit accounting model",
-] as const;
-
-const TESTS = [
-  "cover the empty-result path",
-  "add regression tests for the filter parser",
-  "assert the URL encoding round-trips",
-] as const;
-
-const DEPS = [
-  "next from 16.2.0 to 16.3.1",
-  "zod from 3.24.1 to 3.25.0",
-  "typescript from 5.7.2 to 5.8.3",
-  "eslint from 9.18.0 to 9.22.0",
-] as const;
-
-const STATUS_WEIGHTS: readonly [ReviewStatus, number][] = [
-  ["completed", 0.78],
-  ["pending", 0.08],
-  ["skipped", 0.07],
-  ["error", 0.04],
-  ["usage_limit", 0.02],
-  ["trial_ended", 0.01],
-];
-
-function weightedStatus(r: number): ReviewStatus {
-  let acc = 0;
-  for (const [status, weight] of STATUS_WEIGHTS) {
-    acc += weight;
-    if (r < acc) return status;
-  }
-  return "completed";
-}
-
-function weightedImpact(r: number): ImpactLevel {
-  if (r < 0.46) return "low";
-  if (r < 0.78) return "medium";
-  if (r < 0.94) return "high";
-  return "critical";
-}
-
-const PR_COUNT = 184;
-const WINDOW_DAYS = 120;
-
 /**
- * The call, derived from the same numbers the reader sees. A judgment that
- * disagreed with its own score would be worse than no judgment at all.
+ * Repository ids as @komodo/store derives them, so a memory rule scoped to a
+ * repo points at the same row the queue does.
  */
-function verdictFor(
-  status: ReviewStatus,
-  score: number,
-  impact: ImpactLevel,
-): Verdict | null {
-  if (status !== "completed") return null;
-  if (score >= 5) return "ship";
-  if (score >= 4) return impact === "critical" ? "needs_work" : "ship_with_notes";
-  if (score >= 2) return "needs_work";
-  return "blocked";
-}
-
-function buildJudgments(): Judgment[] {
-  const out: Judgment[] = [];
-  const perRepoNumber = new Map<string, number>();
-
-  for (let i = 0; i < PR_COUNT; i++) {
-    const next = rng(`pr:${i}`);
-    // Bias toward recent so chart density matches a live account.
-    const ageDays = Math.floor(Math.pow(next(), 2.1) * WINDOW_DAYS);
-    const jitter = Math.floor(next() * DAY_MS);
-    const updatedAt = NOW - ageDays * DAY_MS - jitter;
-    const openFor = 1 + Math.floor(next() * 14);
-    const createdAt = updatedAt - openFor * DAY_MS;
-
-    const repo = pick(next, REPOS);
-    const number = (perRepoNumber.get(repo.id) ?? 0) + 1;
-    perRepoNumber.set(repo.id, number);
-
-    const status = weightedStatus(next());
-    const reviewCount = status === "completed" ? 1 + Math.floor(next() * 3) : 0;
-    const totalComments =
-      status === "completed" ? Math.floor(next() * 9) : 0;
-    const addressedComments =
-      totalComments === 0 ? 0 : Math.floor(next() * (totalComments + 1));
-    const merged = status === "completed" && next() < 0.82;
-    const impact = weightedImpact(next());
-    const score = status === "completed" ? 1 + Math.floor(next() * 5) : 0;
-
-    out.push({
-      id: `judgment_${i + 1}`,
-      prId: `pr_${i + 1}`,
-      repoId: repo.id,
-      number,
-      title: pick(next, TITLE_SHAPES)(next),
-      author: pick(next, AUTHORS),
-      url: `https://github.com/${repo.owner}/${repo.name}/pull/${number}`,
-      createdAt,
-      updatedAt,
-      mergedAt: merged ? updatedAt : null,
-      reviewCount,
-      impact,
-      status,
-      score,
-      verdict: verdictFor(status, score, impact),
-      addressedComments,
-      totalComments,
-      upvotes: Math.floor(next() * 4),
-      downvotes: next() < 0.18 ? 1 : 0,
-    });
-  }
-
-  return out.sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-export const JUDGMENTS: Judgment[] = buildJudgments();
-
-for (const repo of REPOS) {
-  repo.reviewCount = JUDGMENTS.filter(
-    (j) => j.repoId === repo.id,
-  ).reduce((sum, j) => sum + j.reviewCount, 0);
-}
-
-const FINDING_TITLES = [
-  "Unvalidated user input reaches the SQL builder",
-  "Missing null check before dereferencing the session",
-  "Race condition between the two sync workers",
-  "Secret is logged at info level",
-  "Off-by-one in the pagination offset",
-  "Unbounded retry loop on a 5xx response",
-  "Timezone assumed to be UTC in a local-time context",
-  "Error swallowed by an empty catch block",
-  "N+1 query inside the row renderer",
-  "Regex is vulnerable to catastrophic backtracking",
-  "Response cached without a user-scoped key",
-  "Float used for a currency amount",
+const REPO_NAMES = [
+  "komodo", "gramkit", "railpack", "marketing", "jobs", "market-hq-dbt",
+  "ahq", "arvlang", "blender-mcp", "buildolatam", "chatbots-gpt",
+  "clone-notion-ai", "7-labs", "7exchange-waitlist", "61149",
 ] as const;
 
-const FINDING_FILES = [
-  "src/server/db/query.ts",
-  "src/app/api/reviews/route.ts",
-  "packages/worker/src/sync.ts",
-  "src/lib/auth/session.ts",
-  "src/components/table/row.tsx",
-  "packages/core/src/retry.ts",
-  "src/lib/format/date.ts",
-  "src/lib/cache/index.ts",
-] as const;
-
-function buildFindings(): Finding[] {
-  const out: Finding[] = [];
-  const reviewed = JUDGMENTS.filter((j) => j.status === "completed");
-  let id = 0;
-
-  for (const judgment of reviewed) {
-    const next = rng(`finding:${judgment.id}`);
-    const count = next() < 0.42 ? 0 : 1 + Math.floor(next() * 3);
-    for (let i = 0; i < count; i++) {
-      const r = next();
-      const severity: Severity = r < 0.14 ? "P0" : r < 0.48 ? "P1" : "P2";
-      const s = next();
-      out.push({
-        id: `finding_${++id}`,
-        judgmentId: judgment.id,
-        title: pick(next, FINDING_TITLES),
-        body:
-          "Greptile flagged this while reviewing the diff. " +
-          "Push back if it's wrong — it has no feelings.",
-        severity,
-        isSecurity: next() < 0.22,
-        status: s < 0.46 ? "addressed" : s < 0.86 ? "open" : "dismissed",
-        filePath: pick(next, FINDING_FILES),
-        createdAt: judgment.updatedAt - Math.floor(next() * DAY_MS),
-      });
-    }
-  }
-
-  return out.sort((a, b) => b.createdAt - a.createdAt);
-}
-
-export const FINDINGS: Finding[] = buildFindings();
+const REPO_IDS = REPO_NAMES.map((name) => `delavalom/${name}`);
 
 /* ── Memory ─────────────────────────────────────────────────────────────── */
 
@@ -346,7 +69,7 @@ function buildMemoryRules(): MemoryRule[] {
   for (let i = 0; i < 26; i++) {
     const next = rng(`memfile:${i}`);
     const shape = FILE_RULE_SHAPES[i % FILE_RULE_SHAPES.length];
-    const repo = pick(next, REPOS);
+    const repoId = pick(next, REPO_IDS);
     const fileCount = 1 + Math.floor(Math.pow(next(), 2.4) * 42);
     const usageCount = next() < 0.42 ? 0 : Math.floor(next() * 34);
     const upvotes = usageCount === 0 ? 0 : Math.floor(next() * usageCount);
@@ -362,9 +85,9 @@ function buildMemoryRules(): MemoryRule[] {
       files: Array.from({ length: Math.min(fileCount, 6) }, (_, f) => ({
         path: f === 0 ? shape.file : `packages/p${f}/${shape.file}`,
         uses: Math.floor(next() * 6),
-        repoFullName: repoFullName(repo),
+        repoFullName: repoId,
       })),
-      repoId: repo.id,
+      repoId,
       fileGlob: "",
       status: next() < 0.88 ? "active" : "inactive",
       usageCount,
@@ -387,7 +110,7 @@ function buildMemoryRules(): MemoryRule[] {
       kind: "rule",
       pattern: WRITTEN_RULES[i],
       files: [],
-      repoId: next() < 0.5 ? null : pick(next, REPOS).id,
+      repoId: next() < 0.5 ? null : pick(next, REPO_IDS),
       fileGlob: next() < 0.4 ? "src/**/*.tsx" : "",
       status: "active",
       usageCount,
@@ -408,17 +131,6 @@ export const MEMORY_RULES: MemoryRule[] = buildMemoryRules();
 export const REPO_CLUSTERS: RepoCluster[] = [];
 
 export const INTEGRATIONS: Integration[] = [];
-
-export const MEMBERS: Member[] = [
-  {
-    id: "member_1",
-    email: "hi@delavalom.com",
-    name: "Luis Angel Arvelo Perez",
-    role: "admin",
-    avatarSeed: "hi@delavalom.com",
-    isYou: true,
-  },
-];
 
 export const API_KEYS: ApiKey[] = [];
 
@@ -478,4 +190,6 @@ export const PERSONAL_SETTINGS: PersonalSettings = {
 
 /** The 15-day billing window shown on /settings/usage. §8.10 */
 export const USAGE_FROM = startOfDay(NOW - DAY_MS);
-export const USAGE_TO = startOfDay(ORG.trialEndsAt);
+/** The trial's end, pinned rather than read off the organization: the usage
+ *  window has to be a module constant, and the org now loads at request time. */
+export const USAGE_TO = startOfDay(Date.UTC(2026, 7, 31, 12, 0, 0));

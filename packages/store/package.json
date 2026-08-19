@@ -24,7 +24,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/sqlite.ts src/seed.ts --format esm --dts --clean",
+    "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

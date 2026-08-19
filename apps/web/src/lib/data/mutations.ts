@@ -3,17 +3,16 @@
 /**
  * Write seam. docs/SPEC.md §12.
  *
- * Each hook is named after the Convex mutation it becomes. Today they return
- * store actions; tomorrow they return `useMutation(api.…)`. Callers don't move.
+ * Writes against store-owned entities forward to the server actions in
+ * lib/data/actions.ts, so they land in the shared database and revalidate for
+ * everyone. The rest still write local state. Callers see one hook either way.
  */
+import * as actions from "@/lib/data/actions";
 import { useDataStore } from "@/lib/data/store";
 
-/** convex: api.repos.setEnabled({ repoId, enabled }) */
-export const useSetRepoEnabled = () => useDataStore((s) => s.setRepoEnabled);
+export const useSetRepoEnabled = () => actions.setRepoEnabled;
 
-/** convex: api.judgments.retrigger({ judgmentIds }) */
-export const useRetriggerReviews = () =>
-  useDataStore((s) => s.retriggerReviews);
+export const useRetriggerReviews = () => actions.retriggerReviews;
 
 /** convex: api.memory.create({ description, kind, pattern, scope }) */
 export const useCreateMemoryRule = () =>
@@ -43,11 +42,9 @@ export const useConnectIntegration = () =>
 export const useDisconnectIntegration = () =>
   useDataStore((s) => s.disconnectIntegration);
 
-/** convex: api.members.invite({ email }) */
-export const useInviteMember = () => useDataStore((s) => s.inviteMember);
+export const useInviteMember = () => actions.inviteMember;
 
-/** convex: api.members.remove({ id }) */
-export const useRemoveMember = () => useDataStore((s) => s.removeMember);
+export const useRemoveMember = () => actions.removeMember;
 
 /** convex: api.apiKeys.create({ name }) */
 export const useCreateApiKey = () => useDataStore((s) => s.createApiKey);

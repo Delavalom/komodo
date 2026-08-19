@@ -8,7 +8,14 @@
     "type": "git",
     "url": "git+https://github.com/Delavalom/komodo.git"
   },
-  "keywords": ["code-review", "ai", "pull-request", "claude", "codex", "github"],
+  "keywords": [
+    "code-review",
+    "ai",
+    "pull-request",
+    "claude",
+    "codex",
+    "github"
+  ],
   "bin": {
     "komodo-review": "./dist/index.js"
   },
@@ -16,7 +23,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --clean && node scripts/copy-ui.mjs",
+    "build": "tsup src/index.ts --format esm --clean",
     "typecheck": "tsc -p tsconfig.json",
     "test": "echo 'no tests'"
   },
@@ -30,13 +37,14 @@
   },
   "devDependencies": {
     "@komodo/core": "workspace:*",
-    "@komodo/ui": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/picomatch": "^4.0.0",
     "tsup": "^8.3.0",
     "typescript": "^5.7.0"
   },
   "tsup": {
-    "noExternal": ["@komodo/core"]
+    "noExternal": [
+      "@komodo/core"
+    ]
   }
 }
