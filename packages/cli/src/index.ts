@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { diffCommand } from "./commands/diff.js";
 import { initCommand } from "./commands/init.js";
 import { prCommand } from "./commands/pr.js";
-import { uiCommand } from "./commands/ui.js";
+import { devCommand, serveCommand } from "./commands/serve.js";
 import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
 
@@ -31,10 +31,28 @@ program
   .action(prCommand);
 
 program
-  .command("ui")
-  .description("Serve the local review viewer for this repo's .komodo/reviews")
+  .command("dev")
+  .description("Start the review queue locally — store, ingester and UI in one command")
   .option("-p, --port <port>", "port", "4400")
-  .action(uiCommand);
+  .option("--db <path>", "database file (default .komodo/komodo.db)")
+  .option("--interval <seconds>", "seconds between GitHub polls", "60")
+  .option("--no-poll", "serve the UI without polling GitHub")
+  .option("--no-seed", "start empty instead of seeding a sample queue")
+  .option("--post", "post reviews back to GitHub", false)
+  .option("--provider <name>", "claude | codex | openrouter")
+  .action(devCommand);
+
+program
+  .command("serve")
+  .description("Run the review queue as a long-lived service for a team")
+  .option("-p, --port <port>", "port", "4400")
+  .option("--db <path>", "database file (default .komodo/komodo.db)")
+  .option("--interval <seconds>", "seconds between GitHub polls", "60")
+  .option("--no-poll", "serve the UI without polling GitHub")
+  .option("--seed", "seed a sample queue when the store is empty", false)
+  .option("--post", "post reviews back to GitHub", false)
+  .option("--provider <name>", "claude | codex | openrouter")
+  .action(serveCommand);
 
 program
   .command("diff")

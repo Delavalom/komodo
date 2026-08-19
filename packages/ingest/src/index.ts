@@ -1,3 +1,4 @@
+export { applyTeamConfig, type TeamSyncResult } from "./config-sync.js";
 export { ingestOnce, runIngestLoop, type IngestOptions } from "./loop.js";
 export { pollRepositories, type PollResult } from "./poll.js";
 export {

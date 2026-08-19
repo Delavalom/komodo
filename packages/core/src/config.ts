@@ -67,6 +67,26 @@ export const KomodoConfigSchema = z.object({
       status_check: z.boolean().default(false),
     })
     .prefault({}),
+  /**
+   * Who the queue is for.
+   *
+   * A Komodo-local roster rather than a GitHub team, so it needs no org admin
+   * rights and can span organisations — which matters when the person running
+   * this does not own the org's settings.
+   */
+  team: z
+    .object({
+      name: z.string().default("Team"),
+      /** URL slug for the deployment. Defaults to the team name, slugified. */
+      slug: z.string().optional(),
+      /** GitHub logins. The join key between the roster and PR authors. */
+      members: z.array(z.string()).default([]),
+      /** owner/name, the repositories the poller watches. */
+      repos: z.array(z.string()).default([]),
+      /** Which login the UI treats as the signed-in user. */
+      you: z.string().optional(),
+    })
+    .prefault({}),
   local: z
     .object({
       base_branch: z.string().default("auto"),

@@ -29,6 +29,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.0",
+    "@komodo/ingest": "workspace:*",
+    "@komodo/store": "workspace:*",
     "commander": "^13.0.0",
     "picocolors": "^1.1.0",
     "picomatch": "^4.0.2",
@@ -41,10 +43,5 @@
     "@types/picomatch": "^4.0.0",
     "tsup": "^8.3.0",
     "typescript": "^5.7.0"
-  },
-  "tsup": {
-    "noExternal": [
-      "@komodo/core"
-    ]
   }
 }

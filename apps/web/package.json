@@ -4,13 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/copy-standalone.mjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@komodo/store": "workspace:*",
+    "@swc/helpers": "^0.5.23",
     "clsx": "^2.1.1",
     "convex": "^1.44.0",
     "date-fns": "^4.4.0",
