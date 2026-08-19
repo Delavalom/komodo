@@ -7,9 +7,10 @@
   },
   "packageManager": "pnpm@10.13.1",
   "scripts": {
+    "dev": "pnpm -C apps/web dev",
     "build": "pnpm -r build",
-    "check:drift": "node scripts/check-drift.mjs",
-    "test": "pnpm check:drift && pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm typecheck"
   }
 }

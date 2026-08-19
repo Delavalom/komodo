@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1786976456190,
-  "projectRoot": "/Users/langelarveloperez/delavalom/komodo",
+  "lastScanned": 1787089950839,
+  "projectRoot": "/Users/delavalom/delavalom-labs/komodo",
   "techStack": {
     "languages": [
       {
@@ -52,14 +52,14 @@
       "path": "apps",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1786976456148,
+      "lastAccessed": 1787089950820,
       "keyFiles": []
     },
     "copy_example": {
       "path": "copy_example",
       "purpose": null,
       "fileCount": 21,
-      "lastAccessed": 1786976456149,
+      "lastAccessed": 1787089950821,
       "keyFiles": [
         "Screenshot 2026-07-31 at 9.38.56 pm.png",
         "Screenshot 2026-07-31 at 9.39.10 pm.png",
@@ -72,14 +72,14 @@
       "path": "packages",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1786976456154,
+      "lastAccessed": 1787089950828,
       "keyFiles": []
     },
     "scripts": {
       "path": "scripts",
       "purpose": "Build/utility scripts",
       "fileCount": 1,
-      "lastAccessed": 1786976456154,
+      "lastAccessed": 1787089950828,
       "keyFiles": [
         "check-drift.mjs"
       ]
@@ -88,311 +88,10 @@
       "path": "skills",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1786976456154,
+      "lastAccessed": 1787089950829,
       "keyFiles": []
     }
   },
-  "hotPaths": [
-    {
-      "path": "apps/web/src/app/globals.css",
-      "accessCount": 11,
-      "lastAccessed": 1786737237468,
-      "type": "file"
-    },
-    {
-      "path": "packages/ui/src/components/ReviewDetail.tsx",
-      "accessCount": 10,
-      "lastAccessed": 1786737345941,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/db/schema.ts",
-      "accessCount": 8,
-      "lastAccessed": 1786669198196,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/reviews/[id]/page.tsx",
-      "accessCount": 6,
-      "lastAccessed": 1786645336155,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/api/reviews/route.ts",
-      "accessCount": 6,
-      "lastAccessed": 1786669222774,
-      "type": "file"
-    },
-    {
-      "path": "packages/core/src/schema.ts",
-      "accessCount": 6,
-      "lastAccessed": 1786740114924,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/page.tsx",
-      "accessCount": 4,
-      "lastAccessed": 1786645331746,
-      "type": "file"
-    },
-    {
-      "path": "packages/ui/src/components/MermaidBlock.tsx",
-      "accessCount": 4,
-      "lastAccessed": 1786737141054,
-      "type": "file"
-    },
-    {
-      "path": "packages/core/src/providers/prompt.ts",
-      "accessCount": 3,
-      "lastAccessed": 1786668867564,
-      "type": "file"
-    },
-    {
-      "path": "packages/core/src/providers/openrouter.ts",
-      "accessCount": 3,
-      "lastAccessed": 1786668904546,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/package.json",
-      "accessCount": 3,
-      "lastAccessed": 1786736613716,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/Toast.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809451073,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/Toggle.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809453093,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/shell/Sidebar.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809525013,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/layout.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809554892,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/sign-in/page.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809644140,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/new/page.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809648906,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/new/review-form.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809701355,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/credits/page.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785809791682,
-      "type": "file"
-    },
-    {
-      "path": "apps/marketing/src/pages/index.astro",
-      "accessCount": 2,
-      "lastAccessed": 1785810135092,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/lib/settings.ts",
-      "accessCount": 2,
-      "lastAccessed": 1785810187867,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/settings/settings-form.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1785810189555,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/Card.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1786645603015,
-      "type": "file"
-    },
-    {
-      "path": "packages/core/src/providers/index.ts",
-      "accessCount": 2,
-      "lastAccessed": 1786668910934,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/cn.ts",
-      "accessCount": 1,
-      "lastAccessed": 1785809369303,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/severity.ts",
-      "accessCount": 1,
-      "lastAccessed": 1785809374564,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/Button.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809381619,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/Chip.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809397257,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/ConfidenceMeter.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809403830,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/StatCard.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809408067,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/EmptyState.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809410914,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/SettingRow.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809424838,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/SegmentedTabs.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809429034,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/Breadcrumbs.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809465695,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/ui/index.ts",
-      "accessCount": 1,
-      "lastAccessed": 1785809469409,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/shell/AppShell.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809531139,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/shell/PageHeader.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809535508,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/lib/models.ts",
-      "accessCount": 1,
-      "lastAccessed": 1785809670108,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/reviews/[id]/collapsible.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809706022,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/reviews/[id]/finding-card.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809724014,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/reviews/[id]/lower-findings.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809770216,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/credits/buy-credits.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809806404,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/settings/page.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809819589,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/settings/actions.ts",
-      "accessCount": 1,
-      "lastAccessed": 1785809823919,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/analytics/charts.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809933366,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/app/analytics/page.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1785809956114,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/lib/settings-shared.ts",
-      "accessCount": 1,
-      "lastAccessed": 1785810182840,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/auth.ts",
-      "accessCount": 1,
-      "lastAccessed": 1786645661089,
-      "type": "file"
-    },
-    {
-      "path": "packages/core/src/providers/types.ts",
-      "accessCount": 1,
-      "lastAccessed": 1786668803544,
-      "type": "file"
-    },
-    {
-      "path": "packages/core/src/providers/reread.ts",
-      "accessCount": 1,
-      "lastAccessed": 1786668881600,
-      "type": "file"
-    }
-  ],
+  "hotPaths": [],
   "userDirectives": []
 }

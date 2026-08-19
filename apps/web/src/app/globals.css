@@ -1,24 +1,559 @@
 @import "tailwindcss";
-@import "@komodo/tokens/theme.css";
-@import "@komodo/tokens/base.css";
-@import "@komodo/tokens/prose.css";
 
-/* The shared components live outside this app's tree, so Tailwind has to be
-   told to scan them — otherwise their utilities never make it into the build. */
-@source "../../../../packages/ui/src";
+/* ── Design tokens — docs/SPEC.md §1 ──────────────────────────────────────
+   Light values live on bare :root. Dark values are parked as --dk-* on :root
+   and promoted by [data-theme="dark"] and by prefers-color-scheme, so "auto"
+   needs no listener and a reload never flashes the wrong theme.            */
 
-/* Toast entrance — slides in from the right edge */
-@keyframes toast-enter {
-  from {
-    opacity: 0;
-    transform: translateX(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
+:root {
+  /* §1.2 palette scales */
+  --color-gray-950: 0 0% 9%;
+  --color-gray-900: 0 0% 12%;
+  --color-gray-800: 0 0% 15%;
+  --color-gray-700: 0 0% 20%;
+  --color-gray-600: 0 0% 36%;
+  --color-gray-500: 0 0% 48%;
+  --color-gray-400: 0 0% 64%;
+  --color-gray-300: 0 0% 83%;
+  --color-gray-200: 0 0% 90%;
+  --color-gray-100: 0 0% 96%;
+  --color-gray-50: 0 0% 97%;
+  --color-gray-10: 0 0% 100%;
+
+  --color-green-950: 145 80% 10%;
+  --color-green-900: 152 78% 15%;
+  --color-green-800: 152 76% 20%;
+  --color-green-700: 153 76% 25%;
+  --color-green-600: 155 77% 31%;
+  --color-green-500: 155 78% 35%;
+  --color-green-400: 154 75% 41%;
+  --color-green-300: 154 73% 48%;
+  --color-green-200: 153 75% 63%;
+  --color-green-100: 152 76% 77%;
+  --color-green-50: 150 80% 88%;
+  --color-green-10: 150 86% 95%;
+
+  --color-red-950: 0 80% 20%;
+  --color-red-900: 0 77% 27%;
+  --color-red-800: 0 75% 33%;
+  --color-red-700: 0 74% 40%;
+  --color-red-600: 0 70% 47%;
+  --color-red-500: 0 75% 54%;
+  --color-red-400: 0 88% 62%;
+  --color-red-300: 0 100% 69%;
+  --color-red-200: 0 100% 76%;
+  --color-red-100: 0 100% 85%;
+  --color-red-50: 0 100% 92%;
+  --color-red-10: 0 100% 96%;
+
+  --color-blue-950: 218 74% 15%;
+  --color-blue-900: 218 71% 22%;
+  --color-blue-800: 217 74% 27%;
+  --color-blue-700: 215 74% 32%;
+  --color-blue-600: 214 75% 38%;
+  --color-blue-500: 211 76% 44%;
+  --color-blue-400: 209 80% 51%;
+  --color-blue-300: 207 100% 58%;
+  --color-blue-200: 206 100% 68%;
+  --color-blue-100: 207 100% 79%;
+  --color-blue-50: 207 100% 88%;
+  --color-blue-10: 208 100% 95%;
+
+  --color-teal-950: 191 89% 14%;
+  --color-teal-900: 187 88% 18%;
+  --color-teal-800: 184 87% 22%;
+  --color-teal-700: 183 86% 31%;
+  --color-teal-600: 183 86% 31%;
+  --color-teal-500: 182 85% 36%;
+  --color-teal-400: 181 83% 41%;
+  --color-teal-300: 180 65% 50%;
+  --color-teal-200: 180 72% 65%;
+  --color-teal-100: 181 77% 79%;
+  --color-teal-50: 181 85% 89%;
+  --color-teal-10: 180 93% 95%;
+
+  --color-orange-950: 27 100% 19%;
+  --color-orange-900: 27 100% 27%;
+  --color-orange-800: 27 100% 33%;
+  --color-orange-700: 27 100% 38%;
+  --color-orange-600: 29 100% 42%;
+  --color-orange-500: 31 100% 45%;
+  --color-orange-400: 30 93% 55%;
+  --color-orange-300: 31 100% 63%;
+  --color-orange-200: 31 100% 72%;
+  --color-orange-100: 32 100% 81%;
+  --color-orange-50: 32 100% 89%;
+  --color-orange-10: 34 100% 95%;
+
+  --color-yellow-950: 44 80% 10%;
+  --color-yellow-900: 44 82% 15%;
+  --color-yellow-800: 44 81% 29%;
+  --color-yellow-700: 44 81% 54%;
+  --color-yellow-600: 44 81% 65%;
+  --color-yellow-500: 44 80% 74%;
+  --color-yellow-400: 44 80% 82%;
+  --color-yellow-300: 45 80% 88%;
+  --color-yellow-200: 44 82% 94%;
+  --color-yellow-100: 40 86% 97%;
+  --color-yellow-50: 40 100% 99%;
+  --color-yellow-10: 40 100% 99%;
+
+  --greptile-brand-green: 157 81% 54%;
+  --radius: 2px;
+  --animation-duration: 0.1s;
+
+  /* §1.3 semantic — light */
+  --background: 0 0% 100%;
+  --foreground: 0 0% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 97%;
+  --popover-foreground: 0 0% 9%;
+  --primary: 155 78% 35%;
+  --primary-dark: 153 76% 25%;
+  --primary-darker: 152 78% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 90%;
+  --secondary-foreground: 0 0% 9%;
+  --muted: 0 0% 83%;
+  --muted-accent: 0 0% 90%;
+  --muted-foreground: 0 0% 36%;
+  --accent: 154 75% 41%;
+  --accent-foreground: 0 0% 9%;
+  --secondary-accent: 0 0% 64%;
+  --secondary-accent-foreground: 0 0% 9%;
+  --destructive: 0 75% 54%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 90%;
+  --input: 0 0% 83%;
+  --ring: 155 77% 31%;
+  --chart-1: 153 76% 25%;
+  --chart-2: 182 85% 36%;
+  --chart-3: 0 75% 54%;
+  --chart-4: 44 80% 74%;
+  --chart-5: 31 100% 45%;
+  --checkbox-border: 0 0% 83%;
+  --checkbox-checked: 153 76% 25%;
+  --checkbox-hover: 152 76% 20%;
+  --checkbox-foreground: 0 0% 100%;
+  --sidebar: 0 0% 97%;
+  --sidebar-background: 0 0% 96%;
+  --sidebar-foreground: 0 0% 20%;
+  --sidebar-primary: 155 77% 31%;
+  --sidebar-accent: 154 75% 41%;
+  --sidebar-accent-foreground: 0 0% 9%;
+  --sidebar-border: 0 0% 83%;
+  --sidebar-ring: 155 77% 31%;
+  --info: 211 76% 44%;
+  --info-foreground: 0 0% 100%;
+  --info-background: 208 100% 95%;
+  --error: 0 88% 62%;
+  --error-foreground: 0 0% 100%;
+  --error-background: 0 100% 92%;
+  --warn: 30 93% 55%;
+  --warn-foreground: 0 0% 100%;
+  --warn-background: 32 100% 89%;
+  --success: 155 78% 35%;
+  --success-foreground: 150 86% 95%;
+  --success-background: 150 86% 95%;
+
+  /* §1.3 semantic — dark, parked */
+  --dk-background: 0 0% 9%;
+  --dk-foreground: 0 0% 97%;
+  --dk-card: 0 0% 12%;
+  --dk-card-foreground: 0 0% 97%;
+  --dk-popover: 0 0% 12%;
+  --dk-popover-foreground: 0 0% 97%;
+  --dk-secondary: 0 0% 15%;
+  --dk-secondary-foreground: 0 0% 97%;
+  --dk-muted: 0 0% 15%;
+  --dk-muted-accent: 0 0% 20%;
+  --dk-muted-foreground: 0 0% 64%;
+  --dk-accent-foreground: 0 0% 100%;
+  --dk-secondary-accent-foreground: 0 0% 100%;
+  --dk-border: 0 0% 20%;
+  --dk-input: 0 0% 15%;
+  --dk-chart-1: 155 78% 35%;
+  --dk-sidebar: 0 0% 15%;
+  --dk-sidebar-background: 0 0% 12%;
+  --dk-sidebar-foreground: 0 0% 64%;
+  --dk-sidebar-accent-foreground: 0 0% 100%;
+  --dk-sidebar-border: 0 0% 15%;
+}
+
+
+:root[data-theme="dark"] {
+  --background: var(--dk-background);
+  --foreground: var(--dk-foreground);
+  --card: var(--dk-card);
+  --card-foreground: var(--dk-card-foreground);
+  --popover: var(--dk-popover);
+  --popover-foreground: var(--dk-popover-foreground);
+  --secondary: var(--dk-secondary);
+  --secondary-foreground: var(--dk-secondary-foreground);
+  --muted: var(--dk-muted);
+  --muted-accent: var(--dk-muted-accent);
+  --muted-foreground: var(--dk-muted-foreground);
+  --accent-foreground: var(--dk-accent-foreground);
+  --secondary-accent-foreground: var(--dk-secondary-accent-foreground);
+  --border: var(--dk-border);
+  --input: var(--dk-input);
+  --chart-1: var(--dk-chart-1);
+  --sidebar: var(--dk-sidebar);
+  --sidebar-background: var(--dk-sidebar-background);
+  --sidebar-foreground: var(--dk-sidebar-foreground);
+  --sidebar-accent-foreground: var(--dk-sidebar-accent-foreground);
+  --sidebar-border: var(--dk-sidebar-border);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: var(--dk-background);
+    --foreground: var(--dk-foreground);
+    --card: var(--dk-card);
+    --card-foreground: var(--dk-card-foreground);
+    --popover: var(--dk-popover);
+    --popover-foreground: var(--dk-popover-foreground);
+    --secondary: var(--dk-secondary);
+    --secondary-foreground: var(--dk-secondary-foreground);
+    --muted: var(--dk-muted);
+    --muted-accent: var(--dk-muted-accent);
+    --muted-foreground: var(--dk-muted-foreground);
+    --accent-foreground: var(--dk-accent-foreground);
+    --secondary-accent-foreground: var(--dk-secondary-accent-foreground);
+    --border: var(--dk-border);
+    --input: var(--dk-input);
+    --chart-1: var(--dk-chart-1);
+    --sidebar: var(--dk-sidebar);
+    --sidebar-background: var(--dk-sidebar-background);
+    --sidebar-foreground: var(--dk-sidebar-foreground);
+    --sidebar-accent-foreground: var(--dk-sidebar-accent-foreground);
+    --sidebar-border: var(--dk-sidebar-border);
+    color-scheme: dark;
   }
 }
 
-.toast-enter {
-  animation: toast-enter 0.18s ease-out;
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-dark: hsl(var(--primary-dark));
+  --color-primary-darker: hsl(var(--primary-darker));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-accent: hsl(var(--muted-accent));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-background: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-info: hsl(var(--info));
+  --color-error: hsl(var(--error));
+  --color-warn: hsl(var(--warn));
+  --color-success: hsl(var(--success));
+  --color-brand: hsl(var(--greptile-brand-green));
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, SFMono-Regular, monospace;
+  --radius-DEFAULT: 2px;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  overscroll-behavior: none;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The original's uppercase mono labels — table heads, chart titles, pills. */
+.label-mono {
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+input::placeholder,
+textarea::placeholder {
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-accent));
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MARKETING SITE — www.greptile.com
+   Tokens and ornament for the marketing half of this repo. Everything below
+   is namespaced `mkt-` and scoped under `.mkt`, so it can never collide with
+   the app tokens above. Contract: docs/SPEC-MARKETING.md §M1.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* M§1.2 — the original's published brand palette (/design). */
+  --color-mkt-black: #2a2a2a;
+  --color-mkt-white: #fefefe;
+  --color-mkt-green: #28e99f;
+
+  --color-mkt-basalt: #3d3b4f;
+  --color-mkt-eggshell: #d6d6d6;
+  --color-mkt-sandbank: #eeeeee;
+
+  --color-mkt-treefrog: #756cf5;
+  --color-mkt-pond: #5882ff;
+  --color-mkt-sky: #71adff;
+  --color-mkt-dew: #d1e5ff;
+  --color-mkt-shale: #a1c1da;
+
+  --color-mkt-lichen: #c5ffd6;
+  --color-mkt-moss: #c8ead0;
+  --color-mkt-gecko: #daff01;
+  --color-mkt-pollen: #ecffa3;
+
+  --color-mkt-newt: #ff7f59;
+  --color-mkt-bloom: #ff6d6d;
+  --color-mkt-orchid: #ffacfe;
+  --color-mkt-clay: #ffbcb3;
+  --color-mkt-axolotl: #ffcffe;
+
+  /* Measured, not published. M§1.2. */
+  --color-mkt-ground: #e9e9e9;
+
+  /* M§1.1 — three families, used structurally. */
+  --font-display: var(--font-anybody), "Arial Black", system-ui, sans-serif;
+  --font-label: var(--font-space-mono), ui-monospace, SFMono-Regular, monospace;
+  --font-hand: var(--font-nanum-pen), ui-serif, cursive;
+}
+
+.mkt {
+  color-scheme: light;
+  --mkt-grid: rgba(16, 185, 129, 0.08);
+  --mkt-rule: rgba(61, 59, 79, 0.16);
+  --mkt-rule-dark: rgba(255, 255, 255, 0.16);
+  background: var(--color-mkt-ground);
+  color: var(--color-mkt-basalt);
+  font-family: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Dark bands invert the rule colour so hatches and tick rails stay visible. */
+.mkt-dark {
+  --mkt-rule: var(--mkt-rule-dark);
+  --mkt-grid: rgba(255, 255, 255, 0.06);
+  background: var(--color-mkt-basalt);
+  color: var(--color-mkt-eggshell);
+}
+
+/* ── M§1.4 the chamfer ─────────────────────────────────────────────────────
+   Left and right edges cut at 45°. Paired buttons overlap by the cut width so
+   their chamfers interlock.                                                */
+.chamfer {
+  clip-path: polygon(
+    10px 0,
+    100% 0,
+    calc(100% - 10px) 100%,
+    0 100%
+  );
+}
+
+.chamfer-lg {
+  clip-path: polygon(
+    14px 0,
+    100% 0,
+    calc(100% - 14px) 100%,
+    0 100%
+  );
+}
+
+/* A symmetric hexagon — used for the nav hover pill and the corner-cut cards. */
+.chamfer-hex {
+  clip-path: polygon(
+    8px 0,
+    calc(100% - 8px) 0,
+    100% 50%,
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0 50%
+  );
+}
+
+/* Card with the top-left and bottom-right corners notched. */
+.notch-card {
+  clip-path: polygon(
+    16px 0,
+    100% 0,
+    100% calc(100% - 16px),
+    calc(100% - 16px) 100%,
+    0 100%,
+    0 16px
+  );
+}
+
+/* ── M§1.5 ornament ───────────────────────────────────────────────────────── */
+
+/* 1. Dot lattice, 24px pitch. */
+.dotgrid {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--mkt-grid) 1px,
+    transparent 0
+  );
+  background-size: 24px 24px;
+}
+
+/* 2. Crosshair ticks — a `+` at every 96px intersection. */
+.crossgrid {
+  background-image:
+    linear-gradient(to right, var(--mkt-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--mkt-grid) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+
+/* 4. 45° hatch, used in frame gutters and as a section filler. */
+.hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--mkt-rule) 0,
+    var(--mkt-rule) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
+.hatch-dense {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--mkt-rule) 0,
+    var(--mkt-rule) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+/* 3. Ruler rail — a hairline carrying 8px ticks every 16px. */
+.ruler-rail {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--mkt-rule) 0,
+    var(--mkt-rule) 1px,
+    transparent 1px,
+    transparent 16px
+  );
+}
+
+/* 5. 1-bit dither field, four offset dot layers at decreasing density. */
+.dither {
+  background-image:
+    radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0),
+    radial-gradient(circle at 5px 5px, currentColor 1px, transparent 0),
+    radial-gradient(circle at 3px 7px, currentColor 1px, transparent 0);
+  background-size: 8px 8px, 8px 8px, 8px 8px;
+}
+
+.dither-sparse {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    currentColor 1px,
+    transparent 0
+  );
+  background-size: 6px 6px;
+}
+
+/* 6. Marquee — infinite scroller. The track holds two identical copies, so
+      translating by -50% loops seamlessly. */
+.marquee-track {
+  animation: mkt-marquee var(--marquee-duration, 40s) linear infinite;
+}
+
+.marquee-track-reverse {
+  animation: mkt-marquee var(--marquee-duration, 40s) linear infinite reverse;
+}
+
+@keyframes mkt-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track,
+  .marquee-track-reverse {
+    animation: none;
+  }
+}
+
+/* The isometric-cube tile band beneath the footer. */
+.cube-band {
+  background-image:
+    linear-gradient(30deg, rgba(61, 59, 79, 0.13) 12%, transparent 12.5%, transparent 87%, rgba(61, 59, 79, 0.13) 87.5%, rgba(61, 59, 79, 0.13)),
+    linear-gradient(150deg, rgba(61, 59, 79, 0.13) 12%, transparent 12.5%, transparent 87%, rgba(61, 59, 79, 0.13) 87.5%, rgba(61, 59, 79, 0.13)),
+    linear-gradient(30deg, rgba(61, 59, 79, 0.13) 12%, transparent 12.5%, transparent 87%, rgba(61, 59, 79, 0.13) 87.5%, rgba(61, 59, 79, 0.13)),
+    linear-gradient(150deg, rgba(61, 59, 79, 0.13) 12%, transparent 12.5%, transparent 87%, rgba(61, 59, 79, 0.13) 87.5%, rgba(61, 59, 79, 0.13)),
+    linear-gradient(60deg, rgba(61, 59, 79, 0.09) 25%, transparent 25.5%, transparent 75%, rgba(61, 59, 79, 0.09) 75%, rgba(61, 59, 79, 0.09));
+  background-size: 80px 140px;
+  background-position:
+    0 0,
+    0 0,
+    40px 70px,
+    40px 70px,
+    0 0;
+}
+
+/* M§1.1 — the poster wordmarks stretch Anybody's width axis and uppercase it. */
+.poster-type {
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  font-stretch: 125%;
+  font-variation-settings: "wdth" 125;
+}
+
+.mkt ::selection {
+  background: var(--color-mkt-green);
+  color: var(--color-mkt-basalt);
+}
+
+/* The app styles italic placeholders; the marketing forms use mono ones. */
+.mkt input::placeholder,
+.mkt textarea::placeholder {
+  font-style: normal;
+  font-family: var(--font-label);
+  color: rgba(61, 59, 79, 0.45);
 }
