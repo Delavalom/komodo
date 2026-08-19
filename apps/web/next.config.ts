@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
   /* @komodo/store's drivers reach node:sqlite. Keeping the package external
      leaves those imports to Node instead of the bundler; the app's own
      imports from it are types, which erase before they ever reach a chunk. */
-  serverExternalPackages: ["@komodo/store"],
+  serverExternalPackages: ["@komodo/store", "pg"],
 
   /* `komodo serve` has to start a web server on a machine that never ran
      pnpm install, so the app ships as a self-contained server bundle. */

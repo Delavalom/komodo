@@ -11,8 +11,8 @@ import "server-only";
  * the answer — that is what lets `komodo dev` and `komodo serve` run the same
  * app.
  */
+import { connectStore } from "@komodo/store/connect";
 import { seedStore } from "@komodo/store/seed";
-import { SqliteStore } from "@komodo/store/sqlite";
 import type { KomodoStore, QueueSnapshot } from "@komodo/store";
 
 const DEFAULT_DB = ".komodo/komodo.db";
@@ -27,7 +27,13 @@ const handle = globalThis as typeof globalThis & {
 };
 
 async function connect(): Promise<KomodoStore> {
-  const store = new SqliteStore({ path: process.env.KOMODO_DB ?? DEFAULT_DB });
+  // A postgres:// URL is the team deployment, a path is the local one. The
+  // app cannot tell which it got, which is the point.
+  // Empty strings are a real possibility from a process manager, and they are
+  // not nullish — so this filters on truthiness, not on `??`.
+  const target =
+    process.env.DATABASE_URL || process.env.KOMODO_DB || DEFAULT_DB;
+  const store = await connectStore(target);
 
   // An empty database means nobody has run the ingester yet. Seeding it beats
   // opening on an empty table and looking broken.

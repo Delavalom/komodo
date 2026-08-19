@@ -15,8 +15,9 @@ import pc from "picocolors";
 import { createProvider, GitHubClient, loadConfig, resolveGithubToken } from "@komodo/core";
 import type { ReviewProvider } from "@komodo/core";
 import { applyTeamConfig, runIngestLoop } from "@komodo/ingest";
+import { connectStore, isPostgresUrl } from "@komodo/store/connect";
 import { seedStore } from "@komodo/store/seed";
-import { SqliteStore } from "@komodo/store/sqlite";
+import type { KomodoStore } from "@komodo/store";
 
 import { startWebServer } from "../web.js";
 
@@ -40,10 +41,14 @@ export function serveCommand(opts: ServeOptions): Promise<void> {
 
 async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   const port = parseInt(opts.port, 10);
-  const dbPath = resolve(opts.db ?? join(process.cwd(), ".komodo", "komodo.db"));
+  const target =
+    opts.db ?? process.env.DATABASE_URL ?? join(process.cwd(), ".komodo", "komodo.db");
+  // A connection string is passed through untouched; a path is resolved so
+  // the web server, which runs from its own directory, opens the same file.
+  const dbTarget = isPostgresUrl(target) ? target : resolve(target);
   const { config, path: configPath } = loadConfig();
 
-  const store = new SqliteStore({ path: dbPath });
+  const store = await connectStore(dbTarget);
   const dim = (msg: string) => console.log(pc.dim(`• ${msg}`));
 
   const team = await applyTeamConfig(store, config);
@@ -71,7 +76,7 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
 
   const web = startWebServer({
     port,
-    dbPath,
+    dbTarget,
     onExit: (code) => {
       if (code !== 0 && code !== null) {
         console.error(pc.red(`Web server exited with code ${code}.`));
@@ -85,7 +90,9 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   const { organization } = await store.snapshot();
   const url = `http://localhost:${port}/${organization.slug}/-/queue`;
   console.log(`\n🦎 Komodo ${opts.label} → ${pc.bold(pc.cyan(url))}`);
-  console.log(pc.dim(`Store ${dbPath}${configPath ? `\nConfig ${configPath}` : ""}`));
+  console.log(
+    pc.dim(`Store ${redact(dbTarget)}${configPath ? `\nConfig ${configPath}` : ""}`),
+  );
   console.log(pc.dim("Ctrl+C to stop"));
 
   const stop = () => {
@@ -100,8 +107,13 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   store.close();
 }
 
+/** Connection strings carry passwords, and this line goes to a terminal. */
+function redact(target: string): string {
+  return isPostgresUrl(target) ? target.replace(/\/\/[^@]*@/, "//***@") : target;
+}
+
 function startIngest(args: {
-  store: SqliteStore;
+  store: KomodoStore;
   config: ReturnType<typeof loadConfig>["config"];
   opts: ServeOptions;
   dim: (msg: string) => void;

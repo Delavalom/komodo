@@ -39,7 +39,7 @@ export function resolveWebServer(): string {
 export interface WebServerOptions {
   port: number;
   /** Passed through so the app opens the same database the ingester writes. */
-  dbPath: string;
+  dbTarget: string;
   onExit?: (code: number | null) => void;
 }
 
@@ -52,7 +52,12 @@ export function startWebServer(options: WebServerOptions): ChildProcess {
       ...process.env,
       PORT: String(options.port),
       HOSTNAME: process.env.HOSTNAME ?? "127.0.0.1",
-      KOMODO_DB: options.dbPath,
+      KOMODO_DB: options.dbTarget,
+      // Only set when it is really a connection string: an empty value here
+      // is not nullish, so `??` downstream would happily take it.
+      ...(options.dbTarget.startsWith("postgres")
+        ? { DATABASE_URL: options.dbTarget }
+        : {}),
       NODE_ENV: "production",
     },
   });

@@ -18,6 +18,14 @@
     "./seed": {
       "types": "./dist/seed.d.ts",
       "import": "./dist/seed.js"
+    },
+    "./postgres": {
+      "types": "./dist/postgres.d.ts",
+      "import": "./dist/postgres.js"
+    },
+    "./connect": {
+      "types": "./dist/connect.d.ts",
+      "import": "./dist/connect.js"
     }
   },
   "files": [
@@ -29,12 +37,17 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.5",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
     "tsup": "^8.3.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
   "engines": {
     "node": ">=24"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
   }
 }
