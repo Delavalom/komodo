@@ -1,0 +1,15 @@
+# Komodo code review configuration — https://github.com/Delavalom/komodo
+provider: auto        # auto | claude | codex
+profile: chill        # chill (signal only) | assertive (thorough)
+min_severity: minor   # critical | major | minor | trivial
+
+# path_filters:       # extra globs; "!" excludes. Lockfiles/dist/binaries are excluded by default.
+#   - "!docs/**"
+# path_instructions:
+#   - path: "src/api/**"
+#     instructions: "Check authorization and input validation on every handler."
+
+post:
+  update_description: false   # inject "Summary by Komodo" into the PR description
+  request_changes: true       # request changes when major/critical findings exist
+  status_check: false         # post a commit status (pass/fail gate)
