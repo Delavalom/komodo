@@ -70,6 +70,19 @@ export interface JudgmentInput {
   status: ReviewStatus;
   impact: ImpactLevel;
   score: number;
+  /**
+   * Engagement counters. The ingester never passes these — it lets
+   * reviewCount increment itself and leaves the rest to accumulate from user
+   * activity. Only the seeder sets them, to make the dev dataset look
+   * lived-in rather than freshly reviewed.
+   */
+  counters?: {
+    reviewCount: number;
+    addressedComments: number;
+    totalComments: number;
+    upvotes: number;
+    downvotes: number;
+  };
 }
 
 export interface FindingInput {

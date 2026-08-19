@@ -373,21 +373,37 @@ export class SqliteStore implements KomodoStore {
   async upsertJudgment(input: JudgmentInput): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     const now = Date.now();
+    const c = input.counters;
+
+    // Without counters this is the ingester's path: reviewCount owns itself,
+    // so a re-review of the same head increments rather than resetting. With
+    // counters it is the seeder's, which states every value outright.
     this.db
       .prepare(
         `INSERT INTO judgments
            (id, prId, headSha, verdict, status, impact, score, reviewCount,
+            addressedComments, totalComments, upvotes, downvotes,
             createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET
            verdict = excluded.verdict, status = excluded.status,
            impact = excluded.impact, score = excluded.score,
-           reviewCount = judgments.reviewCount + 1,
+           reviewCount = CASE WHEN ?
+             THEN excluded.reviewCount
+             ELSE judgments.reviewCount + 1 END,
+           addressedComments = excluded.addressedComments,
+           totalComments = excluded.totalComments,
+           upvotes = excluded.upvotes, downvotes = excluded.downvotes,
            updatedAt = excluded.updatedAt`,
       )
       .run(
         id, input.prId, input.headSha, input.verdict, input.status,
-        input.impact, input.score, now, now,
+        input.impact, input.score,
+        c?.reviewCount ?? 1,
+        c?.addressedComments ?? 0, c?.totalComments ?? 0,
+        c?.upvotes ?? 0, c?.downvotes ?? 0,
+        now, now,
+        flag(Boolean(c)),
       );
     return id;
   }

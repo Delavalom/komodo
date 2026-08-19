@@ -14,13 +14,17 @@
     "./sqlite": {
       "types": "./dist/sqlite.d.ts",
       "import": "./dist/sqlite.js"
+    },
+    "./seed": {
+      "types": "./dist/seed.d.ts",
+      "import": "./dist/seed.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/sqlite.ts --format esm --dts --clean",
+    "build": "tsup src/index.ts src/sqlite.ts src/seed.ts --format esm --dts --clean",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
