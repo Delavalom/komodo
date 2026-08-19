@@ -9,18 +9,19 @@ import { DAY_MS, NOW, pick, rng, startOfDay } from "@/lib/utils";
 import type {
   ApiKey,
   Finding,
+  ImpactLevel,
   Integration,
+  Judgment,
   Member,
   MemoryRule,
   Organization,
   OrgSettings,
   PersonalSettings,
-  PullRequest,
   RepoCluster,
   Repository,
-  Severity,
   ReviewStatus,
-  ImpactLevel,
+  Severity,
+  Verdict,
 } from "@/lib/types";
 
 export const ORG: Organization = {
@@ -172,8 +173,24 @@ function weightedImpact(r: number): ImpactLevel {
 const PR_COUNT = 184;
 const WINDOW_DAYS = 120;
 
-function buildPullRequests(): PullRequest[] {
-  const out: PullRequest[] = [];
+/**
+ * The call, derived from the same numbers the reader sees. A judgment that
+ * disagreed with its own score would be worse than no judgment at all.
+ */
+function verdictFor(
+  status: ReviewStatus,
+  score: number,
+  impact: ImpactLevel,
+): Verdict | null {
+  if (status !== "completed") return null;
+  if (score >= 5) return "ship";
+  if (score >= 4) return impact === "critical" ? "needs_work" : "ship_with_notes";
+  if (score >= 2) return "needs_work";
+  return "blocked";
+}
+
+function buildJudgments(): Judgment[] {
+  const out: Judgment[] = [];
   const perRepoNumber = new Map<string, number>();
 
   for (let i = 0; i < PR_COUNT; i++) {
@@ -196,9 +213,12 @@ function buildPullRequests(): PullRequest[] {
     const addressedComments =
       totalComments === 0 ? 0 : Math.floor(next() * (totalComments + 1));
     const merged = status === "completed" && next() < 0.82;
+    const impact = weightedImpact(next());
+    const score = status === "completed" ? 1 + Math.floor(next() * 5) : 0;
 
     out.push({
-      id: `pr_${i + 1}`,
+      id: `judgment_${i + 1}`,
+      prId: `pr_${i + 1}`,
       repoId: repo.id,
       number,
       title: pick(next, TITLE_SHAPES)(next),
@@ -208,9 +228,10 @@ function buildPullRequests(): PullRequest[] {
       updatedAt,
       mergedAt: merged ? updatedAt : null,
       reviewCount,
-      impact: weightedImpact(next()),
+      impact,
       status,
-      score: status === "completed" ? 1 + Math.floor(next() * 5) : 0,
+      score,
+      verdict: verdictFor(status, score, impact),
       addressedComments,
       totalComments,
       upvotes: Math.floor(next() * 4),
@@ -221,12 +242,12 @@ function buildPullRequests(): PullRequest[] {
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export const PULL_REQUESTS: PullRequest[] = buildPullRequests();
+export const JUDGMENTS: Judgment[] = buildJudgments();
 
 for (const repo of REPOS) {
-  repo.reviewCount = PULL_REQUESTS.filter(
-    (pr) => pr.repoId === repo.id,
-  ).reduce((sum, pr) => sum + pr.reviewCount, 0);
+  repo.reviewCount = JUDGMENTS.filter(
+    (j) => j.repoId === repo.id,
+  ).reduce((sum, j) => sum + j.reviewCount, 0);
 }
 
 const FINDING_TITLES = [
@@ -257,11 +278,11 @@ const FINDING_FILES = [
 
 function buildFindings(): Finding[] {
   const out: Finding[] = [];
-  const reviewed = PULL_REQUESTS.filter((pr) => pr.status === "completed");
+  const reviewed = JUDGMENTS.filter((j) => j.status === "completed");
   let id = 0;
 
-  for (const pr of reviewed) {
-    const next = rng(`finding:${pr.id}`);
+  for (const judgment of reviewed) {
+    const next = rng(`finding:${judgment.id}`);
     const count = next() < 0.42 ? 0 : 1 + Math.floor(next() * 3);
     for (let i = 0; i < count; i++) {
       const r = next();
@@ -269,7 +290,7 @@ function buildFindings(): Finding[] {
       const s = next();
       out.push({
         id: `finding_${++id}`,
-        prId: pr.id,
+        judgmentId: judgment.id,
         title: pick(next, FINDING_TITLES),
         body:
           "Greptile flagged this while reviewing the diff. " +
@@ -278,7 +299,7 @@ function buildFindings(): Finding[] {
         isSecurity: next() < 0.22,
         status: s < 0.46 ? "addressed" : s < 0.86 ? "open" : "dismissed",
         filePath: pick(next, FINDING_FILES),
-        createdAt: pr.updatedAt - Math.floor(next() * DAY_MS),
+        createdAt: judgment.updatedAt - Math.floor(next() * DAY_MS),
       });
     }
   }

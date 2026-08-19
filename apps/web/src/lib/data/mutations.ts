@@ -11,7 +11,7 @@ import { useDataStore } from "@/lib/data/store";
 /** convex: api.repos.setEnabled({ repoId, enabled }) */
 export const useSetRepoEnabled = () => useDataStore((s) => s.setRepoEnabled);
 
-/** convex: api.pullRequests.retrigger({ prIds }) */
+/** convex: api.judgments.retrigger({ judgmentIds }) */
 export const useRetriggerReviews = () =>
   useDataStore((s) => s.retriggerReviews);
 
@@ -64,5 +64,5 @@ export const useUpdatePersonalSettings = () =>
   useDataStore((s) => s.updatePersonalSettings);
 
 /** Local view state, never a Convex call — see SPEC §3 on chip persistence. */
-export const useSetPrFilters = () => useDataStore((s) => s.setPrFilters);
-export const useClearPrFilters = () => useDataStore((s) => s.clearPrFilters);
+export const useSetJudgmentFilters = () => useDataStore((s) => s.setJudgmentFilters);
+export const useClearJudgmentFilters = () => useDataStore((s) => s.clearJudgmentFilters);

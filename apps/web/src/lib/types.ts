@@ -1,6 +1,10 @@
 /**
- * Domain model — docs/SPEC.md §4.
- * convex/schema.ts mirrors this file field for field. Change both together.
+ * Domain model.
+ *
+ * convex/schema.ts mirrors this file. The one place the two diverge on purpose
+ * is `Judgment`: the schema normalises it into `pullRequests` (git facts) and
+ * `judgments` (the verdict), while this type is the joined read-model that
+ * `api.judgments.list` returns. Change both together.
  */
 
 export type ImpactLevel = "low" | "medium" | "high" | "critical";
@@ -16,6 +20,12 @@ export type ReviewStatus =
 export type Severity = "P0" | "P1" | "P2";
 
 export type FindingStatus = "open" | "addressed" | "dismissed";
+
+/**
+ * The call Komodo makes on a pull request — the whole point of a judgment.
+ * `null` until a review completes.
+ */
+export type Verdict = "ship" | "ship_with_notes" | "needs_work" | "blocked";
 
 export type MemoryKind = "rule" | "file";
 
@@ -44,6 +54,7 @@ export interface Repository {
   reviewCount: number;
 }
 
+/** Git facts about the pull request under judgment. Never Komodo's opinion. */
 export interface PullRequest {
   id: string;
   repoId: string;
@@ -54,19 +65,40 @@ export interface PullRequest {
   createdAt: number;
   updatedAt: number;
   mergedAt: number | null;
-  reviewCount: number;
-  impact: ImpactLevel;
+}
+
+/**
+ * Komodo's verdict on one pull request — what a human reads instead of the
+ * diff. Flat because it is a read-model: everything from `prId` down is joined
+ * in from `pullRequests`, not stored on the judgment row.
+ */
+export interface Judgment {
+  id: string;
+  verdict: Verdict | null;
   status: ReviewStatus;
+  impact: ImpactLevel;
   score: number;
+  reviewCount: number;
   addressedComments: number;
   totalComments: number;
   upvotes: number;
   downvotes: number;
+
+  prId: string;
+  repoId: string;
+  number: number;
+  title: string;
+  author: string;
+  url: string;
+  createdAt: number;
+  updatedAt: number;
+  mergedAt: number | null;
 }
 
+/** One issue raised inside a judgment. */
 export interface Finding {
   id: string;
-  prId: string;
+  judgmentId: string;
   title: string;
   body: string;
   severity: Severity;
@@ -197,7 +229,7 @@ export interface PersonalSettings {
 
 /* ── Query shapes ───────────────────────────────────────────────────────── */
 
-export interface PullRequestQuery {
+export interface JudgmentQuery {
   search?: string;
   author?: string;
   repo?: string;
@@ -205,6 +237,7 @@ export interface PullRequestQuery {
   status?: ReviewStatus;
   confidence?: string;
   impact?: ImpactLevel;
+  verdict?: Verdict;
   sort?: "asc" | "desc";
 }
 

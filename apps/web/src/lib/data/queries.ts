@@ -32,6 +32,8 @@ import type {
   FindingsSummary,
   Granularity,
   Integration,
+  Judgment,
+  JudgmentQuery,
   LeaderRow,
   Member,
   MemoryQuery,
@@ -39,8 +41,6 @@ import type {
   Organization,
   OrgSettings,
   PersonalSettings,
-  PullRequest,
-  PullRequestQuery,
   RepoCluster,
   Repository,
   SeriesPoint,
@@ -80,11 +80,11 @@ export function useRepoIndex(): Map<string, Repository> {
 
 export const fullName = (r: Repository) => `${r.owner}/${r.name}`;
 
-/* ── Pull requests ──────────────────────────────────────────────────────── */
+/* ── Judgments ──────────────────────────────────────────────────────────── */
 
-/** convex: api.pullRequests.list({ orgId, search, filters, sort }) */
-export function usePullRequests(query: PullRequestQuery = {}): PullRequest[] {
-  const prs = useDataStore((s) => s.pullRequests);
+/** convex: api.judgments.list({ orgId, search, filters, sort }) */
+export function useJudgments(query: JudgmentQuery = {}): Judgment[] {
+  const prs = useDataStore((s) => s.judgments);
   const repoIndex = useRepoIndex();
 
   return useMemo(() => {
@@ -136,7 +136,7 @@ export function matchesComparison(value: number, expr: string): boolean {
 }
 
 export function useAuthors(): string[] {
-  const prs = useDataStore((s) => s.pullRequests);
+  const prs = useDataStore((s) => s.judgments);
   return useMemo(
     () => [...new Set(prs.map((p) => p.author))].sort(),
     [prs],
@@ -201,8 +201,8 @@ function bucketsFor(w: Window, granularity: Granularity): number[] {
  * `timeframeWindow` returns a fresh object every render, so the window is
  * destructured to primitives before it reaches any dependency array.
  */
-function useScopedPrs(query: AnalyticsQuery) {
-  const prs = useDataStore((s) => s.pullRequests);
+function useScopedJudgments(query: AnalyticsQuery) {
+  const prs = useDataStore((s) => s.judgments);
   const repoIndex = useRepoIndex();
   const { from, to } = timeframeWindow(query.timeframe);
   const repos = query.repos;
@@ -227,10 +227,10 @@ function useScopedPrs(query: AnalyticsQuery) {
 
 function useScopedFindings(query: AnalyticsQuery) {
   const findings = useDataStore((s) => s.findings);
-  const { scoped } = useScopedPrs(query);
+  const { scoped } = useScopedJudgments(query);
   return useMemo(() => {
     const ids = new Set(scoped.map((p) => p.id));
-    return findings.filter((f) => ids.has(f.prId));
+    return findings.filter((f) => ids.has(f.judgmentId));
   }, [findings, scoped]);
 }
 
@@ -238,7 +238,7 @@ function useScopedFindings(query: AnalyticsQuery) {
 
 /** convex: api.analytics.summary({ orgId, filters }) */
 export function useAnalyticsSummary(query: AnalyticsQuery): AnalyticsSummary {
-  const { scoped } = useScopedPrs(query);
+  const { scoped } = useScopedJudgments(query);
   const findings = useScopedFindings(query);
   return useMemo(() => {
     const merged = scoped.filter((p) => p.mergedAt !== null);
@@ -290,12 +290,12 @@ export function useReviewsSeries(
   query: AnalyticsQuery,
   metric: ReviewMetric,
 ): SeriesPoint[] {
-  const { scoped, from, to } = useScopedPrs(query);
+  const { scoped, from, to } = useScopedJudgments(query);
   const granularity = query.granularity ?? "day";
 
   return useMemo(() => {
     const buckets = bucketsFor({ from, to }, granularity);
-    const grouped = new Map<number, PullRequest[]>(
+    const grouped = new Map<number, Judgment[]>(
       buckets.map((b) => [b, []]),
     );
     for (const pr of scoped) {
@@ -338,7 +338,7 @@ export function useBugsSeries(
   severity: Severity | "all",
 ): SeriesPoint[] {
   const findings = useScopedFindings(query);
-  const { from, to } = useScopedPrs(query);
+  const { from, to } = useScopedJudgments(query);
   const granularity = query.granularity ?? "day";
 
   return useMemo(() => {
@@ -358,7 +358,7 @@ export function useMergeTimeSeries(
   query: AnalyticsQuery,
   stat: "mean" | "median",
 ): SeriesPoint[] {
-  const { scoped, from, to } = useScopedPrs(query);
+  const { scoped, from, to } = useScopedJudgments(query);
   const granularity = query.granularity ?? "day";
 
   return useMemo(() => {
@@ -383,7 +383,7 @@ export function useMergeTimeSeries(
 
 /** convex: api.analytics.contributorsSeries({ orgId, filters }) */
 export function useContributorsSeries(query: AnalyticsQuery): SeriesPoint[] {
-  const { scoped, from, to } = useScopedPrs(query);
+  const { scoped, from, to } = useScopedJudgments(query);
   const granularity = query.granularity ?? "day";
 
   return useMemo(() => {
@@ -400,12 +400,12 @@ export function useContributorsSeries(query: AnalyticsQuery): SeriesPoint[] {
 
 /** convex: api.analytics.addressedRateSeries({ orgId, filters }) */
 export function useAddressedRateSeries(query: AnalyticsQuery): SeriesPoint[] {
-  const { scoped, from, to } = useScopedPrs(query);
+  const { scoped, from, to } = useScopedJudgments(query);
   const granularity = query.granularity ?? "day";
 
   return useMemo(() => {
     const buckets = bucketsFor({ from, to }, granularity);
-    const grouped = new Map<number, PullRequest[]>(buckets.map((b) => [b, []]));
+    const grouped = new Map<number, Judgment[]>(buckets.map((b) => [b, []]));
     for (const pr of scoped) {
       const key = bucketKey(pr.updatedAt, granularity);
       grouped.get(key)?.push(pr);
@@ -420,7 +420,7 @@ export function useAddressedRateSeries(query: AnalyticsQuery): SeriesPoint[] {
 }
 
 export function useAddressedRateTotals(query: AnalyticsQuery) {
-  const { scoped } = useScopedPrs(query);
+  const { scoped } = useScopedJudgments(query);
   return useMemo(() => {
     const total = scoped.reduce((s, r) => s + r.totalComments, 0);
     const addressed = scoped.reduce((s, r) => s + r.addressedComments, 0);
@@ -430,7 +430,7 @@ export function useAddressedRateTotals(query: AnalyticsQuery) {
 
 /** convex: api.analytics.commentRatings({ orgId, filters }) */
 export function useCommentRatings(query: AnalyticsQuery) {
-  const { scoped } = useScopedPrs(query);
+  const { scoped } = useScopedJudgments(query);
   return useMemo(
     () => ({
       upvotes: scoped.reduce((s, r) => s + r.upvotes, 0),
@@ -446,7 +446,7 @@ function topN<T>(rows: T[], n: number) {
 
 /** convex: api.analytics.leaderboards({ orgId, filters }) */
 export function useLeaderboards(query: AnalyticsQuery) {
-  const { scoped } = useScopedPrs(query);
+  const { scoped } = useScopedJudgments(query);
   const findings = useScopedFindings(query);
   const repoIndex = useRepoIndex();
 
@@ -471,10 +471,10 @@ export function useLeaderboards(query: AnalyticsQuery) {
       byRepo.set(key, row);
     }
 
-    const prById = new Map(scoped.map((p) => [p.id, p]));
+    const judgmentById = new Map(scoped.map((p) => [p.id, p]));
     const bugsByRepo = new Map<string, number>();
     for (const f of findings) {
-      const pr = prById.get(f.prId);
+      const pr = judgmentById.get(f.judgmentId);
       if (!pr) continue;
       const repo = repoIndex.get(pr.repoId);
       if (!repo) continue;
@@ -590,14 +590,14 @@ export function useFindings(
   search: string,
 ): FindingRow[] {
   const findings = useScopedFindings(query);
-  const prs = useDataStore((s) => s.pullRequests);
+  const prs = useDataStore((s) => s.judgments);
   const repoIndex = useRepoIndex();
 
   return useMemo(() => {
-    const prById = new Map(prs.map((p) => [p.id, p]));
+    const judgmentById = new Map(prs.map((p) => [p.id, p]));
     const rows: FindingRow[] = [];
     for (const f of findings) {
-      const pr = prById.get(f.prId);
+      const pr = judgmentById.get(f.judgmentId);
       if (!pr) continue;
       const repo = repoIndex.get(pr.repoId);
       rows.push({
@@ -755,7 +755,7 @@ export const USAGE_WINDOW = { from: USAGE_FROM, to: USAGE_TO };
  * from a seed. This is the ONE place that happens — see CONVENTIONS.
  */
 export function useUsageDays(): UsageDay[] {
-  const prs = useDataStore((s) => s.pullRequests);
+  const prs = useDataStore((s) => s.judgments);
   return useMemo(() => {
     const out: UsageDay[] = [];
     for (let d = USAGE_FROM; d <= USAGE_TO; d += DAY_MS) {

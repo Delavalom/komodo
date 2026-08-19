@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Local write layer. docs/SPEC.md §12.
+ * Local write layer.
  *
  * Components never touch this directly — they call the hooks in
  * lib/data/mutations.ts, each of which is named after the Convex mutation it
@@ -23,7 +23,7 @@ import {
   MEMORY_RULES,
   ORG_SETTINGS,
   PERSONAL_SETTINGS,
-  PULL_REQUESTS,
+  JUDGMENTS,
   REPOS,
   REPO_CLUSTERS,
 } from "@/lib/data/seed";
@@ -37,12 +37,12 @@ import type {
   MemoryRule,
   OrgSettings,
   PersonalSettings,
-  PullRequest,
+  Judgment,
   RepoCluster,
   Repository,
 } from "@/lib/types";
 
-export interface PrFilterState {
+export interface JudgmentFilterState {
   search: string;
   author?: string;
   repo?: string;
@@ -55,7 +55,7 @@ export interface PrFilterState {
 
 export interface DataState {
   repos: Repository[];
-  pullRequests: PullRequest[];
+  judgments: Judgment[];
   findings: Finding[];
   memoryRules: MemoryRule[];
   repoClusters: RepoCluster[];
@@ -64,11 +64,11 @@ export interface DataState {
   apiKeys: ApiKey[];
   orgSettings: OrgSettings;
   personalSettings: PersonalSettings;
-  /** Persisted so chips survive a hard navigation — SPEC §3. */
-  prFilters: PrFilterState;
+  /** Persisted so chips survive a hard navigation. */
+  judgmentFilters: JudgmentFilterState;
 
   setRepoEnabled: (repoId: string, enabled: boolean) => void;
-  retriggerReviews: (prIds: string[]) => void;
+  retriggerReviews: (judgmentIds: string[]) => void;
   createMemoryRule: (input: NewMemoryRule) => string;
   updateMemoryRule: (id: string, patch: Partial<MemoryRule>) => void;
   deleteMemoryRule: (id: string) => void;
@@ -82,8 +82,8 @@ export interface DataState {
   deleteApiKey: (id: string) => void;
   updateOrgSettings: (patch: Partial<OrgSettings>) => void;
   updatePersonalSettings: (patch: Partial<PersonalSettings>) => void;
-  setPrFilters: (patch: Partial<PrFilterState>) => void;
-  clearPrFilters: () => void;
+  setJudgmentFilters: (patch: Partial<JudgmentFilterState>) => void;
+  clearJudgmentFilters: () => void;
   reset: () => void;
 }
 
@@ -95,12 +95,12 @@ export interface NewMemoryRule {
   fileGlob: string;
 }
 
-const EMPTY_FILTERS: PrFilterState = { search: "" };
+const EMPTY_FILTERS: JudgmentFilterState = { search: "" };
 
 function seedState() {
   return {
     repos: REPOS.map((r) => ({ ...r })),
-    pullRequests: PULL_REQUESTS.map((p) => ({ ...p })),
+    judgments: JUDGMENTS.map((j) => ({ ...j })),
     findings: FINDINGS.map((f) => ({ ...f })),
     memoryRules: MEMORY_RULES.map((m) => ({ ...m })),
     repoClusters: REPO_CLUSTERS.map((c) => ({ ...c })),
@@ -109,7 +109,7 @@ function seedState() {
     apiKeys: API_KEYS.map((k) => ({ ...k })),
     orgSettings: { ...ORG_SETTINGS },
     personalSettings: { ...PERSONAL_SETTINGS },
-    prFilters: { ...EMPTY_FILTERS },
+    judgmentFilters: { ...EMPTY_FILTERS },
   };
 }
 
@@ -126,12 +126,17 @@ export const useDataStore = create<DataState>()(
           repos: s.repos.map((r) => (r.id === repoId ? { ...r, enabled } : r)),
         })),
 
-      retriggerReviews: (prIds) =>
+      retriggerReviews: (judgmentIds) =>
         set((s) => ({
-          pullRequests: s.pullRequests.map((pr) =>
-            prIds.includes(pr.id)
-              ? { ...pr, status: "pending", reviewCount: pr.reviewCount + 1 }
-              : pr,
+          judgments: s.judgments.map((j) =>
+            judgmentIds.includes(j.id)
+              ? {
+                  ...j,
+                  status: "pending",
+                  verdict: null,
+                  reviewCount: j.reviewCount + 1,
+                }
+              : j,
           ),
         })),
 
@@ -241,7 +246,7 @@ export const useDataStore = create<DataState>()(
             {
               id,
               name,
-              keyId: `grp_${id.replace(/\W/g, "").slice(-16).padStart(16, "0")}`,
+              keyId: `kmd_${id.replace(/\W/g, "").slice(-16).padStart(16, "0")}`,
               createdAt: NOW,
             },
             ...s.apiKeys,
@@ -261,14 +266,15 @@ export const useDataStore = create<DataState>()(
           personalSettings: { ...s.personalSettings, ...patch },
         })),
 
-      setPrFilters: (patch) =>
-        set((s) => ({ prFilters: { ...s.prFilters, ...patch } })),
+      setJudgmentFilters: (patch) =>
+        set((s) => ({ judgmentFilters: { ...s.judgmentFilters, ...patch } })),
 
-      clearPrFilters: () => set({ prFilters: { ...EMPTY_FILTERS } }),
+      clearJudgmentFilters: () =>
+        set({ judgmentFilters: { ...EMPTY_FILTERS } }),
 
       reset: () => set(seedState()),
     }),
-    { name: "greptile-clone", version: 1, skipHydration: true },
+    { name: "komodo", version: 1, skipHydration: true },
   ),
 );
 

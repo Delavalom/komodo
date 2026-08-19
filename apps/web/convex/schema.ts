@@ -1,5 +1,10 @@
 /**
- * Mirrors src/lib/types.ts field for field. Change both in the same commit.
+ * Mirrors src/lib/types.ts. Change both in the same commit.
+ *
+ * The one deliberate divergence: `pullRequests` holds git facts and
+ * `judgments` holds Komodo's verdict on them, while the client sees a single
+ * flat `Judgment` — the joined shape `api.judgments.list` will return.
+ *
  * The functions are not written yet — see convex/README.md.
  */
 import { defineSchema, defineTable } from "convex/server";
@@ -22,6 +27,13 @@ const reviewStatus = v.union(
 );
 
 const severity = v.union(v.literal("P0"), v.literal("P1"), v.literal("P2"));
+
+const verdict = v.union(
+  v.literal("ship"),
+  v.literal("ship_with_notes"),
+  v.literal("needs_work"),
+  v.literal("blocked"),
+);
 
 const memberRole = v.union(v.literal("admin"), v.literal("member"));
 
@@ -57,6 +69,7 @@ export default defineSchema({
     .index("by_org", ["orgId"])
     .index("by_org_name", ["orgId", "owner", "name"]),
 
+  // Git facts only. Nothing here is Komodo's opinion.
   pullRequests: defineTable({
     orgId: v.id("organizations"),
     repoId: v.id("repositories"),
@@ -67,21 +80,32 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     mergedAt: v.union(v.number(), v.null()),
-    reviewCount: v.number(),
-    impact,
-    status: reviewStatus,
-    score: v.number(),
-    addressedComments: v.number(),
-    totalComments: v.number(),
-    upvotes: v.number(),
-    downvotes: v.number(),
   })
     .index("by_org_updated", ["orgId", "updatedAt"])
     .index("by_repo", ["repoId"]),
 
-  findings: defineTable({
+  // The verdict a human reads instead of the diff. One per review of a PR.
+  judgments: defineTable({
     orgId: v.id("organizations"),
     prId: v.id("pullRequests"),
+    verdict: v.union(verdict, v.null()),
+    status: reviewStatus,
+    impact,
+    score: v.number(),
+    reviewCount: v.number(),
+    addressedComments: v.number(),
+    totalComments: v.number(),
+    upvotes: v.number(),
+    downvotes: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org_updated", ["orgId", "updatedAt"])
+    .index("by_pr", ["prId"]),
+
+  findings: defineTable({
+    orgId: v.id("organizations"),
+    judgmentId: v.id("judgments"),
     title: v.string(),
     body: v.string(),
     severity,
@@ -95,7 +119,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_org_created", ["orgId", "createdAt"])
-    .index("by_pr", ["prId"]),
+    .index("by_judgment", ["judgmentId"]),
 
   memoryRules: defineTable({
     orgId: v.id("organizations"),

@@ -22,12 +22,12 @@ import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import {
   fullName,
   useAuthors,
-  usePullRequests,
+  useJudgments,
   useRepoIndex,
   useRepositories,
 } from "@/lib/data/queries";
 import { useDataStore } from "@/lib/data/store";
-import { useSetPrFilters } from "@/lib/data/mutations";
+import { useSetJudgmentFilters } from "@/lib/data/mutations";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { useUrlState } from "@/lib/use-url-state";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
@@ -70,8 +70,8 @@ export function PullRequestsView() {
   const repos = useRepositories();
   const repoIndex = useRepoIndex();
   const authors = useAuthors();
-  const persisted = useDataStore((s) => s.prFilters);
-  const setPrFilters = useSetPrFilters();
+  const persisted = useDataStore((s) => s.judgmentFilters);
+  const setJudgmentFilters = useSetJudgmentFilters();
   const retrigger = useDataStore((s) => s.retriggerReviews);
 
   const [selected, setSelected] = React.useState<string[]>([]);
@@ -142,7 +142,7 @@ export function PullRequestsView() {
     },
   ];
 
-  const rows = usePullRequests({
+  const rows = useJudgments({
     search,
     author: active.author,
     repo: active.repo,
@@ -155,12 +155,12 @@ export function PullRequestsView() {
 
   function onFacetChange(key: string, value: string | null) {
     set({ [key]: value });
-    setPrFilters({ [key]: value ?? undefined } as never);
+    setJudgmentFilters({ [key]: value ?? undefined } as never);
   }
 
   function onSearchChange(next: string) {
     setSearch(next);
-    setPrFilters({ search: next });
+    setJudgmentFilters({ search: next });
   }
 
   const allSelected = rows.length > 0 && selected.length === rows.length;
@@ -215,7 +215,7 @@ export function PullRequestsView() {
               onSort={() => {
                 const next = sort === "desc" ? "asc" : null;
                 set({ sort: next });
-                setPrFilters({ sort: next ?? "desc" });
+                setJudgmentFilters({ sort: next ?? "desc" });
               }}
             >
               Last Updated
