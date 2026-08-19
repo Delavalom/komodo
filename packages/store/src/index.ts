@@ -32,3 +32,5 @@ export type {
   StoreReader,
   StoreWriter,
 } from "./port.js";
+
+export { verdictFor } from "./verdict.js";

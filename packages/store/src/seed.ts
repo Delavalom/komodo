@@ -10,6 +10,7 @@
  * byte-identical rows and two runs stay comparable.
  */
 import { DAY_MS, pick, rng } from "./rand.js";
+import { verdictFor } from "./verdict.js";
 import type { FindingInput, KomodoStore } from "./port.js";
 import type {
   ImpactLevel,
@@ -173,22 +174,6 @@ const FINDING_FILES = [
 
 const PR_COUNT = 184;
 const WINDOW_DAYS = 120;
-
-/**
- * The call, derived from the same numbers the reader sees. A judgment that
- * disagreed with its own score would be worse than no judgment at all.
- */
-function verdictFor(
-  status: ReviewStatus,
-  score: number,
-  impact: ImpactLevel,
-): Verdict | null {
-  if (status !== "completed") return null;
-  if (score >= 5) return "ship";
-  if (score >= 4) return impact === "critical" ? "needs_work" : "ship_with_notes";
-  if (score >= 2) return "needs_work";
-  return "blocked";
-}
 
 /** A believable 40-hex head. Only its stability across a poll matters. */
 function fakeSha(next: () => number): string {
