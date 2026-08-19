@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { SavedFooter, Sidebar } from "@/components/shell/sidebar";
+import { IS_CLOUD } from "@/lib/flags";
 import { SearchInput } from "@/components/ui/input";
 import { MemoryNavIcon } from "@/components/shell/nav-icons";
 import { TrexIcon } from "@/components/ui/display";
@@ -132,16 +133,21 @@ export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
           label: "People",
           icon: <Users className="h-4 w-4" />,
         },
-        {
-          href: `${base}/billing`,
-          label: "Billing",
-          icon: <CreditCard className="h-4 w-4" />,
-        },
-        {
-          href: `${base}/usage`,
-          label: "Usage",
-          icon: <SlidersHorizontal className="h-4 w-4" />,
-        },
+        // Billing and metered usage are questions only a hosted tier asks.
+        ...(IS_CLOUD
+          ? [
+              {
+                href: `${base}/billing`,
+                label: "Billing",
+                icon: <CreditCard className="h-4 w-4" />,
+              },
+              {
+                href: `${base}/usage`,
+                label: "Usage",
+                icon: <SlidersHorizontal className="h-4 w-4" />,
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -152,12 +158,16 @@ export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
           label: "API Keys",
           icon: <KeyRound className="h-4 w-4" />,
         },
-        {
-          href: `${base}/audit-log`,
-          label: "Audit Log",
-          icon: <ScrollText className="h-4 w-4" />,
-          badge: "Beta",
-        },
+        ...(IS_CLOUD
+          ? [
+              {
+                href: `${base}/audit-log`,
+                label: "Audit Log",
+                icon: <ScrollText className="h-4 w-4" />,
+                badge: "Beta",
+              },
+            ]
+          : []),
       ],
     },
   ];
