@@ -4,42 +4,33 @@
 #   2. commit, merge to main
 #   3. git tag v0.4.0 && git push origin v0.4.0
 #
-# The tag is the trigger and the source of truth: the job refuses to publish
-# if it does not match what the manifests say, so a tag can never ship a
-# version nobody bumped.
+# A manual run builds and validates both artifacts but never publishes them.
+# Only a matching v* tag can publish to npm or GHCR.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Pack and validate without publishing"
-        type: boolean
-        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  npm:
+  validate:
+    name: Validate release ref
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
-      # Provenance: npm signs the tarball against this workflow run, so the
-      # registry page can say which commit and which job produced it.
-      id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - name: Check out the exact commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: 24
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
+          persist-credentials: false
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check:release
-
-      - name: Tag matches the manifests
+      - name: Require a tag that matches the package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           tagged="${GITHUB_REF_NAME#v}"
@@ -49,51 +40,94 @@ jobs:
             exit 1
           fi
 
-      # The web app first: packages/cli's prepack refuses to build a tarball
-      # without a standalone build to put in it, and `pnpm -r build` does not
-      # know the CLI comes last.
-      - run: pnpm build:release
+  verify:
+    name: Verify release commit
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
 
-      # pnpm packs (it rewrites the workspace: protocol npm cannot read); npm
-      # publishes (it is the one that can attach provenance).
-      - name: Pack
+  npm:
+    name: Build npm package
+    needs: [validate, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # npm signs the tarball against this workflow run.
+      id-token: write
+    steps:
+      - name: Check out the verified commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the release in dependency order
+        run: pnpm build:release
+
+      - name: Pack the verified CLI
         run: pnpm --filter komodo-review pack --pack-destination "$RUNNER_TEMP"
 
-      - name: Publish
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/v')
         run: npm publish "$RUNNER_TEMP"/komodo-review-*.tgz --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Dry run
-        if: ${{ github.event_name != 'push' && inputs.dry_run }}
+      - name: Inspect the npm package without publishing
+        if: github.event_name == 'workflow_dispatch'
         run: npm publish "$RUNNER_TEMP"/komodo-review-*.tgz --dry-run --access public
 
   image:
-    # The team deployment, so nobody has to build it from source. Independent
-    # of the npm job: a registry outage should not cost the image, or vice
-    # versa.
+    name: Build container image
+    needs: [validate, verify]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Check out the verified commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up the container builder
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
+
+      - name: Name the image
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-      - uses: docker/build-push-action@v6
+            type=raw,value=dry-run-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Build and optionally publish the image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}

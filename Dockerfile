@@ -27,9 +27,9 @@ COPY packages/cli/package.json packages/cli/
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-# The web app before the CLI: the CLI's build packs the app's standalone
-# output, and pnpm's topological order does not know that.
-RUN pnpm -C apps/web build && pnpm -r build
+# The root script owns the order: workspace libraries, web app, then CLI.
+# Keeping it in one place prevents CI, release, and Docker from drifting.
+RUN pnpm build:release
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
