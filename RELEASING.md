@@ -53,8 +53,11 @@ who has added the marketplace. They must run `/plugin update` because the
 cache is keyed by version (`~/.claude/plugins/cache/komodo/komodo/<version>/`).
 A plugin change without a version bump reaches nobody.
 
-`workflow_dispatch` verifies and builds both release artifacts. It runs
-`npm publish --dry-run` and never publishes npm or GHCR output.
+`workflow_dispatch` verifies and builds both release artifacts. It inspects the
+finished npm tarball with `npm pack --dry-run` and never publishes npm or GHCR
+output. The inspection stays local because `npm publish --dry-run` still checks
+whether the version exists in the registry. That command cannot be rerun after
+the version has shipped.
 
 ## Publishing by hand
 

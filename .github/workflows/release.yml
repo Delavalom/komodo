@@ -5,7 +5,7 @@
 #   3. git tag v0.4.0 && git push origin v0.4.0
 #
 # A manual run builds and validates both artifacts but never publishes them.
-# Only a matching v* tag can publish to npm or GHCR.
+# Only a matching v* tag push can publish to npm or GHCR.
 name: Release
 
 on:
@@ -81,14 +81,18 @@ jobs:
         run: pnpm --filter komodo-review pack --pack-destination "$RUNNER_TEMP"
 
       - name: Publish to npm
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: npm publish "$RUNNER_TEMP"/komodo-review-*.tgz --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Inspect the npm package without publishing
         if: github.event_name == 'workflow_dispatch'
-        run: npm publish "$RUNNER_TEMP"/komodo-review-*.tgz --dry-run --access public
+        # `npm publish --dry-run` still asks the registry whether this exact
+        # version can be published. That makes a manual check fail as soon as
+        # the version already exists. `npm pack` inspects the same tarball
+        # locally and is safe to repeat.
+        run: npm pack "$RUNNER_TEMP"/komodo-review-*.tgz --dry-run --json
 
   image:
     name: Build container image
@@ -108,7 +112,7 @@ jobs:
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -123,14 +127,14 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=dry-run-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and optionally publish the image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          push: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
