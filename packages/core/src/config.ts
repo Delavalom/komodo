@@ -196,11 +196,19 @@ export type KomodoConfig = z.infer<typeof KomodoConfigSchema>;
 
 export const CONFIG_FILENAMES = ["komodo.yaml", "komodo.yml", ".komodo.yaml"];
 
+/**
+ * The `turbopackIgnore` comments below are for the web app, which imports this
+ * module. Turbopack sees a filesystem read under a directory it cannot resolve
+ * statically and traces the entire workspace into the server bundle. The
+ * directory is genuinely dynamic — it is wherever the user's repo is — so the
+ * comments tell the tracer to leave these calls alone. esbuild keeps them when
+ * it bundles to dist, which is what Next actually reads.
+ */
 export function loadConfig(dir: string = process.cwd()): { config: KomodoConfig; path?: string } {
   for (const name of CONFIG_FILENAMES) {
-    const p = join(dir, name);
-    if (existsSync(p)) {
-      const raw = parse(readFileSync(p, "utf8")) ?? {};
+    const p = join(/*turbopackIgnore: true*/ dir, name);
+    if (existsSync(/*turbopackIgnore: true*/ p)) {
+      const raw = parse(readFileSync(/*turbopackIgnore: true*/ p, "utf8")) ?? {};
       return { config: KomodoConfigSchema.parse(raw), path: p };
     }
   }
