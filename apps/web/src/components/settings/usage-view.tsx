@@ -9,18 +9,17 @@ import { Avatar } from "@/components/ui/display";
 import { DataTable, TD, TH, THead, TR } from "@/components/ui/table";
 import { Sparkline, UsageBarChart } from "@/components/charts/bar-chart";
 import { InfoHint } from "@/components/analytics/panels";
-import { USAGE_WINDOW, useMembers, useUsageDays } from "@/lib/data/queries";
+import { useMembers, useUsageDays, useUsageWindow } from "@/lib/data/queries";
 import { monthDay, ordinalRange } from "@/lib/utils";
 
 const SERIES = [
   { key: "codeReviewCredits", name: "Code Review", color: "hsl(155 78% 45%)" },
-  { key: "trexCredits", name: "TREX", color: "hsl(258 80% 66%)" },
   { key: "cliCredits", name: "CLI", color: "hsl(320 72% 62%)" },
 ] as const;
 
-/** SPEC §8.10 */
 export function UsageView() {
   const days = useUsageDays();
+  const window = useUsageWindow();
   const members = useMembers();
   const [team, setTeam] = React.useState("all");
   const [unit, setUnit] = React.useState<"credits" | "reviews">("credits");
@@ -73,7 +72,7 @@ export function UsageView() {
             ]}
           />
           <div className="flex h-9 items-center rounded-[2px] border border-border bg-card px-3 text-[13px]">
-            {ordinalRange(USAGE_WINDOW.from, USAGE_WINDOW.to)}
+            {ordinalRange(window.from, window.to)}
           </div>
           <button
             type="button"

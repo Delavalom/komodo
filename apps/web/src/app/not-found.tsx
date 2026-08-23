@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { GreptileMark } from "@/components/ui/display";
+import { KomodoMark } from "@/components/ui/display";
 
-/** SPEC §10 — no app chrome, corner ticks, oversized numeral. */
 export default function NotFound() {
   return (
     <div className="flex h-full flex-1 items-center justify-center overflow-y-auto bg-background px-4">
@@ -11,7 +10,7 @@ export default function NotFound() {
         <Corner className="-bottom-[3px] -left-[3px]" />
         <Corner className="-bottom-[3px] -right-[3px]" />
 
-        <GreptileMark className="mx-auto h-10 w-10" />
+        <KomodoMark className="mx-auto h-10 w-10" />
         <div className="mt-4 text-[86px] font-bold leading-none tracking-tight">
           404
         </div>
@@ -21,13 +20,13 @@ export default function NotFound() {
         <div className="mt-6 flex items-center justify-center gap-3">
           <Link
             href="/"
-            className="inline-flex h-9 items-center gap-2 rounded-[2px] bg-[hsl(var(--greptile-brand-green))] px-3 text-sm font-medium text-[hsl(var(--color-gray-950))] transition-colors hover:bg-[hsl(153_75%_63%)]"
+            className="inline-flex h-9 items-center gap-2 rounded-[2px] bg-[hsl(var(--komodo-brand-green))] px-3 text-sm font-medium text-[hsl(var(--color-gray-950))] transition-colors hover:bg-[hsl(153_75%_63%)]"
           >
             <span aria-hidden>←</span>
             Go Back
           </Link>
           <a
-            href="https://greptile.com/docs"
+            href="https://github.com/Delavalom/komodo#readme"
             target="_blank"
             rel="noreferrer"
             className="inline-flex h-9 items-center rounded-[2px] bg-secondary px-3 text-sm transition-colors hover:bg-muted-accent"

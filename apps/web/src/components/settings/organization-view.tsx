@@ -5,13 +5,22 @@ import { AlertCircle, SquarePen, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeading, SettingRow } from "@/components/ui/card";
-import { Toggle } from "@/components/ui/controls";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/display";
+import { IS_CLOUD } from "@/lib/flags";
 import { useOrgSettings, useOrganization } from "@/lib/data/queries";
 import { useUpdateOrgSettings } from "@/lib/data/mutations";
 
-/** SPEC §8.7 */
+/**
+ * Who this deployment belongs to.
+ *
+ * The name is real — it is stored, and the header renders it. Everything else
+ * that used to be here was a hosted service's question asked by a self-hosted
+ * install: telemetry consent for a product that phones nowhere, feature tips
+ * nothing writes, SSO and organization deletion for a deployment that holds
+ * exactly one organization and is deleted by stopping the container. Those
+ * sit behind IS_CLOUD with billing and seats.
+ */
 export function OrganizationView() {
   const org = useOrganization();
   const settings = useOrgSettings();
@@ -27,7 +36,7 @@ export function OrganizationView() {
             <div className="flex flex-1 items-center gap-6">
               <span className="text-sm font-medium">Name</span>
               <Input
-                value={settings.orgDisplayName}
+                value={settings.orgDisplayName || org.name}
                 disabled={!editing}
                 onChange={(event) =>
                   update({ orgDisplayName: event.target.value })
@@ -41,79 +50,50 @@ export function OrganizationView() {
             </Button>
           </div>
         </Card>
+        <p className="text-sm text-muted-foreground">
+          The handle in your URLs is <code>{org.slug}</code>, set by{" "}
+          <code>team.slug</code> in komodo.yaml.
+        </p>
       </section>
 
-      <section className="space-y-4">
-        <SectionHeading title="Enterprise SSO" />
-        <SettingRow
-          title={
-            <span className="flex items-center gap-2">
-              Enterprise SSO <Badge>Enterprise</Badge>
-            </span>
-          }
-          description="Enterprise SSO is available on the Greptile Enterprise plan."
-          control={<Button variant="brand">Talk to Sales</Button>}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <SectionHeading title="Data & Privacy" />
-        <SettingRow
-          title="Help us improve Greptile"
-          description="Allow Greptile to learn from your usage to improve the code review agent"
-          control={
-            <Toggle
-              checked={settings.helpImproveGreptile}
-              onChange={(helpImproveGreptile) => update({ helpImproveGreptile })}
-              label="Help us improve Greptile"
+      {IS_CLOUD ? (
+        <>
+          <section className="space-y-4">
+            <SectionHeading title="Enterprise SSO" />
+            <SettingRow
+              title={
+                <span className="flex items-center gap-2">
+                  Enterprise SSO <Badge>Enterprise</Badge>
+                </span>
+              }
+              description="Single sign-on is available on the Komodo Enterprise plan."
+              control={<Button variant="brand">Talk to Sales</Button>}
             />
-          }
-        />
-      </section>
+          </section>
 
-      <section className="space-y-4">
-        <SectionHeading title="Feature Tips" />
-        <SettingRow
-          title="New feature tips in PR comments"
-          description="Occasional tips about Greptile features included in review comments"
-          control={
-            <Toggle
-              checked={settings.featureTips}
-              onChange={(featureTips) => update({ featureTips })}
-              label="New feature tips in PR comments"
-            />
-          }
-        />
-      </section>
-
-      <section className="space-y-4">
-        <SectionHeading title="Danger Zone" />
-        <SettingRow
-          title="Change organization handle"
-          description={`Your handle is used in URLs. Changing it will require all members to update their bookmarks.`}
-          control={<Button variant="secondary">Change Handle</Button>}
-        />
-        <Card className="border-[hsl(var(--destructive)/0.5)] p-5">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-2 text-base font-medium text-[hsl(var(--destructive))]">
-                <AlertCircle className="h-4 w-4" />
-                Delete this Organization
+          <section className="space-y-4">
+            <SectionHeading title="Danger Zone" />
+            <Card className="border-[hsl(var(--destructive)/0.5)] p-5">
+              <div className="flex items-start justify-between gap-6">
+                <div>
+                  <div className="flex items-center gap-2 text-base font-medium text-[hsl(var(--destructive))]">
+                    <AlertCircle className="h-4 w-4" />
+                    Delete this Organization
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    This will permanently delete the organization and all its
+                    data for every member. This cannot be undone.
+                  </div>
+                </div>
+                <Button variant="destructive" disabled>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Organization
+                </Button>
               </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                This will permanently delete the organization and all its data
-                for every member. This cannot be undone.
-              </div>
-            </div>
-            <Button variant="destructive" disabled>
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete Organization
-            </Button>
-          </div>
-        </Card>
-      </section>
-
-      <p className="sr-only">{org.slug}</p>
+            </Card>
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }

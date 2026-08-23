@@ -1,12 +1,20 @@
 "use client";
 
 import * as React from "react";
-import { Copy, Gift } from "lucide-react";
+import { Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/display";
+import { useInviteMember } from "@/lib/data/mutations";
 
-/** SPEC §2.5 — copy is verbatim. */
+/**
+ * Adding someone to the roster, from the account menu.
+ *
+ * It used to offer "Copy link" and "Send invite", and did neither: Komodo has
+ * no sign-in, so there is no link to copy and no account to send anyone to.
+ * What the button under it actually does is write a roster row — which is the
+ * thing worth doing, because the roster is what files a decision under a name.
+ */
 export function InviteModal({
   open,
   onClose,
@@ -14,37 +22,60 @@ export function InviteModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const [email, setEmail] = React.useState("");
+  const invite = useInviteMember();
+  const [emails, setEmails] = React.useState("");
+  const [pending, setPending] = React.useState(false);
+
+  const parsed = emails
+    .split(/[\s,]+/)
+    .map((value) => value.trim())
+    .filter((value) => value.includes("@"));
+
+  async function onAdd() {
+    setPending(true);
+    try {
+      for (const email of parsed) await invite(email);
+      setEmails("");
+      onClose();
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       width={658}
-      icon={<Gift className="h-5 w-5 text-[hsl(var(--greptile-brand-green))]" />}
-      title="Invite someone to Greptile"
-      subtitle="Share Greptile with friends or teammates at qualified companies. We'll track invited people here, and eligible company switches can qualify for Switch 2 rewards."
+      icon={<Gift className="h-5 w-5 text-[hsl(var(--komodo-brand-green))]" />}
+      title="Add teammates to Komodo"
+      subtitle="Komodo has no sign-in — anyone who can reach this deployment can already use it. The roster is what decides whose name a decision is filed under, so add them here and correct their GitHub login in People."
       footer={
-        <div className="grid grid-cols-2 gap-3">
-          <Button variant="secondary" className="w-full">
-            <Copy className="h-3.5 w-3.5" />
-            Copy link
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
           </Button>
-          <Button variant="secondary" className="w-full" disabled={!email.trim()}>
-            Send invite
+          <Button
+            variant="secondary"
+            disabled={parsed.length === 0 || pending}
+            onClick={onAdd}
+          >
+            {pending
+              ? "Adding…"
+              : `Add ${parsed.length || ""} to roster`.replace("  ", " ")}
           </Button>
         </div>
       }
     >
       <div className="p-5">
-        <div className="text-sm font-medium">Invite by email</div>
+        <div className="text-sm font-medium">Email addresses</div>
         <p className="mt-1 text-[13px] text-muted-foreground">
-          Add one or many email addresses. Press Enter after each email, or
-          paste a comma-separated list.
+          One or many — separated by commas or spaces. Each becomes a roster
+          entry whose GitHub login is guessed from the address.
         </p>
         <Input
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          value={emails}
+          onChange={(event) => setEmails(event.target.value)}
           placeholder="teammate@company.com"
           className="mt-3 h-10 bg-secondary"
         />

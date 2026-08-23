@@ -1,0 +1,385 @@
+/**
+ * Schema migrations.
+ *
+ * `CREATE TABLE IF NOT EXISTS` is enough to stand a fresh database up and
+ * nothing more: it does not add a column to a table that already exists, so
+ * every database written before a column shipped stays one column short and
+ * dies on the first write that touches it. The SQLite driver used to paper
+ * over exactly that with a hand-rolled `addMissingColumns`, and Postgres had
+ * no equivalent at all.
+ *
+ * So: an ordered ledger. Each step runs once, in order, on both dialects, and
+ * `schema_migrations` records which have been applied. The base SCHEMA in each
+ * driver still creates the current shape for a fresh database — a migration
+ * that has nothing to do there costs one introspection query and moves on.
+ *
+ * Migrations are append-only. Editing a step that has already shipped changes
+ * nothing on a database that ran it, which makes the two disagree silently;
+ * add a new step instead.
+ */
+
+/** One column to add when it is absent. */
+export interface ColumnAddition {
+  table: string;
+  column: string;
+  /** Type and constraints, per dialect — they differ on INTEGER vs BIGINT. */
+  sqlite: string;
+  postgres: string;
+}
+
+export interface Migration {
+  /** Ordered and unique. Never reused, never renamed. */
+  id: string;
+  /**
+   * Columns to add if they are not already there.
+   *
+   * Separate from `sql` because it is the one thing SQLite cannot say for
+   * itself: Postgres has `ADD COLUMN IF NOT EXISTS` and SQLite does not, so
+   * the runner checks first and both dialects take the same path.
+   */
+  addColumns?: ColumnAddition[];
+  /** DDL identical on both dialects. Statements separated by `;`. */
+  sql?: string;
+  /** DDL only for SQLite. */
+  sqlite?: string;
+  /** DDL only for Postgres. */
+  postgres?: string;
+}
+
+const SQLITE_INTEGRATIONS_DDL = `-- Trackers Komodo can read an issue out of. One row per provider: a
+-- deployment talks to one Linear workspace and one Jira site, and a second
+-- set of credentials for the same provider would be ambiguous, not useful.
+CREATE TABLE IF NOT EXISTS integrations (
+  provider    TEXT PRIMARY KEY,
+  token       TEXT NOT NULL,
+  baseUrl     TEXT NOT NULL DEFAULT '',
+  account     TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'connected',
+  lastError   TEXT,
+  connectedAt INTEGER NOT NULL
+);`;
+
+const POSTGRES_INTEGRATIONS_DDL = `-- Trackers Komodo can read an issue out of. One row per provider: a
+-- deployment talks to one Linear workspace and one Jira site, and a second
+-- set of credentials for the same provider would be ambiguous, not useful.
+CREATE TABLE IF NOT EXISTS integrations (
+  provider      TEXT PRIMARY KEY,
+  token         TEXT NOT NULL,
+  "baseUrl"     TEXT NOT NULL DEFAULT '',
+  account       TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'connected',
+  "lastError"   TEXT,
+  "connectedAt" BIGINT NOT NULL
+);`;
+
+const SQLITE_API_KEYS_DDL = `-- Keys for the HTTP API. The secret is never stored: only its SHA-256, so a
+-- copy of this database is not a set of working credentials.
+CREATE TABLE IF NOT EXISTS api_keys (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  keyHash    TEXT NOT NULL UNIQUE,
+  prefix     TEXT NOT NULL,
+  createdAt  INTEGER NOT NULL,
+  lastUsedAt INTEGER
+);
+CREATE INDEX IF NOT EXISTS api_keys_hash ON api_keys (keyHash);`;
+
+const POSTGRES_API_KEYS_DDL = `-- Keys for the HTTP API. The secret is never stored: only its SHA-256, so a
+-- copy of this database is not a set of working credentials.
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  "keyHash"    TEXT NOT NULL UNIQUE,
+  prefix       TEXT NOT NULL,
+  "createdAt"  BIGINT NOT NULL,
+  "lastUsedAt" BIGINT
+);
+CREATE INDEX IF NOT EXISTS api_keys_hash ON api_keys ("keyHash");`;
+
+const SQLITE_MEMORY_DDL = `-- What this team has taught Komodo. A rule is a sentence someone wrote; a
+-- file rule points at paths whose contents are read at review time.
+CREATE TABLE IF NOT EXISTS memory_rules (
+  id          TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  pattern     TEXT NOT NULL,
+  repoId      TEXT,
+  fileGlob    TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'active',
+  createdAt   INTEGER NOT NULL,
+  updatedAt   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS repo_clusters (
+  id        TEXT PRIMARY KEY,
+  name      TEXT NOT NULL,
+  createdAt INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS repo_cluster_members (
+  clusterId TEXT NOT NULL REFERENCES repo_clusters (id) ON DELETE CASCADE,
+  repoId    TEXT NOT NULL,
+  PRIMARY KEY (clusterId, repoId)
+);
+
+-- One row per (rule, run) the rule was handed to. The usage figures on the
+-- memory screens are counted from here rather than incremented on the rule.
+CREATE TABLE IF NOT EXISTS memory_rule_uses (
+  ruleId    TEXT NOT NULL,
+  reviewId  TEXT NOT NULL,
+  paths     TEXT NOT NULL DEFAULT '[]',
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (ruleId, reviewId)
+);
+CREATE INDEX IF NOT EXISTS memory_rule_uses_rule ON memory_rule_uses (ruleId);`;
+
+const POSTGRES_MEMORY_DDL = `-- What this team has taught Komodo. A rule is a sentence someone wrote; a
+-- file rule points at paths whose contents are read at review time.
+CREATE TABLE IF NOT EXISTS memory_rules (
+  id          TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  pattern     TEXT NOT NULL,
+  "repoId"    TEXT,
+  "fileGlob"  TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'active',
+  "createdAt" BIGINT NOT NULL,
+  "updatedAt" BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS repo_clusters (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  "createdAt" BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS repo_cluster_members (
+  "clusterId" TEXT NOT NULL REFERENCES repo_clusters (id) ON DELETE CASCADE,
+  "repoId"    TEXT NOT NULL,
+  PRIMARY KEY ("clusterId", "repoId")
+);
+
+-- One row per (rule, run) the rule was handed to. The usage figures on the
+-- memory screens are counted from here rather than incremented on the rule.
+CREATE TABLE IF NOT EXISTS memory_rule_uses (
+  "ruleId"    TEXT NOT NULL,
+  "reviewId"  TEXT NOT NULL,
+  paths       TEXT NOT NULL DEFAULT '[]',
+  "createdAt" BIGINT NOT NULL,
+  PRIMARY KEY ("ruleId", "reviewId")
+);
+CREATE INDEX IF NOT EXISTS memory_rule_uses_rule ON memory_rule_uses ("ruleId");`;
+
+/**
+ * The ledger.
+ *
+ * 001 is the reconciliation the SQLite driver used to do inline. It is listed
+ * here so a database from before the receipt columns shipped is carried
+ * forward by the same machinery as everything after it.
+ */
+export const MIGRATIONS: Migration[] = [
+  {
+    id: "001-review-receipts",
+    addColumns: [
+      { table: "reviews", column: "receiptUrl", sqlite: "TEXT", postgres: "TEXT" },
+      {
+        table: "reviews",
+        column: "receiptPostedAt",
+        sqlite: "INTEGER",
+        postgres: "BIGINT",
+      },
+    ],
+  },
+  {
+    id: "002-meta",
+    sql: `CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`,
+  },
+  {
+    id: "003-org-settings",
+    sql: `CREATE TABLE IF NOT EXISTS org_settings (
+  id   TEXT PRIMARY KEY,
+  json TEXT NOT NULL
+)`,
+  },
+  {
+    id: "004-judgement-votes",
+    sqlite: `CREATE TABLE IF NOT EXISTS judgement_votes (
+  judgementId TEXT NOT NULL,
+  actorLogin  TEXT NOT NULL,
+  value       INTEGER NOT NULL,
+  createdAt   INTEGER NOT NULL,
+  PRIMARY KEY (judgementId, actorLogin)
+);
+CREATE INDEX IF NOT EXISTS judgement_votes_judgement ON judgement_votes (judgementId)`,
+    postgres: `CREATE TABLE IF NOT EXISTS judgement_votes (
+  "judgementId" TEXT NOT NULL,
+  "actorLogin"  TEXT NOT NULL,
+  value         INTEGER NOT NULL,
+  "createdAt"   BIGINT NOT NULL,
+  PRIMARY KEY ("judgementId", "actorLogin")
+);
+CREATE INDEX IF NOT EXISTS judgement_votes_judgement ON judgement_votes ("judgementId")`,
+  },
+  {
+    id: "005-finding-judgement-link",
+    addColumns: [
+      {
+        table: "findings",
+        column: "judgementId",
+        sqlite: "TEXT",
+        postgres: "TEXT",
+      },
+    ],
+    sqlite:
+      "CREATE INDEX IF NOT EXISTS findings_judgement ON findings (judgementId)",
+    postgres:
+      'CREATE INDEX IF NOT EXISTS findings_judgement ON findings ("judgementId")',
+  },
+  {
+    id: "006-custom-context",
+    sqlite: SQLITE_MEMORY_DDL,
+    postgres: POSTGRES_MEMORY_DDL,
+  },
+  {
+    id: "007-api-keys",
+    sqlite: SQLITE_API_KEYS_DDL,
+    postgres: POSTGRES_API_KEYS_DDL,
+  },
+  {
+    id: "008-integrations",
+    sqlite: SQLITE_INTEGRATIONS_DDL,
+    postgres: POSTGRES_INTEGRATIONS_DDL,
+  },
+  {
+    id: "009-finding-ordinal",
+    addColumns: [
+      {
+        table: "findings",
+        column: "ordinal",
+        sqlite: "INTEGER NOT NULL DEFAULT 0",
+        postgres: "INTEGER NOT NULL DEFAULT 0",
+      },
+    ],
+  },
+];
+
+/* ── Running them ────────────────────────────────────────────────────────── */
+
+/**
+ * Splits a DDL blob into statements.
+ *
+ * Line comments are stripped BEFORE the split, not after: a `--` comment is
+ * free to contain a semicolon, and splitting first tears the sentence in half
+ * and hands the tail to the database as SQL. That is not hypothetical — it is
+ * how this function was first written, and the comment above the memory tables
+ * is what caught it.
+ */
+function statements(sql: string): string[] {
+  return sql
+    .replace(/^\s*--.*$/gm, "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** The slice of `node:sqlite`'s DatabaseSync the runner needs. */
+export interface SyncDb {
+  exec(sql: string): void;
+  prepare(sql: string): {
+    all(...params: unknown[]): unknown[];
+    run(...params: unknown[]): unknown;
+  };
+}
+
+export function runSqliteMigrations(db: SyncDb, now: number = Date.now()): void {
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+       id TEXT PRIMARY KEY,
+       appliedAt INTEGER NOT NULL
+     )`,
+  );
+  const applied = new Set(
+    db
+      .prepare("SELECT id FROM schema_migrations")
+      .all()
+      .map((r) => String((r as Record<string, unknown>).id)),
+  );
+
+  for (const migration of MIGRATIONS) {
+    if (applied.has(migration.id)) continue;
+
+    for (const add of migration.addColumns ?? []) {
+      const present = db
+        .prepare(`SELECT name FROM pragma_table_info('${add.table}')`)
+        .all()
+        .map((r) => String((r as Record<string, unknown>).name));
+      // A table the base schema has not created yet is a table this column
+      // cannot belong to; the schema will ship it with the column already on.
+      if (present.length === 0 || present.includes(add.column)) continue;
+      db.exec(`ALTER TABLE ${add.table} ADD COLUMN ${add.column} ${add.sqlite}`);
+    }
+
+    for (const statement of statements(migration.sqlite ?? migration.sql ?? "")) {
+      db.exec(statement);
+    }
+
+    db.prepare(
+      "INSERT INTO schema_migrations (id, appliedAt) VALUES (?, ?)",
+    ).run(migration.id, now);
+  }
+}
+
+/** The slice of a Postgres client the runner needs — see ./sql-client.ts. */
+export interface AsyncDb {
+  query<T = Record<string, unknown>>(
+    text: string,
+    params?: unknown[],
+  ): Promise<{ rows: T[] }>;
+  exec(text: string): Promise<void>;
+}
+
+export async function runPostgresMigrations(
+  sql: AsyncDb,
+  now: number = Date.now(),
+): Promise<void> {
+  await sql.exec(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+       id TEXT PRIMARY KEY,
+       "appliedAt" BIGINT NOT NULL
+     )`,
+  );
+  const { rows } = await sql.query<{ id: string }>(
+    "SELECT id FROM schema_migrations",
+  );
+  const applied = new Set(rows.map((r) => r.id));
+
+  for (const migration of MIGRATIONS) {
+    if (applied.has(migration.id)) continue;
+
+    for (const add of migration.addColumns ?? []) {
+      // Postgres could do this with ADD COLUMN IF NOT EXISTS, but going
+      // through the same introspection as SQLite keeps one code path.
+      const { rows: cols } = await sql.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = $1`,
+        [add.table],
+      );
+      if (cols.length === 0 || cols.some((c) => c.column_name === add.column)) {
+        continue;
+      }
+      await sql.exec(
+        `ALTER TABLE ${add.table} ADD COLUMN "${add.column}" ${add.postgres}`,
+      );
+    }
+
+    for (const statement of statements(migration.postgres ?? migration.sql ?? "")) {
+      await sql.exec(statement);
+    }
+
+    await sql.query(
+      "INSERT INTO schema_migrations (id, \"appliedAt\") VALUES ($1, $2)",
+      [migration.id, now],
+    );
+  }
+}

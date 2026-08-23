@@ -26,6 +26,10 @@
     "./connect": {
       "types": "./dist/connect.d.ts",
       "import": "./dist/connect.js"
+    },
+    "./api-key": {
+      "types": "./dist/api-key.d.ts",
+      "import": "./dist/api-key.js"
     }
   },
   "files": [

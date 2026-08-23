@@ -11,7 +11,6 @@ import { DataTable, EmptyRow, TH, THead } from "@/components/ui/table";
 import { fullName, useOrganization, useRepositories } from "@/lib/data/queries";
 import { shortDate } from "@/lib/utils";
 
-/** SPEC §8.9 */
 export function BillingView() {
   const org = useOrganization();
   const repos = useRepositories();
@@ -67,7 +66,7 @@ export function BillingView() {
 
       <section className="space-y-4">
         <SectionHeading
-          title="Greptile for Open Source"
+          title="Komodo for Open Source"
           subtitle="Free code reviews for public open-source repositories on github.com and gitlab.com"
         />
         <Card className="p-5">

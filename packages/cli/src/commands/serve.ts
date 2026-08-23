@@ -10,11 +10,16 @@
  *
  * Nothing above the store knows which it is, which is the point.
  */
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
 import { createProvider, GitHubClient, loadConfig, resolveGithubToken } from "@komodo/core";
 import type { ReviewProvider } from "@komodo/core";
-import { applyTeamConfig, runIngestLoop } from "@komodo/ingest";
+import {
+  applyTeamConfig,
+  createCheckout,
+  initializeSettings,
+  runIngestLoop,
+} from "@komodo/ingest";
 import { connectStore, isPostgresUrl } from "@komodo/store/connect";
 import { seedStore } from "@komodo/store/seed";
 import type { KomodoStore } from "@komodo/store";
@@ -29,6 +34,9 @@ export interface ServeOptions {
   poll: boolean;
   post: boolean;
   provider?: string;
+  /** Fetch a working tree per repository so reviews can read the code. */
+  checkout: boolean;
+  repoCache?: string;
 }
 
 export function devCommand(opts: ServeOptions): Promise<void> {
@@ -50,6 +58,13 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
 
   const store = await connectStore(dbTarget);
   const dim = (msg: string) => console.log(pc.dim(`• ${msg}`));
+
+  // komodo.yaml's review settings are adopted into the store once, on the
+  // first boot against it. After that the /settings/review screen owns them,
+  // so a restart cannot quietly undo what the team changed there.
+  if (await initializeSettings(store, config)) {
+    dim("Adopted komodo.yaml's review settings; the settings screen owns them now.");
+  }
 
   const team = await applyTeamConfig(store, config);
   if (team.teamId) {
@@ -77,6 +92,13 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   const web = startWebServer({
     port,
     dbTarget,
+    // The app posts receipts, and a receipt carries a link back here. Only
+    // this process knows where komodo.yaml was found.
+    configDir: configPath ? dirname(configPath) : process.cwd(),
+    // The app used to seed itself whenever the store was empty. On a
+    // deployment that invents repositories and pull requests the team does
+    // not have, so the decision is made here and passed down.
+    seed: opts.seed ?? false,
     onExit: (code) => {
       if (code !== 0 && code !== null) {
         console.error(pc.red(`Web server exited with code ${code}.`));
@@ -122,8 +144,10 @@ function startIngest(args: {
   const { store, config, opts, dim, signal } = args;
 
   let github: GitHubClient;
+  let token: string;
   try {
-    github = new GitHubClient(resolveGithubToken());
+    token = resolveGithubToken();
+    github = new GitHubClient(token);
   } catch {
     // No token is a normal state on a first run — the seeded queue still
     // renders, and the message says exactly what unlocks the real one.
@@ -143,6 +167,17 @@ function startIngest(args: {
     dim("No review provider configured; polling without reviewing.");
   }
 
+  // `komodo pr` reviews with the repository on disk and the server did not,
+  // which made the same review weaker here for no reason anyone chose.
+  const checkout = opts.checkout
+    ? createCheckout({
+        cacheDir: resolve(opts.repoCache ?? join(process.cwd(), ".komodo", "repos")),
+        token,
+        onProgress: dim,
+      })
+    : undefined;
+  if (!checkout) dim("Working trees disabled; reviews see the diff alone.");
+
   return runIngestLoop({
     store,
     github,
@@ -150,6 +185,7 @@ function startIngest(args: {
     config,
     intervalMs: parseInt(opts.interval, 10) * 1000,
     post: opts.post,
+    checkout,
     signal,
     onProgress: dim,
   });

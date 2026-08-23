@@ -3,16 +3,18 @@ import { Command } from "commander";
 import { diffCommand } from "./commands/diff.js";
 import { initCommand } from "./commands/init.js";
 import { prCommand } from "./commands/pr.js";
+import { promptCommand } from "./commands/prompt.js";
 import { devCommand, serveCommand } from "./commands/serve.js";
 import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
+import { cliVersion } from "./web.js";
 
 const program = new Command();
 
 program
   .name("komodo-review")
   .description("🦎 AI code review on your own Claude or ChatGPT subscription")
-  .version("0.1.0");
+  .version(cliVersion());
 
 program
   .command("init")
@@ -40,6 +42,8 @@ program
   .option("--no-seed", "start empty instead of seeding a sample queue")
   .option("--post", "post reviews back to GitHub", false)
   .option("--provider <name>", "claude | codex | openrouter")
+  .option("--no-checkout", "review diffs only, without fetching a working tree")
+  .option("--repo-cache <dir>", "where working trees are kept (default .komodo/repos)")
   .action(devCommand);
 
 program
@@ -52,6 +56,8 @@ program
   .option("--seed", "seed a sample queue when the store is empty", false)
   .option("--post", "post reviews back to GitHub", false)
   .option("--provider <name>", "claude | codex | openrouter")
+  .option("--no-checkout", "review diffs only, without fetching a working tree")
+  .option("--repo-cache <dir>", "where working trees are kept (default .komodo/repos)")
   .action(serveCommand);
 
 program
@@ -59,6 +65,12 @@ program
   .description("Output annotated diff JSON for the current branch (used by the skill)")
   .option("--base <branch>", "base branch to diff against (default: auto-detect)")
   .action(diffCommand);
+
+program
+  .command("prompt")
+  .description("Print the review prompt for the current branch (used by the skill)")
+  .option("--base <branch>", "base branch to diff against (default: auto-detect)")
+  .action(promptCommand);
 
 program
   .command("validate")

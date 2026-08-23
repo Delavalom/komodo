@@ -41,6 +41,21 @@ describe("applyTeamConfig", () => {
     store.close();
   });
 
+  it("keeps a repository someone switched off on the screen switched off", async () => {
+    // The file says which repositories the team cares about; the screen says
+    // whether one is being polled right now. A restart must not overrule it.
+    const store = new SqliteStore({ path: ":memory:" });
+    const team = config({ members: ["a"], repos: ["acme/api"] });
+    await applyTeamConfig(store, team);
+    await store.setRepoEnabled("acme/api", false);
+
+    await applyTeamConfig(store, team);
+
+    const { repositories } = await store.snapshot();
+    expect(repositories.find((r) => r.id === "acme/api")!.enabled).toBe(false);
+    store.close();
+  });
+
   it("does nothing when no team is configured, leaving the seed alone", async () => {
     const store = new SqliteStore({ path: ":memory:" });
     const result = await applyTeamConfig(store, config({}));

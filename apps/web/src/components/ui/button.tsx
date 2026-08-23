@@ -14,7 +14,7 @@ type Size = "sm" | "md";
 
 const VARIANTS: Record<Variant, string> = {
   brand:
-    "bg-[hsl(var(--greptile-brand-green))] text-[hsl(var(--color-gray-950))] " +
+    "bg-[hsl(var(--komodo-brand-green))] text-[hsl(var(--color-gray-950))] " +
     "hover:bg-[hsl(153_75%_63%)] border border-transparent font-medium",
   outline:
     "bg-card text-foreground border border-border hover:bg-muted-accent",

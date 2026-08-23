@@ -4,33 +4,91 @@ import * as React from "react";
 import { Puzzle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Badge, EmptyState, StatusPill } from "@/components/ui/display";
+import { EmptyState, Modal, StatusPill } from "@/components/ui/display";
 import { Popover, PopoverItem } from "@/components/ui/controls";
+import { Input } from "@/components/ui/input";
 import { DataTable, TD, TH, THead, TR } from "@/components/ui/table";
+import { Field } from "@/components/memory/add-context-modal";
 import { useIntegrations } from "@/lib/data/queries";
 import {
   useConnectIntegration,
   useDisconnectIntegration,
 } from "@/lib/data/mutations";
+import { absoluteStamp } from "@/lib/utils";
 import type { IntegrationProvider } from "@/lib/types";
 
+/**
+ * Trackers Komodo can read an issue out of.
+ *
+ * Connecting one used to write a row to localStorage and mean nothing. It now
+ * stores a token the reviewer uses: when a pull request's title names an issue
+ * key, the ingester fetches that issue and hands its text to the model with
+ * the diff.
+ *
+ * A pasted token rather than OAuth. A self-hosted deployment has an admin who
+ * can create one, and a three-way OAuth dance would be more moving parts than
+ * this feature is worth.
+ */
 const PROVIDERS: {
   value: IntegrationProvider;
   label: string;
-  beta?: boolean;
   color: string;
+  /** Where to get the token, said plainly. */
+  hint: string;
+  /** Jira needs a site and an account; Linear needs neither. */
+  needsSite: boolean;
 }[] = [
-  { value: "atlassian", label: "Atlassian", beta: true, color: "#2684FF" },
-  { value: "linear", label: "Linear", beta: true, color: "#E6E6E6" },
-  { value: "devin", label: "Devin", color: "#5B8CFF" },
+  {
+    value: "linear",
+    label: "Linear",
+    color: "#5E6AD2",
+    hint: "A personal API key from Linear → Settings → Security & access.",
+    needsSite: false,
+  },
+  {
+    value: "jira",
+    label: "Jira",
+    color: "#2684FF",
+    hint: "An API token from id.atlassian.com, with the email it belongs to.",
+    needsSite: true,
+  },
 ];
 
-/** SPEC §7.4 */
 export function IntegrationsView() {
   const integrations = useIntegrations();
   const connect = useConnectIntegration();
   const disconnect = useDisconnectIntegration();
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [adding, setAdding] = React.useState<IntegrationProvider | null>(null);
+  const [token, setToken] = React.useState("");
+  const [baseUrl, setBaseUrl] = React.useState("");
+  const [account, setAccount] = React.useState("");
+  const [pending, setPending] = React.useState(false);
+
+  const spec = PROVIDERS.find((p) => p.value === adding);
+
+  const close = () => {
+    setAdding(null);
+    setToken("");
+    setBaseUrl("");
+    setAccount("");
+  };
+
+  const submit = async () => {
+    if (pending || !adding || !token.trim()) return;
+    setPending(true);
+    try {
+      await connect({
+        provider: adding,
+        token: token.trim(),
+        baseUrl: baseUrl.trim(),
+        account: account.trim(),
+      });
+      close();
+    } finally {
+      setPending(false);
+    }
+  };
 
   const addButton = (
     <Popover
@@ -49,7 +107,7 @@ export function IntegrationsView() {
           <PopoverItem
             key={provider.value}
             onClick={() => {
-              connect(provider.value);
+              setAdding(provider.value);
               setMenuOpen(false);
             }}
           >
@@ -61,7 +119,6 @@ export function IntegrationsView() {
               />
               {provider.label}
             </span>
-            {provider.beta ? <Badge>Beta</Badge> : null}
           </PopoverItem>
         ))}
       </div>
@@ -85,7 +142,7 @@ export function IntegrationsView() {
                 <EmptyState
                   icon={<Puzzle className="h-6 w-6" />}
                   title="No integrations connected"
-                  description="Connect a data source to enrich Greptile reviews with additional context."
+                  description="Connect a tracker and Komodo will read the issue a pull request names, so a review can ask whether this is the right change."
                   action={addButton}
                 />
               </td>
@@ -104,18 +161,30 @@ export function IntegrationsView() {
                         className="h-4 w-4 rounded-[2px]"
                         style={{ background: provider?.color }}
                       />
-                      {provider?.label}
-                      {provider?.beta ? <Badge>Beta</Badge> : null}
+                      {provider?.label ?? integration.provider}
                     </span>
                   </TD>
                   <TD>
-                    <StatusPill tone="success">connected</StatusPill>
+                    {integration.status === "error" ? (
+                      <span className="flex flex-col gap-1">
+                        <StatusPill tone="error">error</StatusPill>
+                        <span className="text-xs text-muted-foreground">
+                          {integration.lastError}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <StatusPill tone="success">connected</StatusPill>
+                        {integration.connectedAt ? (
+                          <span className="text-xs text-muted-foreground">
+                            since {absoluteStamp(integration.connectedAt)}
+                          </span>
+                        ) : null}
+                      </span>
+                    )}
                   </TD>
                   <TD>
-                    <Button
-                      size="sm"
-                      onClick={() => disconnect(integration.id)}
-                    >
+                    <Button size="sm" onClick={() => disconnect(integration.id)}>
                       Disconnect
                     </Button>
                   </TD>
@@ -129,6 +198,64 @@ export function IntegrationsView() {
       {integrations.length > 0 ? (
         <div className="mt-4">{addButton}</div>
       ) : null}
+
+      <Modal
+        open={adding !== null}
+        onClose={close}
+        title={`Connect ${spec?.label ?? ""}`}
+        subtitle={spec?.hint}
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={close}>
+              Cancel
+            </Button>
+            <Button
+              variant="brand"
+              disabled={
+                pending ||
+                !token.trim() ||
+                (spec?.needsSite ? !baseUrl.trim() || !account.trim() : false)
+              }
+              onClick={() => void submit()}
+            >
+              {pending ? "Connecting…" : "Connect"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 p-5">
+          {spec?.needsSite ? (
+            <>
+              <Field label="Site URL">
+                <Input
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder="https://yourteam.atlassian.net"
+                />
+              </Field>
+              <Field label="Account email">
+                <Input
+                  value={account}
+                  onChange={(event) => setAccount(event.target.value)}
+                  placeholder="you@yourteam.com"
+                />
+              </Field>
+            </>
+          ) : null}
+          <Field label="API token">
+            <Input
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="Paste the token"
+            />
+          </Field>
+          <p className="text-sm text-muted-foreground">
+            The token is stored on this deployment and used only to read issues
+            a pull request names. It is never shown again after you save it.
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }

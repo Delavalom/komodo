@@ -7,7 +7,7 @@
  */
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 
-import type { KomodoStore, PullRequestInput } from "../src/port.js";
+import type { KomodoStore, PullRequestInput, ReviewInput } from "../src/port.js";
 
 const T0 = 1_700_000_000_000;
 
@@ -30,6 +30,88 @@ function pr(over: Partial<PullRequestInput> = {}): PullRequestInput {
     createdAt: T0,
     updatedAt: T0,
     mergedAt: null,
+    ...over,
+  };
+}
+
+/**
+ * A review run with the two shapes that matter: one judgement GitHub could
+ * have commented on, and one it could not.
+ */
+function review(over: Partial<ReviewInput> = {}): ReviewInput {
+  return {
+    prId: "acme/api#1",
+    headSha: "aaa111",
+    provider: "claude",
+    model: "claude-opus-5",
+    summary: "- Rotates session tokens on refresh",
+    walkthrough: [{ files: ["auth/session.ts"], summary: "Rotates the token." }],
+    confidence: 3,
+    effort: 2,
+    verdictLine: "Ships once the cache question is settled.",
+    diagram: "sequenceDiagram\n  A->>B: hi",
+    recordId: "acme-api-1-1700000000000",
+    files: [
+      {
+        path: "auth/session.ts",
+        additions: 12,
+        deletions: 3,
+        status: "modified",
+        patch: "@@ -86,3 +86,12 @@\n+await store.revoke(id)",
+      },
+    ],
+    judgements: [
+      {
+        path: "auth/session.ts",
+        line: 88,
+        endLine: null,
+        severity: "major",
+        kind: "Risk",
+        tag: "changes how logging out works",
+        title: "Sessions outlive logout by up to fifteen minutes.",
+        lede: "The token is revoked in the store but the edge cache keeps serving it.",
+        detail: "Revoking the cache entry costs one extra round trip.",
+        ask: "Is a fifteen-minute window acceptable here?",
+        sources: ["the diff"],
+        sourceNote: "The diff revokes in the store only.",
+        code: "auth/session.ts:88 await store.revoke(id)",
+        options: [
+          { label: "Yes — fifteen minutes is fine", bucket: "Agreed" },
+          { label: "No — revoke the cache entry", bucket: "Blocks" },
+          { label: "I have a question first", bucket: "Asked" },
+          { label: "Not my call", bucket: "Passed on" },
+        ],
+        suggestion: "await cache.revoke(id)",
+        fixPrompt: "Revoke the edge cache entry alongside the store token.",
+        postable: true,
+      },
+      {
+        path: "edge/cache.ts",
+        line: 4,
+        endLine: 9,
+        severity: "minor",
+        kind: "Unsure",
+        tag: "reaches outside this change",
+        title: "The cache TTL is set outside the diff.",
+        lede: "Nothing here shows what the TTL actually is.",
+        detail: "It may already be shorter than fifteen minutes.",
+        ask: "What is the TTL on this cache?",
+        sources: ["the diff", "PR description"],
+        sourceNote: "Neither names the TTL.",
+        code: "edge/cache.ts:4 const TTL = ...",
+        options: [
+          { label: "It is shorter — no issue", bucket: "Agreed" },
+          { label: "It is longer — fix it", bucket: "Blocks" },
+          { label: "I have a question first", bucket: "Asked" },
+          { label: "Hand this to the platform team", bucket: "Passed on" },
+        ],
+        suggestion: null,
+        fixPrompt: "State the cache TTL and compare it to the token lifetime.",
+        // Anchored to a line the diff does not expose: GitHub would have
+        // dropped this one. Komodo keeps it.
+        postable: false,
+      },
+    ],
     ...over,
   };
 }
@@ -76,7 +158,7 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(row.additions).toBe(40);
     });
 
-    it("keys judgments on (prId, headSha) and counts re-reviews", async () => {
+    it("keys judgments on (prId, headSha), so a re-review replaces", async () => {
       const prId = await store.upsertPullRequest(pr());
       const a = await store.upsertJudgment({
         prId, headSha: "aaa111", verdict: "ship",
@@ -91,7 +173,207 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       const { judgments } = await store.snapshot();
       expect(judgments).toHaveLength(1);
       expect(judgments[0].verdict).toBe("needs_work");
-      expect(judgments[0].reviewCount).toBe(2);
+    });
+
+    /* ── Derived engagement ───────────────────────────────────────────── */
+
+    describe("engagement numbers", () => {
+      /**
+       * These were columns, and the only thing that ever wrote them was the
+       * seeder — so every one of them was zero on a real deployment while
+       * looking, in dev, entirely alive. They are counted at read time now,
+       * and these tests are what keeps them counted from the rows that
+       * actually caused them.
+       */
+      const judgmentFor = async (id: string) =>
+        (await store.snapshot()).judgments.find((j) => j.id === id)!;
+
+      it("counts runs, not upserts", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const id = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        expect((await judgmentFor(id)).reviewCount).toBe(0);
+
+        await store.saveReview(review({ prId }));
+        expect((await judgmentFor(id)).reviewCount).toBe(1);
+
+        // The same head again replaces its run rather than adding one.
+        await store.saveReview(review({ prId }));
+        expect((await judgmentFor(id)).reviewCount).toBe(1);
+
+        // A new head is a new run.
+        await store.saveReview(review({ prId, headSha: "bbb222" }));
+        expect((await judgmentFor(id)).reviewCount).toBe(2);
+      });
+
+      it("counts the newest run's judgements as the comment total", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const id = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        await store.saveReview(review({ prId }));
+
+        // The fixture carries two judgements.
+        expect((await judgmentFor(id)).totalComments).toBe(2);
+        expect((await judgmentFor(id)).addressedComments).toBe(0);
+      });
+
+      it("counts a judgement as addressed once it has been answered", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const id = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        const reviewId = await store.saveReview(review({ prId }));
+
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata",
+          bucket: "Agreed", optionLabel: "Yes",
+        });
+        expect((await judgmentFor(id)).addressedComments).toBe(1);
+
+        // Withdrawing appends a null bucket, and the count follows.
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: null,
+        });
+        expect((await judgmentFor(id)).addressedComments).toBe(0);
+      });
+
+      it("counts votes, one per person per judgement", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const id = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        const reviewId = await store.saveReview(review({ prId }));
+        const judgementId = `${reviewId}:0`;
+
+        await store.recordVote({ judgementId, actorLogin: "renata", value: 1 });
+        await store.recordVote({ judgementId, actorLogin: "marco", value: -1 });
+        expect(await judgmentFor(id)).toMatchObject({ upvotes: 1, downvotes: 1 });
+
+        // Changing your mind replaces rather than accumulating.
+        await store.recordVote({ judgementId, actorLogin: "marco", value: 1 });
+        expect(await judgmentFor(id)).toMatchObject({ upvotes: 2, downvotes: 0 });
+
+        // And withdrawing removes it.
+        await store.recordVote({ judgementId, actorLogin: "marco", value: null });
+        expect(await judgmentFor(id)).toMatchObject({ upvotes: 1, downvotes: 0 });
+      });
+
+      it("lists the votes on a run", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordVote({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", value: 1,
+        });
+
+        const votes = await store.listVotes(reviewId);
+        expect(votes).toHaveLength(1);
+        expect(votes[0]).toMatchObject({ actorLogin: "renata", value: 1 });
+      });
+
+      it("moves a finding's status with the answer to its judgement", async () => {
+        // The column only ever held 'open'. These three states existed in the
+        // type and could not occur until the status started being derived.
+        const prId = await store.upsertPullRequest(pr());
+        const judgmentId = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "needs_work",
+          status: "completed", impact: "high", score: 40,
+        });
+        const reviewId = await store.saveReview(review({ prId }));
+        const [first] = (await store.loadReview(reviewId))!.judgements;
+
+        // The finding names the judgement it summarises.
+        await store.replaceFindings(judgmentId, [
+          {
+            judgementId: first.id,
+            title: first.title,
+            body: first.lede,
+            severity: "P1",
+            isSecurity: false,
+            filePath: first.path,
+          },
+        ]);
+
+        const statusNow = async () =>
+          (await store.snapshot()).findings[0].status;
+        expect(await statusNow()).toBe("open");
+
+        await store.recordAnswer({
+          judgementId: first.id, actorLogin: "renata",
+          bucket: "Agreed", optionLabel: "Yes",
+        });
+        expect(await statusNow()).toBe("addressed");
+
+        await store.recordAnswer({
+          judgementId: first.id, actorLogin: "renata",
+          bucket: "Passed on", optionLabel: "Not my call",
+        });
+        expect(await statusNow()).toBe("dismissed");
+      });
+
+      it("leaves a finding open when it names no judgement", async () => {
+        // A run recorded before the link existed. Correct, if inert — and it
+        // must not throw or pick up somebody else's answer.
+        const prId = await store.upsertPullRequest(pr());
+        const judgmentId = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata",
+          bucket: "Agreed", optionLabel: "Yes",
+        });
+        await store.replaceFindings(judgmentId, [
+          {
+            title: "Unlinked",
+            body: "From an older run.",
+            severity: "P2",
+            isSecurity: false,
+            filePath: "src/old.ts",
+          },
+        ]);
+
+        expect((await store.snapshot()).findings[0].status).toBe("open");
+      });
+
+      it("does not count a judgement someone handed on as addressed", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const id = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        const reviewId = await store.saveReview(review({ prId }));
+
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata",
+          bucket: "Passed on", optionLabel: "Not my call",
+        });
+        expect((await judgmentFor(id)).addressedComments).toBe(0);
+      });
+
+      it("counts a repository's completed reviews", async () => {
+        await store.upsertPullRequest(pr({ number: 1 }));
+        await store.upsertPullRequest(pr({ number: 2 }));
+        await store.upsertJudgment({
+          prId: "acme/api#1", headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        await store.upsertJudgment({
+          prId: "acme/api#2", headSha: "aaa111", verdict: null,
+          status: "error", impact: "low", score: 0,
+        });
+
+        const { repositories } = await store.snapshot();
+        const repo = repositories.find((r) => r.id === "acme/api")!;
+        // The errored one does not count as a review of anything.
+        expect(repo.reviewCount).toBe(1);
+      });
     });
 
     it("joins git facts into the judgment read-model without losing either id", async () => {
@@ -149,12 +431,95 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
         expect((await store.snapshot()).judgments).toHaveLength(1);
       });
 
-      it("skips drafts and anything not open", async () => {
-        await store.upsertPullRequest(pr({ number: 2, isDraft: true }));
+      it("skips anything not open", async () => {
         await store.upsertPullRequest(pr({ number: 3, state: "merged" }));
         await store.upsertPullRequest(pr({ number: 4, state: "closed" }));
         expect(await store.listPullRequestsNeedingReview()).toHaveLength(0);
       });
+
+      it("offers drafts — whether to review one is a setting, not a query", async () => {
+        // The exclusion used to live in this WHERE clause, which made
+        // auto_review.drafts unreachable. shouldReview() decides now.
+        await store.upsertPullRequest(pr({ number: 2, isDraft: true }));
+        const pending = await store.listPullRequestsNeedingReview();
+        expect(pending.map((p) => p.number)).toContain(2);
+      });
+
+      it("treats a skipped head as settled, so it is not re-offered forever", async () => {
+        const prId = await store.upsertPullRequest(pr({ number: 5 }));
+        await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: null,
+          status: "skipped", impact: "low", score: 0,
+        });
+        const pending = await store.listPullRequestsNeedingReview();
+        expect(pending.map((p) => p.number)).not.toContain(5);
+      });
+
+      it("stops offering a re-review when the caller asks it not to", async () => {
+        // auto_review.on_new_commits: false. The first head was reviewed, the
+        // second is new — and without this the poller would review it anyway.
+        const prId = await store.upsertPullRequest(pr({ number: 7 }));
+        await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "ship",
+          status: "completed", impact: "low", score: 90,
+        });
+        await store.upsertPullRequest(pr({ number: 7, headSha: "bbb222" }));
+
+        const withRe = await store.listPullRequestsNeedingReview();
+        expect(withRe.map((p) => p.number)).toContain(7);
+
+        const withoutRe = await store.listPullRequestsNeedingReview({
+          reReview: false,
+        });
+        expect(withoutRe.map((p) => p.number)).not.toContain(7);
+      });
+
+      it("still offers a first review when re-reviews are off", async () => {
+        await store.upsertPullRequest(pr({ number: 8 }));
+        const pending = await store.listPullRequestsNeedingReview({
+          reReview: false,
+        });
+        expect(pending.map((p) => p.number)).toContain(8);
+      });
+
+      it("re-offers a head whose review errored", async () => {
+        const prId = await store.upsertPullRequest(pr({ number: 6 }));
+        await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: null,
+          status: "error", impact: "low", score: 0,
+        });
+        const pending = await store.listPullRequestsNeedingReview();
+        expect(pending.map((p) => p.number)).toContain(6);
+      });
+    });
+
+    it("returns findings in a stable order, not the engine's", async () => {
+      // Every finding in a batch is written with one timestamp, so ordering on
+      // createdAt alone has no tiebreak: SQLite happened to return insert
+      // order and Postgres did not. Two drivers rendering the same review's
+      // findings differently is exactly what conformance exists to catch.
+      const prId = await store.upsertPullRequest(pr());
+      const judgmentId = await store.upsertJudgment({
+        prId, headSha: "aaa111", verdict: "needs_work",
+        status: "completed", impact: "high", score: 40,
+      });
+
+      // More than ten, so a lexical sort on the id suffix would also break.
+      const paths = Array.from({ length: 12 }, (_, i) => `src/f${i}.ts`);
+      await store.replaceFindings(
+        judgmentId,
+        paths.map((filePath, i) => ({
+          title: `Finding ${i}`,
+          body: "…",
+          severity: "P2" as const,
+          isSecurity: false,
+          filePath,
+        })),
+      );
+
+      const { findings } = await store.snapshot();
+      expect(findings.map((f) => f.filePath)).toEqual(paths);
+      expect(findings.map((f) => f.ordinal)).toEqual(paths.map((_, i) => i));
     });
 
     it("replaces findings wholesale so a re-review cannot duplicate them", async () => {
@@ -241,6 +606,547 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       const { repositories } = await store.snapshot();
       expect(repositories[0].enabled).toBe(false);
       expect(await store.listPullRequests()).toHaveLength(1);
+    });
+
+    /* ── The review body ───────────────────────────────────────────────── */
+
+    it("round-trips a review body through both dialects", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.review.confidence).toBe(3);
+      expect(loaded!.review.effort).toBe(2);
+      expect(loaded!.review.diagram).toBe("sequenceDiagram\n  A->>B: hi");
+      // The JSON columns are where the two dialects diverge — TEXT here,
+      // JSONB there — so this is the assertion that keeps them honest.
+      expect(loaded!.review.walkthrough).toEqual([
+        { files: ["auth/session.ts"], summary: "Rotates the token." },
+      ]);
+      expect(loaded!.judgements).toHaveLength(2);
+      expect(loaded!.judgements[0].options).toHaveLength(4);
+      expect(loaded!.judgements[0].options[0]).toEqual({
+        label: "Yes — fifteen minutes is fine",
+        bucket: "Agreed",
+      });
+      expect(loaded!.judgements[0].sources).toEqual(["the diff"]);
+      expect(loaded!.judgements[0].endLine).toBeNull();
+      expect(loaded!.judgements[0].suggestion).toBe("await cache.revoke(id)");
+    });
+
+    it("keeps judgements GitHub could not have anchored", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded!.judgements.map((j) => j.postable)).toEqual([true, false]);
+    });
+
+    it("numbers judgements by position, so a URL can name one", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded!.judgements.map((j) => j.ordinal)).toEqual([0, 1]);
+      expect(loaded!.judgements[1].id).toBe(`${reviewId}:1`);
+    });
+
+    it("keeps every run rather than overwriting the last one", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const first = await store.saveReview(review({ prId, headSha: "aaa111" }));
+      const second = await store.saveReview(
+        review({ prId, headSha: "bbb222", confidence: 5 }),
+      );
+
+      expect(second).not.toBe(first);
+      const runs = await store.listReviewRuns(prId);
+      expect(runs).toHaveLength(2);
+      // Newest first, and the older run is still readable in full.
+      expect(runs[0].id).toBe(second);
+      expect((await store.loadReview(first))!.review.confidence).toBe(3);
+      expect((await store.loadLatestReview(prId))!.review.id).toBe(second);
+    });
+
+    it("replaces a re-run of the same head instead of duplicating it", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const a = await store.saveReview(review({ prId }));
+      const b = await store.saveReview(review({ prId, confidence: 1 }));
+
+      expect(b).toBe(a);
+      expect(await store.listReviewRuns(prId)).toHaveLength(1);
+      const loaded = await store.loadReview(a);
+      expect(loaded!.review.confidence).toBe(1);
+      expect(loaded!.judgements).toHaveLength(2);
+    });
+
+    it("remembers a posted receipt, and a re-run of the head does not forget it", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+
+      expect((await store.loadReview(reviewId))!.review.receiptUrl).toBeNull();
+
+      await store.markReceiptPosted(reviewId, "https://github.com/x/y#c1");
+      const posted = (await store.loadReview(reviewId))!.review;
+      expect(posted.receiptUrl).toBe("https://github.com/x/y#c1");
+      expect(posted.receiptPostedAt).toBeGreaterThan(0);
+
+      // Re-reviewing the same head rewrites the body, but the fact that a
+      // person closed this run out is theirs and not the reviewer's to drop.
+      await store.saveReview(review({ prId, confidence: 1 }));
+      const after = (await store.loadReview(reviewId))!.review;
+      expect(after.confidence).toBe(1);
+      expect(after.receiptUrl).toBe("https://github.com/x/y#c1");
+    });
+
+    it("stores patches out of the way, read only when asked for", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+
+      const files = await store.loadReviewFiles(reviewId);
+      expect(files).toHaveLength(1);
+      expect(files[0].patch).toContain("@@");
+      expect(files[0].additions).toBe(12);
+    });
+
+    it("appends answers and never rewrites one", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const judgementId = `${reviewId}:0`;
+
+      await store.recordAnswer({
+        judgementId, actorLogin: "renata",
+        bucket: "Agreed", optionLabel: "Yes — fifteen minutes is fine",
+      });
+      await store.recordAnswer({
+        judgementId, actorLogin: "renata",
+        bucket: "Blocks", optionLabel: "No — revoke the cache entry",
+      });
+
+      // Both are on the record...
+      const ledger = await store.listAnswers(reviewId);
+      expect(ledger).toHaveLength(2);
+      expect(ledger.map((a) => a.bucket)).toEqual(["Agreed", "Blocks"]);
+
+      // ...and the newest is the answer.
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded!.answers).toHaveLength(1);
+      expect(loaded!.answers[0].bucket).toBe("Blocks");
+      expect(loaded!.answers[0].actorLogin).toBe("renata");
+    });
+
+    it("withdraws an answer by appending, not by deleting", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const judgementId = `${reviewId}:0`;
+
+      await store.recordAnswer({
+        judgementId, actorLogin: "renata", bucket: "Agreed", optionLabel: "Yes",
+      });
+      await store.recordAnswer({
+        judgementId, actorLogin: "renata", bucket: null,
+      });
+
+      expect(await store.listAnswers(reviewId)).toHaveLength(2);
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded!.answers[0].bucket).toBeNull();
+    });
+
+    it("carries the note and the blocking flag of an asked question", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+
+      await store.recordAnswer({
+        judgementId: `${reviewId}:1`, actorLogin: "kai",
+        bucket: "Asked", optionLabel: "I have a question first",
+        note: "Does the edge cache honour the revocation?", blocking: true,
+      });
+
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded!.answers[0].note).toBe(
+        "Does the edge cache honour the revocation?",
+      );
+      expect(loaded!.answers[0].blocking).toBe(true);
+    });
+
+    it("keeps answers when the same head is reviewed again", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      await store.recordAnswer({
+        judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Agreed",
+        optionLabel: "Yes",
+      });
+
+      await store.saveReview(review({ prId, confidence: 1 }));
+
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded!.answers).toHaveLength(1);
+      expect(loaded!.answers[0].bucket).toBe("Agreed");
+    });
+
+    it("reports nothing rather than throwing for a pull request never reviewed", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      expect(await store.loadLatestReview(prId)).toBeNull();
+      expect(await store.loadReview("acme/api#1@nope")).toBeNull();
+      expect(await store.listReviewRuns(prId)).toEqual([]);
+    });
+
+    /* ── API keys ─────────────────────────────────────────────────────── */
+
+    describe("api keys", () => {
+      const key = (over: Record<string, unknown> = {}) => ({
+        name: "CI pipeline",
+        keyHash: "a".repeat(64),
+        prefix: "kmd_abcd1234",
+        ...over,
+      });
+
+      it("stores a key and hands back everything but the secret", async () => {
+        const created = await store.createApiKey(key());
+        expect(created.name).toBe("CI pipeline");
+        expect(created.prefix).toBe("kmd_abcd1234");
+        expect(created.lastUsedAt).toBeNull();
+        // The hash is a storage detail and must not travel back out.
+        expect(created).not.toHaveProperty("keyHash");
+      });
+
+      it("never returns the hash when listing", async () => {
+        await store.createApiKey(key());
+        const [listed] = await store.listApiKeys();
+        expect(Object.keys(listed).sort()).toEqual([
+          "createdAt", "id", "lastUsedAt", "name", "prefix",
+        ]);
+      });
+
+      it("finds a key by its hash and nothing else", async () => {
+        const created = await store.createApiKey(key());
+        expect((await store.findApiKeyByHash("a".repeat(64)))?.id).toBe(created.id);
+        expect(await store.findApiKeyByHash("b".repeat(64))).toBeNull();
+      });
+
+      it("records when a key was last used, on the lookup itself", async () => {
+        // Recorded by the store rather than the caller: a lastUsedAt that
+        // depends on remembering to write it is one nobody can trust.
+        await store.createApiKey(key());
+        expect((await store.listApiKeys())[0].lastUsedAt).toBeNull();
+
+        await store.findApiKeyByHash("a".repeat(64));
+        expect((await store.listApiKeys())[0].lastUsedAt).not.toBeNull();
+      });
+
+      it("revokes a key", async () => {
+        const created = await store.createApiKey(key());
+        await store.deleteApiKey(created.id);
+
+        expect(await store.listApiKeys()).toHaveLength(0);
+        // And it stops authenticating, which is the point of revoking.
+        expect(await store.findApiKeyByHash("a".repeat(64))).toBeNull();
+      });
+    });
+
+    /* ── Integrations ─────────────────────────────────────────────────── */
+
+    describe("integrations", () => {
+      it("stores a token and never lists it", async () => {
+        await store.saveIntegration({ provider: "linear", token: "lin_secret" });
+
+        const [listed] = await store.listIntegrations();
+        expect(listed).toMatchObject({ provider: "linear", status: "connected" });
+        // The one property that must never leave by this path.
+        expect(listed).not.toHaveProperty("token");
+      });
+
+      it("hands the token to the one caller that needs it", async () => {
+        await store.saveIntegration({ provider: "linear", token: "lin_secret" });
+        const loaded = await store.loadIntegrationToken("linear");
+        expect(loaded?.token).toBe("lin_secret");
+      });
+
+      it("keeps one row per provider — reconnecting replaces", async () => {
+        await store.saveIntegration({ provider: "linear", token: "first" });
+        await store.saveIntegration({ provider: "linear", token: "second" });
+
+        expect(await store.listIntegrations()).toHaveLength(1);
+        expect((await store.loadIntegrationToken("linear"))?.token).toBe("second");
+      });
+
+      it("carries the site and account a Jira connection needs", async () => {
+        await store.saveIntegration({
+          provider: "jira",
+          token: "tok",
+          baseUrl: "https://acme.atlassian.net",
+          account: "renata@acme.com",
+        });
+        const [listed] = await store.listIntegrations();
+        expect(listed.baseUrl).toBe("https://acme.atlassian.net");
+        expect(listed.account).toBe("renata@acme.com");
+      });
+
+      it("records a failure and clears it on the next success", async () => {
+        await store.saveIntegration({ provider: "linear", token: "tok" });
+
+        await store.setIntegrationError("linear", "401 Unauthorized");
+        expect((await store.listIntegrations())[0]).toMatchObject({
+          status: "error",
+          lastError: "401 Unauthorized",
+        });
+
+        await store.setIntegrationError("linear", null);
+        expect((await store.listIntegrations())[0]).toMatchObject({
+          status: "connected",
+          lastError: null,
+        });
+      });
+
+      it("reconnecting clears a previous error", async () => {
+        await store.saveIntegration({ provider: "linear", token: "bad" });
+        await store.setIntegrationError("linear", "401 Unauthorized");
+        await store.saveIntegration({ provider: "linear", token: "good" });
+
+        expect((await store.listIntegrations())[0]).toMatchObject({
+          status: "connected",
+          lastError: null,
+        });
+      });
+
+      it("disconnects, and the token goes with it", async () => {
+        await store.saveIntegration({ provider: "linear", token: "tok" });
+        await store.disconnectIntegration("linear");
+
+        expect(await store.listIntegrations()).toHaveLength(0);
+        expect(await store.loadIntegrationToken("linear")).toBeNull();
+      });
+
+      it("reports nothing for a provider never connected", async () => {
+        expect(await store.loadIntegrationToken("jira")).toBeNull();
+      });
+    });
+
+    /* ── Custom context ───────────────────────────────────────────────── */
+
+    describe("custom context", () => {
+      const rule = (over: Record<string, unknown> = {}) => ({
+        description: "Currency amounts must be integer minor units",
+        kind: "rule" as const,
+        pattern: "Use amountCents, never a float",
+        repoId: null,
+        fileGlob: "",
+        status: "active" as const,
+        ...over,
+      });
+
+      it("round-trips a rule", async () => {
+        const id = await store.saveMemoryRule(rule());
+        const [saved] = await store.listMemoryRules();
+        expect(saved.id).toBe(id);
+        expect(saved.pattern).toBe("Use amountCents, never a float");
+        expect(saved.repoId).toBeNull();
+      });
+
+      it("updates in place rather than duplicating", async () => {
+        const id = await store.saveMemoryRule(rule());
+        await store.saveMemoryRule({ ...rule({ status: "inactive" }), id });
+
+        const rules = await store.listMemoryRules();
+        expect(rules).toHaveLength(1);
+        expect(rules[0].status).toBe("inactive");
+      });
+
+      it("starts a rule with no usage rather than an invented one", async () => {
+        await store.saveMemoryRule(rule());
+        expect(await store.listMemoryRules()).toMatchObject([
+          { usageCount: 0, usesThisMonth: 0, acceptanceRate: null },
+        ]);
+      });
+
+      it("counts a rule's uses from the runs it was given to", async () => {
+        const id = await store.saveMemoryRule(rule());
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+
+        await store.recordMemoryUse(reviewId, [{ ruleId: id }]);
+        expect((await store.listMemoryRules())[0]).toMatchObject({
+          usageCount: 1,
+          usesThisMonth: 1,
+        });
+
+        // Recording the same run twice is not two uses.
+        await store.recordMemoryUse(reviewId, [{ ruleId: id }]);
+        expect((await store.listMemoryRules())[0].usageCount).toBe(1);
+      });
+
+      it("reads acceptance off the answers to the runs it informed", async () => {
+        const id = await store.saveMemoryRule(rule());
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordMemoryUse(reviewId, [{ ruleId: id }]);
+
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata",
+          bucket: "Agreed", optionLabel: "Yes",
+        });
+        await store.recordAnswer({
+          judgementId: `${reviewId}:1`, actorLogin: "renata",
+          bucket: "Passed on", optionLabel: "Not my call",
+        });
+
+        expect((await store.listMemoryRules())[0].acceptanceRate).toBe(0.5);
+      });
+
+      it("counts the files a file rule has actually resolved to", async () => {
+        // The knowledge base. Only the ingester has a checkout, so what it
+        // read is recorded rather than re-matched at read time.
+        const id = await store.saveMemoryRule(
+          rule({ kind: "file", pattern: "AGENTS.md" }),
+        );
+        const prId = await store.upsertPullRequest(pr());
+        const one = await store.saveReview(review({ prId }));
+        const two = await store.saveReview(review({ prId, headSha: "bbb222" }));
+
+        await store.recordMemoryUse(one, [
+          { ruleId: id, paths: ["AGENTS.md", "packages/api/AGENTS.md"] },
+        ]);
+        await store.recordMemoryUse(two, [{ ruleId: id, paths: ["AGENTS.md"] }]);
+
+        const [saved] = await store.listMemoryRules();
+        expect(saved.files).toEqual([
+          { path: "AGENTS.md", uses: 2 },
+          { path: "packages/api/AGENTS.md", uses: 1 },
+        ]);
+      });
+
+      it("gives a text rule no files, rather than inventing some", async () => {
+        const id = await store.saveMemoryRule(rule());
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordMemoryUse(reviewId, [{ ruleId: id }]);
+
+        expect((await store.listMemoryRules())[0].files).toEqual([]);
+      });
+
+      it("keeps the history of a deleted rule's uses", async () => {
+        // Deleting a rule must not rewrite what past reviews were given.
+        const id = await store.saveMemoryRule(rule());
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordMemoryUse(reviewId, [{ ruleId: id }]);
+
+        await store.deleteMemoryRule(id);
+        expect(await store.listMemoryRules()).toHaveLength(0);
+        // The run itself is untouched.
+        expect(await store.loadReview(reviewId)).not.toBeNull();
+      });
+
+      it("round-trips a cluster and replaces its membership on save", async () => {
+        const id = await store.saveRepoCluster({
+          name: "Mobile",
+          memberRepoIds: ["acme/api", "acme/ios"],
+        });
+        expect((await store.listRepoClusters())[0].memberRepoIds).toEqual([
+          "acme/api",
+          "acme/ios",
+        ]);
+
+        await store.saveRepoCluster({ id, name: "Mobile", memberRepoIds: ["acme/ios"] });
+        const clusters = await store.listRepoClusters();
+        expect(clusters).toHaveLength(1);
+        expect(clusters[0].memberRepoIds).toEqual(["acme/ios"]);
+      });
+
+      it("deletes a cluster and its membership", async () => {
+        const id = await store.saveRepoCluster({
+          name: "Mobile",
+          memberRepoIds: ["acme/api"],
+        });
+        await store.deleteRepoCluster(id);
+        expect(await store.listRepoClusters()).toHaveLength(0);
+      });
+    });
+
+    /* ── Review settings ──────────────────────────────────────────────── */
+
+    describe("review settings", () => {
+      it("starts from the defaults, not from an empty object", async () => {
+        const settings = await store.loadSettings();
+        // "high" rather than a middle position: it is the strictness that maps
+        // to komodo.yaml's default min_severity, so a deployment that never
+        // opens the screen reviews exactly as it did before the screen existed.
+        expect(settings.strictness).toBe("high");
+        expect(settings.reviewDraftPrs).toBe(false);
+        expect(settings.authorFilterTokens).toContain("dependabot[bot]");
+        expect(settings.summarySections.summary.enabled).toBe(true);
+      });
+
+      it("applies a patch without disturbing the fields it does not name", async () => {
+        await store.saveSettings({ strictness: "high" });
+        await store.saveSettings({ fileChangeLimit: 40 });
+
+        const settings = await store.loadSettings();
+        expect(settings.strictness).toBe("high");
+        expect(settings.fileChangeLimit).toBe(40);
+        // Never written, so still the default rather than undefined.
+        expect(settings.reviewDraftPrs).toBe(false);
+      });
+
+      it("merges summarySections instead of replacing the whole record", async () => {
+        await store.saveSettings({
+          summarySections: {
+            diagram: { enabled: false, collapsible: true, defaultOpen: false },
+          } as never,
+        });
+
+        const settings = await store.loadSettings();
+        expect(settings.summarySections.diagram.enabled).toBe(false);
+        // The sections the patch said nothing about survive.
+        expect(settings.summarySections.summary.enabled).toBe(true);
+        expect(settings.summarySections.walkthrough.enabled).toBe(true);
+      });
+
+      it("keeps arrays whole — a patch replaces the token list, never appends", async () => {
+        await store.saveSettings({ authorFilterTokens: ["renovate[bot]"] });
+        expect((await store.loadSettings()).authorFilterTokens).toEqual([
+          "renovate[bot]",
+        ]);
+      });
+
+      it("puts the settings on the snapshot the app renders from", async () => {
+        await store.saveSettings({ orgDisplayName: "Acme" });
+        const snapshot = await store.snapshot();
+        expect(snapshot.settings.orgDisplayName).toBe("Acme");
+      });
+    });
+
+    /* ── Deployment facts ─────────────────────────────────────────────── */
+
+    describe("deployment facts", () => {
+      it("reports null for a key never written", async () => {
+        expect(await store.getMeta("lastPollAt")).toBeNull();
+      });
+
+      it("round-trips a value", async () => {
+        await store.setMeta("lastPollAt", String(T0));
+        expect(await store.getMeta("lastPollAt")).toBe(String(T0));
+      });
+
+      it("overwrites rather than accumulating — the poller writes every pass", async () => {
+        await store.setMeta("lastPollAt", String(T0));
+        await store.setMeta("lastPollAt", String(T0 + 60_000));
+        expect(await store.getMeta("lastPollAt")).toBe(String(T0 + 60_000));
+      });
+
+      it("keeps keys apart", async () => {
+        await store.setMeta("lastPollAt", String(T0));
+        await store.setMeta("lastPollError", "token expired");
+        expect(await store.getMeta("lastPollAt")).toBe(String(T0));
+        expect(await store.getMeta("lastPollError")).toBe("token expired");
+      });
+
+      it("stores the empty string as a value, not as an absence", async () => {
+        // The loop clears the error key by writing "" rather than deleting it,
+        // so "" and null have to stay distinguishable.
+        await store.setMeta("lastPollError", "");
+        expect(await store.getMeta("lastPollError")).toBe("");
+      });
     });
   });
 }

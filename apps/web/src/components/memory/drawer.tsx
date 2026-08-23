@@ -20,16 +20,15 @@ import { Field } from "@/components/memory/add-context-modal";
 import { fullName, useRepositories } from "@/lib/data/queries";
 import { useDeleteMemoryRule, useUpdateMemoryRule } from "@/lib/data/mutations";
 import { percent, plural } from "@/lib/utils";
-import type { MemoryRule } from "@/lib/types";
+import type { MemoryRuleStats } from "@/lib/types";
 
-/** SPEC §7.1 — one drawer, two modes, at the same `?memory=<id>` URL. */
 export function MemoryDrawer({
   rule,
   mode,
   onModeChange,
   onClose,
 }: {
-  rule: MemoryRule;
+  rule: MemoryRuleStats;
   mode: "analytics" | "edit";
   onModeChange: (next: "analytics" | "edit") => void;
   onClose: () => void;
@@ -61,7 +60,7 @@ function AnalyticsMode({
   onEdit,
   onClose,
 }: {
-  rule: MemoryRule;
+  rule: MemoryRuleStats;
   onEdit: () => void;
   onClose: () => void;
 }) {
@@ -146,8 +145,10 @@ function AnalyticsMode({
           </span>
         </SectionTitle>
         {rule.files.length === 0 ? (
-          <div className="flex h-[64px] items-center justify-center rounded-[2px] border border-dashed border-border text-sm text-muted-foreground">
-            No files matched yet
+          <div className="flex h-[64px] items-center justify-center rounded-[2px] border border-dashed border-border px-4 text-center text-sm text-muted-foreground">
+            {rule.kind === "file"
+              ? "No files matched yet. They appear once a review reads them out of a repository."
+              : "This rule carries its own text — it matches no files."}
           </div>
         ) : (
           <ul className="space-y-2">
@@ -158,7 +159,7 @@ function AnalyticsMode({
               >
                 <div className="truncate text-sm">{file.path}</div>
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {plural(file.uses, "use")} · {file.repoFullName}
+                  Read in {plural(file.uses, "review")}
                 </div>
               </li>
             ))}
@@ -202,7 +203,7 @@ function EditMode({
   onCancel,
   onClose,
 }: {
-  rule: MemoryRule;
+  rule: MemoryRuleStats;
   onCancel: () => void;
   onClose: () => void;
 }) {
@@ -275,15 +276,9 @@ function EditMode({
       </div>
 
       <div className="mt-7">
-        <SectionTitle
-          action={
-            <Button size="sm">
-              <span className="text-base leading-none">+</span> Add
-            </Button>
-          }
-        >
-          Scope
-        </SectionTitle>
+        {/* A rule carries one repository scope and one glob; there was an Add
+            button here for a second one the store cannot hold. */}
+        <SectionTitle>Scope</SectionTitle>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Repository">
             <Select

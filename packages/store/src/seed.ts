@@ -11,9 +11,11 @@
  */
 import { DAY_MS, pick, rng } from "./rand.js";
 import { verdictFor } from "./verdict.js";
-import type { FindingInput, KomodoStore } from "./port.js";
+import type { FindingInput, KomodoStore, ReviewInput } from "./port.js";
 import type {
+  Bucket,
   ImpactLevel,
+  JudgementSeverity,
   Member,
   PullRequestState,
   ReviewStatus,
@@ -146,20 +148,130 @@ function weightedImpact(r: number): ImpactLevel {
   return "critical";
 }
 
-const FINDING_TITLES = [
-  "Unvalidated user input reaches the SQL builder",
-  "Missing null check before dereferencing the session",
-  "Race condition between the two sync workers",
-  "Secret is logged at info level",
-  "Off-by-one in the pagination offset",
-  "Unbounded retry loop on a 5xx response",
-  "Timezone assumed to be UTC in a local-time context",
-  "Error swallowed by an empty catch block",
-  "N+1 query inside the row renderer",
-  "Regex is vulnerable to catastrophic backtracking",
-  "Response cached without a user-scoped key",
-  "Float used for a currency amount",
+/**
+ * The judgements the dev dataset is built from.
+ *
+ * A judgement, not a defect report: each states what is true, then puts one
+ * question to the reader with two real answers. The third and fourth options
+ * are fixed by the schema — ask first, or hand it on — and are added below.
+ *
+ * The findings table is derived from these rather than generated beside them,
+ * for the same reason packages/ingest/src/map.ts derives it in production: two
+ * generators would eventually disagree, and the queue would contradict the
+ * page it links to.
+ */
+const JUDGEMENT_SHAPES = [
+  {
+    title: "Unvalidated user input reaches the SQL builder",
+    kind: "Risk", tag: "changes how queries are built",
+    lede: "A caller-supplied string is interpolated into the query rather than bound.",
+    detail: "Binding it costs nothing here; the builder already takes parameters.",
+    ask: "Is this input trusted enough to interpolate?",
+    yes: "It is internal — leave it", no: "Bind it as a parameter",
+    path: "src/server/db/query.ts",
+  },
+  {
+    title: "Missing null check before dereferencing the session",
+    kind: "Behaviour", tag: "changes what an expired session does",
+    lede: "An expired session now throws where it used to redirect to sign-in.",
+    detail: "The redirect was two lines up before this change moved the read.",
+    ask: "Should an expired session throw here?",
+    yes: "Yes — the caller handles it", no: "Restore the redirect",
+    path: "src/lib/auth/session.ts",
+  },
+  {
+    title: "Race condition between the two sync workers",
+    kind: "Risk", tag: "changes how the workers coordinate",
+    lede: "Both workers can claim the same row between the read and the write.",
+    detail: "A conditional update on the version column would close the window.",
+    ask: "Can two workers ever run against this table at once?",
+    yes: "No — only one runs", no: "Claim the row conditionally",
+    path: "packages/worker/src/sync.ts",
+  },
+  {
+    title: "Secret is logged at info level",
+    kind: "Risk", tag: "changes what reaches the logs",
+    lede: "The token is written to a log line that ships to the aggregator.",
+    detail: "Logging its last four characters would keep the line useful.",
+    ask: "Should this token reach the log aggregator?",
+    yes: "It is a test token", no: "Redact it before logging",
+    path: "src/lib/auth/session.ts",
+  },
+  {
+    title: "Off-by-one in the pagination offset",
+    kind: "Choice", tag: "changes which row a page starts on",
+    lede: "The offset is computed from a one-based page but used as zero-based.",
+    detail: "The first row of every page after the first is skipped.",
+    ask: "Is the page number one-based here?",
+    yes: "It is zero-based — this is fine", no: "Subtract one from the page",
+    path: "src/app/api/reviews/route.ts",
+  },
+  {
+    title: "Unbounded retry loop on a 5xx response",
+    kind: "Risk", tag: "changes how failures are retried",
+    lede: "A persistent 5xx retries forever, holding the connection open.",
+    detail: "A ceiling of five with backoff matches the other callers here.",
+    ask: "Should this retry without a ceiling?",
+    yes: "Yes — it must eventually succeed", no: "Cap it at five attempts",
+    path: "packages/core/src/retry.ts",
+  },
+  {
+    title: "Timezone assumed to be UTC in a local-time context",
+    kind: "Domain", tag: "reaches outside this change",
+    lede: "The date is formatted in UTC but read by users in their own zone.",
+    detail: "Everything downstream of this formatter inherits the assumption.",
+    ask: "Is UTC the right zone for what the reader sees?",
+    yes: "Yes — it is a server timestamp", no: "Format in the viewer's zone",
+    path: "src/lib/format/date.ts",
+  },
+  {
+    title: "Error swallowed by an empty catch block",
+    kind: "Choice", tag: "changes what happens on failure",
+    lede: "A failure here now leaves no trace: no log, no rethrow, no metric.",
+    detail: "The caller cannot tell a failed run from an empty one.",
+    ask: "Should this failure stay invisible?",
+    yes: "Yes — it is expected and harmless", no: "Log it before continuing",
+    path: "packages/worker/src/sync.ts",
+  },
+  {
+    title: "N+1 query inside the row renderer",
+    kind: "Choice", tag: "changes how the table loads",
+    lede: "Each rendered row issues its own query for the author.",
+    detail: "One query up front and a map would collapse it, at the cost of a join.",
+    ask: "Is a query per row acceptable at this table's size?",
+    yes: "Yes — it is never long", no: "Fetch the authors in one query",
+    path: "src/components/table/row.tsx",
+  },
+  {
+    title: "Regex is vulnerable to catastrophic backtracking",
+    kind: "Risk", tag: "changes how input is matched",
+    lede: "Nested quantifiers make a crafted string take exponential time.",
+    detail: "Anchoring the inner group removes the ambiguity outright.",
+    ask: "Can untrusted input reach this pattern?",
+    yes: "No — the input is generated", no: "Anchor the inner group",
+    path: "src/lib/format/date.ts",
+  },
+  {
+    title: "Response cached without a user-scoped key",
+    kind: "Risk", tag: "changes who sees a cached response",
+    lede: "One user's response can be served to another from the shared cache.",
+    detail: "Adding the user id to the key costs one string concatenation.",
+    ask: "Is this response identical for every user?",
+    yes: "Yes — it is public data", no: "Scope the key to the user",
+    path: "src/lib/cache/index.ts",
+  },
+  {
+    title: "Float used for a currency amount",
+    kind: "Choice", tag: "changes how money is stored",
+    lede: "Amounts are held as floats, so totals drift by fractions of a cent.",
+    detail: "Integer minor units are what the rest of the billing code uses.",
+    ask: "Should money be a float here?",
+    yes: "Yes — it is only ever displayed", no: "Store minor units as integers",
+    path: "src/server/db/query.ts",
+  },
 ] as const;
+
+const FINDING_TITLES = JUDGEMENT_SHAPES.map((s) => s.title);
 
 const FINDING_FILES = [
   "src/server/db/query.ts",
@@ -185,7 +297,16 @@ function fakeSha(next: () => number): string {
 const OWNER = "delavalom";
 
 export interface SeedOptions {
-  /** Pinned so the dataset does not drift between runs. */
+  /**
+   * The instant the dataset is written around. Defaults to the real clock.
+   *
+   * Ages are what the queue is read for — what has been waiting three days,
+   * what has gone stale — so a dataset anchored to a constant looks fine the
+   * week it was written and increasingly like an abandoned queue after that.
+   * The *shape* stays deterministic either way: every value still comes from
+   * `rng(seed)`, and only the instant they are measured from moves. A test
+   * that needs a fixed dataset passes one.
+   */
   now?: number;
   /** Which login the UI should treat as the signed-in user. */
   you?: string;
@@ -200,14 +321,14 @@ export async function seedStore(
   store: KomodoStore,
   options: SeedOptions = {},
 ): Promise<void> {
-  const now = options.now ?? Date.UTC(2026, 7, 18, 12, 0, 0);
+  const now = options.now ?? Date.now();
   const you = options.you ?? AUTHORS[0];
 
   await store.setOrganization({
     slug: "delavalom-labs",
     name: "Delavalom Labs",
     role: "admin",
-    trialEndsAt: Date.UTC(2026, 7, 31, 12, 0, 0),
+    trialEndsAt: now + 13 * DAY_MS,
     plan: "trial",
   });
 
@@ -307,7 +428,6 @@ export async function seedStore(
       mergedAt: merged ? updatedAt : null,
     });
 
-    const totalComments = status === "completed" ? Math.floor(next() * 9) : 0;
     const judgmentId = await store.upsertJudgment({
       prId,
       headSha,
@@ -315,36 +435,196 @@ export async function seedStore(
       status,
       impact,
       score,
-      counters: {
-        reviewCount: status === "completed" ? 1 + Math.floor(next() * 3) : 0,
-        totalComments,
-        addressedComments:
-          totalComments === 0 ? 0 : Math.floor(next() * (totalComments + 1)),
-        upvotes: Math.floor(next() * 4),
-        downvotes: next() < 0.18 ? 1 : 0,
-      },
     });
 
     if (status === "completed") {
-      await store.replaceFindings(judgmentId, buildFindings(judgmentId));
+      // The body first, then the findings derived from it — the same order,
+      // and the same direction of dependency, as a real review run.
+      const judgements = buildJudgements(judgmentId);
+      const reviewId = await store.saveReview(
+        // The dev dataset has no provider login behind it, and saying so beats
+        // claiming a subscription nobody connected.
+        buildReview({ prId, headSha, judgements, score, provider: "seed" }),
+      );
+      // After the review: a finding names the judgement it summarises, and
+      // that id is `${reviewId}:${ordinal}`.
+      await store.replaceFindings(judgmentId, findingsFrom(reviewId, judgements));
+
+      // Engagement used to be five numbers written straight onto the judgment,
+      // which is why they were fiction anywhere but here. They are counted at
+      // read time now, so a lived-in dataset has to be lived in: some of these
+      // judgements were actually answered, and some were actually voted on.
+      await seedEngagement(store, reviewId, judgements.length, others);
     }
   }
 }
 
-function buildFindings(judgmentId: string): FindingInput[] {
+/**
+ * Answers and votes for a seeded run.
+ *
+ * Deliberately partial — a queue where everything is decided has nothing to
+ * show, and the addressed rate is only interesting when it is not 100%.
+ */
+async function seedEngagement(
+  store: KomodoStore,
+  reviewId: string,
+  count: number,
+  reviewers: readonly string[],
+): Promise<void> {
+  const next = rng(`engagement:${reviewId}`);
+
+  for (let ordinal = 0; ordinal < count; ordinal++) {
+    const judgementId = `${reviewId}:${ordinal}`;
+    const actor = pick(next, reviewers);
+
+    if (next() < 0.55) {
+      const roll = next();
+      const [bucket, optionLabel]: [Bucket, string] =
+        roll < 0.55
+          ? ["Agreed", "Yes — worth changing"]
+          : roll < 0.78
+            ? ["Asked", "I have a question first"]
+            : roll < 0.92
+              ? ["Blocks", "No — this has to change first"]
+              : ["Passed on", "Not my call — hand it on"];
+
+      await store.recordAnswer({
+        judgementId,
+        actorLogin: actor,
+        bucket,
+        optionLabel,
+        note:
+          bucket === "Asked"
+            ? "Does this hold when the cache is cold?"
+            : null,
+        blocking: bucket === "Blocks",
+      });
+    }
+
+    if (next() < 0.4) {
+      await store.recordVote({
+        judgementId,
+        actorLogin: actor,
+        value: next() < 0.78 ? 1 : -1,
+      });
+    }
+  }
+}
+
+type SeededJudgement = ReviewInput["judgements"][number];
+
+function buildJudgements(judgmentId: string): SeededJudgement[] {
   const next = rng(`finding:${judgmentId}`);
   const count = next() < 0.42 ? 0 : 1 + Math.floor(next() * 3);
-  return Array.from({ length: count }, () => {
+  // Distinct shapes: the same question twice in one review reads as a bug.
+  const taken = new Set<number>();
+  const out: SeededJudgement[] = [];
+
+  for (let i = 0; i < count; i++) {
+    let index = Math.floor(next() * JUDGEMENT_SHAPES.length);
+    while (taken.has(index)) index = (index + 1) % JUDGEMENT_SHAPES.length;
+    taken.add(index);
+
+    const shape = JUDGEMENT_SHAPES[index];
     const r = next();
-    const severity: Severity = r < 0.14 ? "P0" : r < 0.48 ? "P1" : "P2";
-    return {
-      title: pick(next, FINDING_TITLES),
-      body:
-        "Komodo flagged this while reviewing the diff. " +
-        "Push back if it's wrong — it has no feelings.",
+    const severity: JudgementSeverity =
+      r < 0.14 ? "critical" : r < 0.48 ? "major" : r < 0.86 ? "minor" : "trivial";
+    const line = 12 + Math.floor(next() * 180);
+
+    out.push({
+      path: shape.path,
+      line,
+      endLine: null,
       severity,
-      isSecurity: next() < 0.22,
-      filePath: pick(next, FINDING_FILES),
-    };
-  });
+      kind: shape.kind,
+      tag: shape.tag,
+      title: `${shape.title}.`,
+      lede: shape.lede,
+      detail: shape.detail,
+      ask: shape.ask,
+      sources: ["the diff"],
+      sourceNote: "Read from the diff alone; nothing else was given.",
+      code: `${shape.path}:${line}`,
+      options: [
+        { label: shape.yes, bucket: "Agreed" },
+        { label: shape.no, bucket: "Blocks" },
+        { label: "I have a question first", bucket: "Asked" },
+        { label: "Not my call — hand it on", bucket: "Passed on" },
+      ],
+      suggestion: null,
+      fixPrompt: `${shape.no}. ${shape.detail}`,
+      // One judgement in six sits on a line GitHub could not have commented
+      // on. Those are exactly the ones only this app can show.
+      postable: next() > 0.16,
+    });
+  }
+  return out;
+}
+
+function buildReview(args: {
+  prId: string;
+  headSha: string;
+  judgements: SeededJudgement[];
+  score: number;
+  provider: string;
+}): ReviewInput {
+  const { prId, headSha, judgements, score, provider } = args;
+  const paths = [...new Set(judgements.map((j) => j.path))];
+  return {
+    prId,
+    headSha,
+    provider,
+    model: null,
+    summary: judgements.length
+      ? judgements.map((j) => `- ${j.tag}`).join("\n")
+      : "- No behaviour changed that needed a judgement.",
+    walkthrough: paths.map((path) => ({
+      files: [path],
+      summary:
+        judgements.find((j) => j.path === path)?.lede ??
+        "Touched without changing behaviour.",
+    })),
+    confidence: Math.round(score),
+    effort: 1 + Math.min(4, judgements.length),
+    verdictLine: judgements.length
+      ? "Ready once the questions below are answered."
+      : "Nothing here needs a decision.",
+    diagram: null,
+    recordId: `seed-${prId}@${headSha}`,
+    files: paths.map((path) => ({
+      path,
+      additions: 0,
+      deletions: 0,
+      status: "modified",
+      // The dev dataset has no real diff to show. The page says so rather
+      // than inventing one.
+      patch: null,
+    })),
+    judgements,
+  };
+}
+
+/** core has four severities; a finding row has three. trivial folds into P2. */
+const FINDING_SEVERITY: Record<JudgementSeverity, Severity> = {
+  critical: "P0",
+  major: "P1",
+  minor: "P2",
+  trivial: "P2",
+};
+
+const SECURITY_TERMS =
+  /\b(auth|credential|escap|injection|leak|log|secret|security|session|token|cache)/i;
+
+function findingsFrom(
+  reviewId: string,
+  judgements: SeededJudgement[],
+): FindingInput[] {
+  return judgements.map((j, ordinal) => ({
+    judgementId: `${reviewId}:${ordinal}`,
+    title: j.title.replace(/\.$/, ""),
+    body: [j.lede, j.detail, j.ask].join("\n\n"),
+    severity: FINDING_SEVERITY[j.severity],
+    isSecurity: SECURITY_TERMS.test(`${j.tag} ${j.title} ${j.lede}`),
+    filePath: j.path,
+  }));
 }

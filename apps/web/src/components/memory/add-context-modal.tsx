@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Wand2 } from "lucide-react";
+import { Wand2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -44,7 +44,6 @@ function StepRow({
   );
 }
 
-/** SPEC §7.1 — the Add Context modal, both Rule and File variants. */
 export function AddContextModal({
   open,
   onClose,
@@ -99,7 +98,7 @@ export function AddContextModal({
       onClose={onClose}
       width={500}
       title="Add Context"
-      subtitle="Define custom rules and files for Greptile to apply."
+      subtitle="Define rules and files for Komodo to read alongside the diff."
       footer={
         <div className="grid grid-cols-2 gap-3">
           <Button variant="secondary" onClick={onClose} className="w-full">
@@ -190,16 +189,10 @@ export function AddContextModal({
         </div>
 
         <div className="space-y-4 p-5">
-          <StepRow
-            n={3}
-            title={`Scope: Where should this ${kind} apply?`}
-            control={
-              <Button variant="secondary" size="sm">
-                <Plus className="h-3.5 w-3.5" />
-                Add
-              </Button>
-            }
-          />
+          {/* One scope per rule — a repository (or cluster) and a glob — so
+              there is nothing for an "Add" button to add. It used to be here
+              and did nothing. */}
+          <StepRow n={3} title={`Scope: Where should this ${kind} apply?`} />
           <div className="grid grid-cols-2 gap-4">
             <Field label="Repository">
               <Select

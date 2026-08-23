@@ -32,11 +32,13 @@ import {
 } from "@/lib/data/queries";
 import { useUrlState } from "@/lib/use-url-state";
 import { percent, plural, relativeTime } from "@/lib/utils";
+import { useNow } from "@/lib/data/provider";
 import type { MemoryQuery } from "@/lib/types";
 
 const FACET_KEYS = ["repository", "type", "status", "usage", "acceptance"] as const;
 
 export function CustomRulesView() {
+  const now = useNow();
   const { get, set } = useUrlState();
   const repos = useRepositories();
   const repoIndex = useRepoIndex();
@@ -181,7 +183,7 @@ export function CustomRulesView() {
               >
                 <span className="inline-flex items-center gap-1">
                   Addressed Rate
-                  <Tooltip content="Share of Greptile comments citing this rule that were resolved by follow-up code changes.">
+                  <Tooltip content="Share of judgements citing this rule that a reviewer agreed with rather than passed on.">
                     <span className="text-[10px]">ⓘ</span>
                   </Tooltip>
                 </span>
@@ -239,7 +241,7 @@ export function CustomRulesView() {
                         ) : (
                           <span>All repositories</span>
                         )}
-                        <span>{relativeTime(rule.updatedAt)}</span>
+                        <span>{relativeTime(rule.updatedAt, now)}</span>
                       </div>
                     </TD>
                     <TD>

@@ -1,0 +1,29 @@
+{
+  "name": "komodo",
+  "owner": {
+    "name": "Delavalom",
+    "url": "https://github.com/Delavalom/komodo"
+  },
+  "metadata": {
+    "description": "AI code review that ends in a decision, not a comment thread.",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "komodo",
+      "source": "./plugin",
+      "description": "Review the current branch with the Claude instance you are already talking to, and answer the judgements in a local queue.",
+      "version": "0.4.0",
+      "author": {
+        "name": "Delavalom"
+      },
+      "homepage": "https://github.com/Delavalom/komodo",
+      "license": "MIT",
+      "keywords": [
+        "code-review",
+        "pull-request",
+        "git"
+      ]
+    }
+  ]
+}

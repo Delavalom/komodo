@@ -39,6 +39,33 @@ export interface PRListItem {
   updatedAt: number;
 }
 
+/**
+ * One repository as the discovery listing returns it.
+ *
+ * `archived` is carried because an archived repository takes no more pull
+ * requests, and offering one in Manage Repositories is offering a switch that
+ * can never do anything.
+ */
+export interface RepoListItem {
+  owner: string;
+  name: string;
+  archived: boolean;
+  isPrivate: boolean;
+}
+
+/** Who a token belongs to — what the Code Providers screen names. */
+export interface GithubIdentity {
+  login: string;
+  name: string | null;
+}
+
+/** How a pull request ended, once it is no longer open. */
+export interface PRState {
+  state: "open" | "merged" | "closed";
+  /** Epoch milliseconds, or null when it was closed unmerged or is still open. */
+  mergedAt: number | null;
+}
+
 export interface PRSize {
   additions: number;
   deletions: number;
@@ -110,25 +137,151 @@ export function parsePRRef(input: string, cwd = process.cwd()): PRRef {
   throw new Error(`Unrecognized PR reference: "${input}". Use a URL, owner/repo#123, or a number inside a repo.`);
 }
 
+/** Attempts per request, including the first. */
+const MAX_ATTEMPTS = 4;
+
+/**
+ * The longest this will sit on a rate limit before giving up on the request.
+ *
+ * A primary rate limit can reset up to an hour out, and sleeping through that
+ * would stall the ingest loop on one repository while every other repository
+ * waits behind it. Past this the request throws, the pass logs and ends, and
+ * the next pass — a minute or five later — tries again. A poller can afford
+ * to be told "not now"; it cannot afford to block.
+ */
+const MAX_BACKOFF_MS = 60_000;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * How long to wait before retrying, or null if this response is not worth
+ * retrying at all.
+ *
+ * GitHub signals three different things with overlapping status codes:
+ * `Retry-After` on a secondary limit, an exhausted `x-ratelimit-remaining`
+ * with a reset timestamp on a primary one, and plain 5xx on its own trouble.
+ * All three are transient and none of them mean the caller did anything wrong.
+ */
+function retryDelay(res: Response, attempt: number): number | null {
+  const retryAfter = res.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) return seconds * 1000;
+  }
+
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  if ((res.status === 403 || res.status === 429) && remaining === "0") {
+    const reset = Number(res.headers.get("x-ratelimit-reset"));
+    if (Number.isFinite(reset)) {
+      return Math.max(0, reset * 1000 - Date.now());
+    }
+  }
+
+  // A 403 with budget left is a permissions problem, and retrying it just
+  // spends the budget. Only the limit cases and GitHub's own 5xx come back.
+  if (res.status === 429) return 1000 * 2 ** attempt;
+  if (res.status >= 500) return 1000 * 2 ** attempt;
+  return null;
+}
+
 export class GitHubClient {
+  /**
+   * Last ETag seen per path, for the listings the poller re-reads constantly.
+   *
+   * A 304 costs nothing against the hourly budget, which is what makes a
+   * one-minute poll interval affordable across a team's repositories. The map
+   * is per-client and in-memory: a restart pays for one full listing per repo
+   * and is back to conditional requests immediately after.
+   */
+  private readonly etags = new Map<string, { etag: string; body: unknown }>();
+
   constructor(private token: string = resolveGithubToken()) {}
 
+  private async send(
+    method: string,
+    path: string,
+    body?: unknown,
+    extraHeaders?: Record<string, string>,
+  ): Promise<Response> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(`${API}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            ...(body ? { "Content-Type": "application/json" } : {}),
+            ...extraHeaders,
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (err) {
+        // DNS, TLS, a dropped socket. Transient in the same way a 5xx is.
+        lastError = err;
+        if (attempt === MAX_ATTEMPTS - 1) break;
+        await sleep(1000 * 2 ** attempt);
+        continue;
+      }
+
+      if (res.ok || res.status === 304) return res;
+
+      const delay = retryDelay(res, attempt);
+      if (delay === null || attempt === MAX_ATTEMPTS - 1) return res;
+      if (delay > MAX_BACKOFF_MS) {
+        const reset = res.headers.get("x-ratelimit-reset");
+        throw new Error(
+          `GitHub rate limit exhausted; resets in ${Math.round(delay / 1000)}s` +
+            (reset ? ` (at ${new Date(Number(reset) * 1000).toISOString()})` : "") +
+            `. ${method} ${path}`,
+        );
+      }
+      await sleep(delay);
+    }
+
+    const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`GitHub ${method} ${path} failed after ${MAX_ATTEMPTS} attempts: ${detail}`);
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${API}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const res = await this.send(method, path, body);
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`GitHub ${method} ${path} → ${res.status}: ${text.slice(0, 500)}`);
     }
     return (await res.json()) as T;
+  }
+
+  /**
+   * A GET that spends no rate-limit budget when nothing has changed.
+   *
+   * Only worth using where the same path is read on a loop — the poller's
+   * per-repository listing. Everywhere else the cached body is dead weight.
+   */
+  private async requestCached<T>(path: string): Promise<T> {
+    const cached = this.etags.get(path);
+    const res = await this.send(
+      "GET",
+      path,
+      undefined,
+      cached ? { "If-None-Match": cached.etag } : undefined,
+    );
+
+    if (res.status === 304 && cached) return cached.body as T;
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`GitHub GET ${path} → ${res.status}: ${text.slice(0, 500)}`);
+    }
+
+    const parsed = (await res.json()) as T;
+    const etag = res.headers.get("etag");
+    if (etag) this.etags.set(path, { etag, body: parsed });
+    return parsed;
   }
 
   async getPR(ref: PRRef): Promise<PRMeta> {
@@ -173,8 +326,7 @@ export class GitHubClient {
   async listOpenPRs(owner: string, repo: string): Promise<PRListItem[]> {
     const out: PRListItem[] = [];
     for (let page = 1; page <= 10; page++) {
-      const batch = await this.request<any[]>(
-        "GET",
+      const batch = await this.requestCached<any[]>(
         `/repos/${owner}/${repo}/pulls?state=open&per_page=100&page=${page}&sort=updated&direction=desc`,
       );
       out.push(
@@ -195,6 +347,76 @@ export class GitHubClient {
       if (batch.length < 100) break;
     }
     return out;
+  }
+
+  /**
+   * How a pull request ended.
+   *
+   * The poller learns that a pull request closed by watching it fall off the
+   * open listing, which cannot say whether it was merged or abandoned — and
+   * guessing puts a wrong badge on the row and makes every merge-time chart
+   * permanently empty. One request per pull request, once, when it leaves the
+   * listing: the state moves away from `open` so this never repeats.
+   */
+  /**
+   * Every repository an owner has that this token can see.
+   *
+   * An organisation and a user are different endpoints and a token cannot
+   * know which it is looking at without asking, so this tries the
+   * organisation first and falls back — one wasted 404 the first time, then
+   * the ETag cache makes both cheap.
+   *
+   * Forks are included: plenty of teams review on a fork. Archived
+   * repositories are returned with the flag set rather than filtered here,
+   * because the caller decides what an archived repository means.
+   */
+  async listOwnerRepos(owner: string): Promise<RepoListItem[]> {
+    for (const base of [`/orgs/${owner}/repos`, `/users/${owner}/repos`]) {
+      try {
+        const out: RepoListItem[] = [];
+        for (let page = 1; page <= 10; page++) {
+          const batch = await this.requestCached<any[]>(
+            `${base}?per_page=100&page=${page}&sort=updated&direction=desc`,
+          );
+          out.push(
+            ...batch.map((r) => ({
+              owner: r.owner?.login ?? owner,
+              name: r.name as string,
+              archived: !!r.archived,
+              isPrivate: !!r.private,
+            })),
+          );
+          if (batch.length < 100) break;
+        }
+        return out;
+      } catch (err) {
+        // Only a 404 means "wrong kind of account, try the other endpoint".
+        // A 401, a 403 or a rate limit is a real failure and must surface.
+        if (!/→ 404:/.test(err instanceof Error ? err.message : "")) throw err;
+      }
+    }
+    throw new Error(`GitHub knows no user or organisation called ${owner}.`);
+  }
+
+  /** The account this token acts as. */
+  async getViewer(): Promise<GithubIdentity> {
+    const d = await this.request<any>("GET", "/user");
+    return { login: d.login, name: d.name ?? null };
+  }
+
+  async getPRState(ref: PRRef): Promise<PRState> {
+    const d = await this.request<any>(
+      "GET",
+      `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`,
+    );
+    // `merged_at` is the authority. `merged` agrees with it, but only the
+    // timestamp can answer "how long did this take", which is the whole
+    // reason for asking.
+    const mergedAt = d.merged_at ? Date.parse(d.merged_at) : null;
+    return {
+      state: mergedAt !== null ? "merged" : d.state === "open" ? "open" : "closed",
+      mergedAt,
+    };
   }
 
   async getPRSize(ref: PRRef): Promise<PRSize> {

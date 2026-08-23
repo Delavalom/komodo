@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   Check,
@@ -23,6 +24,7 @@ import {
   fullName,
   useAuthors,
   useJudgments,
+  useOrganization,
   useRepoIndex,
   useRepositories,
 } from "@/lib/data/queries";
@@ -34,7 +36,8 @@ import {
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { useUrlState } from "@/lib/use-url-state";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
-import type { ImpactLevel, ReviewStatus } from "@/lib/types";
+import { useNow } from "@/lib/data/provider";
+import type { ImpactLevel, Judgment, ReviewStatus } from "@/lib/types";
 
 const FACET_KEYS = [
   "author",
@@ -68,18 +71,29 @@ const IMPACT_LABEL: Record<ImpactLevel, string> = {
   critical: "Critical",
 };
 
+/**
+ * The review route spells the pull request out the way a person says it. A
+ * judgment already carries the parts as fields, so unlike the queue — which
+ * splits `prId` — there is nothing to parse here.
+ */
+function reviewHref(orgSlug: string, pr: Judgment): string {
+  return `/${orgSlug}/-/pull-requests/${pr.repoId}/${pr.number}`;
+}
+
 export function PullRequestsView() {
+  const now = useNow();
   const { get, set } = useUrlState();
   const repos = useRepositories();
   const repoIndex = useRepoIndex();
   const authors = useAuthors();
+  const org = useOrganization();
   const persisted = useDataStore((s) => s.judgmentFilters);
   const setJudgmentFilters = useSetJudgmentFilters();
   const retrigger = useRetriggerReviews();
 
   const [selected, setSelected] = React.useState<string[]>([]);
 
-  // The original re-writes persisted chips into the URL on arrival. SPEC §3.
+  // The original re-writes persisted chips into the URL on arrival.
   const syncPersisted = React.useCallback(() => {
     const patch: Record<string, string | null> = {};
     let dirty = false;
@@ -258,14 +272,14 @@ export function PullRequestsView() {
                         className="mt-0.5"
                       />
                       <div className="min-w-0">
-                        <a
-                          href={pr.url}
-                          target="_blank"
-                          rel="noreferrer"
+                        {/* Into the review, not out to GitHub. The judgements
+                            are here, and they are what the row summarises. */}
+                        <Link
+                          href={reviewHref(org.slug, pr)}
                           className="block truncate text-[15px] transition-colors hover:text-[hsl(var(--accent))]"
                         >
                           {pr.title}
-                        </a>
+                        </Link>
                         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
                           <span>{repo?.name}</span>
                           <span>·</span>
@@ -273,7 +287,7 @@ export function PullRequestsView() {
                           <span>·</span>
                           <span>{plural(pr.reviewCount, "review")}</span>
                           <span>·</span>
-                          <span>{relativeTime(pr.updatedAt)}</span>
+                          <span>{relativeTime(pr.updatedAt, now)}</span>
                           <span>·</span>
                           <span>{IMPACT_LABEL[pr.impact]}</span>
                         </div>
@@ -281,7 +295,7 @@ export function PullRequestsView() {
                     </div>
                   </TD>
                   <TD title={absoluteStamp(pr.updatedAt)}>
-                    <div>{relativeTime(pr.updatedAt)}</div>
+                    <div>{relativeTime(pr.updatedAt, now)}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {plural(pr.reviewCount, "review")}
                     </div>

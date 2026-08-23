@@ -6,7 +6,7 @@ import type { SeriesPoint } from "@/lib/types";
 
 /**
  * Hand-rolled SVG so the axis formatting matches the original exactly
- * (docs/SPEC.md §6.3) rather than whatever a chart library would emit.
+ * () rather than whatever a chart library would emit.
  */
 
 const PAD = { top: 18, right: 24, bottom: 44, left: 62 };
@@ -194,7 +194,7 @@ const MONTHS_SHORT = [
   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
 ];
 
-/** The tiny inline series in the usage legend. SPEC §8.10 */
+/** The tiny inline series in the usage legend. */
 export function Sparkline({
   data,
   color,
@@ -229,7 +229,7 @@ export function Sparkline({
   );
 }
 
-/** The usage page's multi-series daily bars. SPEC §8.10 */
+/** The usage page's multi-series daily bars. */
 export function UsageBarChart({
   labels,
   series,

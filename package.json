@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "packageManager": "pnpm@10.13.1",
   "scripts": {
@@ -11,6 +11,8 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm typecheck && pnpm -r --if-present test"
+    "check:release": "node scripts/check-release.mjs",
+    "test": "pnpm check:release && pnpm typecheck && pnpm -r --if-present test",
+    "build:release": "pnpm -C apps/web build && pnpm -C packages/cli build"
   }
 }

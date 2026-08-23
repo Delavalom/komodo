@@ -1,12 +1,17 @@
 {
   "name": "komodo-review",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "AI code review on your own Claude or ChatGPT subscription. CodeRabbit-class reviews, $0/seat.",
   "type": "module",
   "license": "MIT",
+  "homepage": "https://github.com/Delavalom/komodo#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Delavalom/komodo.git"
+    "url": "git+https://github.com/Delavalom/komodo.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/Delavalom/komodo/issues"
   },
   "keywords": [
     "code-review",
@@ -22,15 +27,20 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --clean",
+    "build": "tsup && node scripts/bundle-web.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "echo 'no tests'"
+    "test": "echo 'no tests'",
+    "prepack": "node scripts/bundle-web.mjs --require"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.0",
-    "@komodo/ingest": "workspace:*",
-    "@komodo/store": "workspace:*",
     "commander": "^13.0.0",
     "picocolors": "^1.1.0",
     "picomatch": "^4.0.2",
@@ -39,6 +49,8 @@
   },
   "devDependencies": {
     "@komodo/core": "workspace:*",
+    "@komodo/ingest": "workspace:*",
+    "@komodo/store": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/picomatch": "^4.0.0",
     "tsup": "^8.3.0",
