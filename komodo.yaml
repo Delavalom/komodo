@@ -1,5 +1,5 @@
 # Komodo code review configuration — https://github.com/Delavalom/komodo
-provider: auto        # auto | claude | codex
+provider: codex        # auto | claude | codex
 profile: chill        # chill (signal only) | assertive (thorough)
 min_severity: minor   # critical | major | minor | trivial
 
