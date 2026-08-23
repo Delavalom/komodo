@@ -30,6 +30,10 @@ COPY . .
 # The root script owns the order: workspace libraries, web app, then CLI.
 # Keeping it in one place prevents CI, release, and Docker from drifting.
 RUN pnpm build:release
+# Materialize the CLI's production dependencies without workspace symlinks.
+# The bundle contains Komodo's workspace packages, but intentionally keeps
+# third-party packages external just like the npm release does.
+RUN pnpm --filter komodo-review deploy --legacy --prod --offline /app/cli-runtime
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
@@ -43,11 +47,11 @@ RUN apt-get update \
 
 ENV NODE_ENV=production
 
-# The built CLI is self-contained: tsup bundles @komodo/core, /store and
-# /ingest into dist/index.js. package.json comes along because the CLI reads
-# its own version from it.
-COPY --from=build /app/packages/cli/dist/index.js /app/packages/cli/dist/*.js ./cli/dist/
-COPY --from=build /app/packages/cli/package.json ./cli/package.json
+# tsup bundles @komodo/core, /store and /ingest. Third-party runtime packages
+# remain external, so copy the lockfile-resolved production deployment too.
+COPY --from=build /app/cli-runtime/dist/index.js /app/cli-runtime/dist/*.js ./cli/dist/
+COPY --from=build /app/cli-runtime/package.json ./cli/package.json
+COPY --from=build /app/cli-runtime/node_modules ./cli/node_modules
 
 # The app is copied out of the build rather than unpacked from dist/web.tgz at
 # runtime: the tarball exists for the npm tarball's sake, where a directory
