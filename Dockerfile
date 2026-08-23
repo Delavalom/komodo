@@ -33,7 +33,7 @@ RUN pnpm build:release
 # Materialize the CLI's production dependencies without workspace symlinks.
 # The bundle contains Komodo's workspace packages, but intentionally keeps
 # third-party packages external just like the npm release does.
-RUN pnpm --filter komodo-review deploy --legacy --prod --offline /app/cli-runtime
+RUN pnpm --filter komodo-review deploy --legacy --prod /app/cli-runtime
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
