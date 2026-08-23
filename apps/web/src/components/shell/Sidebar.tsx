@@ -1,164 +1,157 @@
 "use client";
 
-import {
-  ChartPie,
-  ChevronsLeft,
-  ChevronsRight,
-  CreditCard,
-  FileText,
-  Gavel,
-  LogOut,
-  Plus,
-  Settings,
-} from "lucide-react";
+import * as React from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
-import { cn } from "@komodo/ui";
+import { ChevronRight } from "lucide-react";
 
-interface NavItem {
+import { Badge } from "@/components/ui/display";
+import { cn } from "@/lib/utils";
+
+export interface SidebarItem {
   href: string;
   label: string;
-  icon: typeof FileText;
-  /** Match only this exact path (used for "/" so it isn't always active). */
-  exact?: boolean;
+  icon: React.ReactNode;
+  badge?: string;
+  /** Anchor children revealed when the item is expanded. */
+  children?: { href: string; label: string; icon: React.ReactNode }[];
 }
 
-const PRIMARY: NavItem[] = [
-  { href: "/queue", label: "Your queue", icon: Gavel },
-  { href: "/analytics", label: "Analytics", icon: ChartPie },
-  { href: "/", label: "Reviews", icon: FileText, exact: true },
-  { href: "/new", label: "New review", icon: Plus },
-];
-
-const SECONDARY: NavItem[] = [
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/credits", label: "Credits", icon: CreditCard },
-];
+export interface SidebarGroup {
+  label?: string;
+  items: SidebarItem[];
+}
 
 export function Sidebar({
-  login,
-  name,
-  avatarUrl,
-  balance,
-  collapsed,
-  onToggleCollapsed,
+  groups,
+  header,
+  footer,
+  className,
 }: {
-  login: string;
-  name?: string | null;
-  avatarUrl?: string | null;
-  balance: number;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
+  groups: SidebarGroup[];
+  header?: React.ReactNode;
+  footer?: React.ReactNode;
+  className?: string;
 }) {
   const pathname = usePathname();
 
-  function isActive(item: NavItem): boolean {
-    return item.exact ? pathname === item.href : pathname.startsWith(item.href);
-  }
-
   return (
-    <aside className="sticky top-0 h-screen flex flex-col border-r border-border bg-surface overflow-hidden">
-      {/* Brand + collapse */}
-      <div className="flex items-center gap-2 h-14 px-3 border-b border-border shrink-0">
-        <a href="/" className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-xl leading-none shrink-0">🦎</span>
-          {!collapsed && (
-            <span className="font-semibold text-[15px] tracking-tight text-text truncate">
-              Komodo
-            </span>
-          )}
-        </a>
-        <button
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="shrink-0 p-1.5 rounded-md text-text-dim hover:text-text hover:bg-surface-2 transition-colors"
-        >
-          {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-        </button>
-      </div>
+    <aside
+      className={cn(
+        "flex w-[267px] shrink-0 flex-col overflow-y-auto border-r border-border px-6 py-6",
+        className,
+      )}
+    >
+      {header ? <div className="mb-4">{header}</div> : null}
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3">
-        <NavGroup items={PRIMARY} collapsed={collapsed} isActive={isActive} />
-        <div className="my-3 mx-3 border-t border-border" />
-        <NavGroup items={SECONDARY} collapsed={collapsed} isActive={isActive} />
-
-        {!collapsed && (
-          <div className="mx-3 mt-4 rounded-lg border border-border bg-elevated px-3 py-2.5">
-            <div className="text-[11px] text-text-dim">Credit balance</div>
-            <div className="text-lg font-semibold text-accent tabular-nums mt-0.5">
-              {balance.toLocaleString()}
+      {groups.map((group, index) => (
+        <div key={group.label ?? index}>
+          {index > 0 ? <div className="my-5 border-t border-border" /> : null}
+          {group.label ? (
+            <div className="mb-2 text-sm text-muted-foreground">
+              {group.label}
             </div>
-          </div>
-        )}
-      </nav>
-
-      {/* User card */}
-      <div className="border-t border-border p-3 shrink-0">
-        <div className={cn("flex items-center gap-2.5", collapsed && "justify-center")}>
-          {avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={avatarUrl} alt="" className="size-7 rounded-full shrink-0" />
-          ) : (
-            <div className="size-7 rounded-full bg-surface-2 shrink-0" />
-          )}
-          {!collapsed && (
-            <>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-text truncate">{name ?? login}</div>
-                <div className="text-[11px] text-text-dim truncate">{login}</div>
-              </div>
-              <button
-                onClick={() => signOut({ callbackUrl: "/sign-in" })}
-                aria-label="Sign out"
-                title="Sign out"
-                className="shrink-0 p-1.5 rounded-md text-text-dim hover:text-text hover:bg-surface-2 transition-colors"
-              >
-                <LogOut size={15} />
-              </button>
-            </>
-          )}
+          ) : null}
+          <nav className="space-y-0.5">
+            {group.items.map((item) => (
+              <SidebarLink
+                key={item.href}
+                item={item}
+                pathname={pathname}
+              />
+            ))}
+          </nav>
         </div>
-      </div>
+      ))}
+
+      {footer ? <div className="mt-auto pt-6">{footer}</div> : null}
     </aside>
   );
 }
 
-function NavGroup({
-  items,
-  collapsed,
-  isActive,
+function SidebarLink({
+  item,
+  pathname,
 }: {
-  items: NavItem[];
-  collapsed: boolean;
-  isActive: (item: NavItem) => boolean;
+  item: SidebarItem;
+  pathname: string;
 }) {
-  return (
-    <div className="px-2 flex flex-col gap-0.5">
-      {items.map((item) => {
-        const active = isActive(item);
-        const Icon = item.icon;
-        return (
-          <a
-            key={item.href}
-            href={item.href}
-            title={collapsed ? item.label : undefined}
+  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const [expanded, setExpanded] = React.useState(active);
+  const hasChildren = Boolean(item.children?.length);
+
+  if (hasChildren) {
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className={cn(
+            "flex h-9 w-full items-center gap-2.5 rounded-[2px] px-3 text-sm transition-colors duration-100",
+            active
+              ? "bg-muted-accent text-foreground"
+              : "text-muted-foreground hover:bg-muted-accent hover:text-foreground",
+          )}
+        >
+          <span className="shrink-0">{item.icon}</span>
+          <span className="truncate">{item.label}</span>
+          {item.badge ? <Badge>{item.badge}</Badge> : null}
+          <ChevronRight
             className={cn(
-              "relative flex items-center gap-2.5 h-9 rounded-lg text-[13px] transition-colors",
-              collapsed ? "justify-center px-0" : "px-2.5",
-              active
-                ? "bg-surface-2 text-accent font-medium"
-                : "text-text-muted hover:text-text hover:bg-surface-2",
+              "ml-auto h-4 w-4 shrink-0 transition-transform duration-100",
+              expanded ? "rotate-90" : "",
             )}
-          >
-            {active && (
-              <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-accent" />
-            )}
-            <Icon size={16} className="shrink-0" />
-            {!collapsed && <span className="truncate">{item.label}</span>}
-          </a>
-        );
-      })}
+          />
+        </button>
+        {expanded ? (
+          <div className="mt-0.5 space-y-0.5 pl-3">
+            {item.children!.map((child) => (
+              <Link
+                key={child.href}
+                href={child.href}
+                className="flex h-9 items-center gap-2.5 rounded-[2px] px-3 text-sm text-muted-foreground transition-colors duration-100 hover:bg-muted-accent hover:text-foreground"
+              >
+                <span className="shrink-0">{child.icon}</span>
+                <span className="truncate">{child.label}</span>
+              </Link>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "flex h-9 items-center gap-2.5 rounded-[2px] px-3 text-sm transition-colors duration-100",
+        active
+          ? "bg-muted-accent text-foreground"
+          : "text-muted-foreground hover:bg-muted-accent hover:text-foreground",
+      )}
+    >
+      <span className="shrink-0">{item.icon}</span>
+      <span className="truncate">{item.label}</span>
+      {item.badge ? <Badge>{item.badge}</Badge> : null}
+    </Link>
+  );
+}
+
+export function SavedFooter() {
+  return (
+    <div className="flex items-center gap-2 border-t border-border pt-4 text-sm text-muted-foreground">
+      <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden>
+        <path
+          stroke="currentColor"
+          strokeWidth="1.5"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="m3 8.5 3.2 3.2L13 5"
+        />
+      </svg>
+      All changes saved
     </div>
   );
 }

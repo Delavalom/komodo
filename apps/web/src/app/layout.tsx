@@ -1,28 +1,42 @@
 import type { Metadata } from "next";
-import { Newsreader } from "next/font/google";
+import { DM_Mono, DM_Sans } from "next/font/google";
+import { StoreHydration } from "@/lib/data/store";
 import "./globals.css";
 
-/**
- * The judgement flow is set in a serif so the prose reads like writing rather
- * than UI chrome. Exposed as --font-serif and picked up by `font-serif`.
- */
-const newsreader = Newsreader({
+const dmSans = DM_Sans({ variable: "--font-dm-sans", subsets: ["latin"] });
+const dmMono = DM_Mono({
+  variable: "--font-dm-mono",
   subsets: ["latin"],
-  style: ["normal", "italic"],
-  weight: ["300", "400", "500", "600"],
-  variable: "--font-newsreader",
-  display: "swap",
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: "Komodo — AI Code Review",
-  description: "AI-powered PR reviews backed by real GitHub tokens",
+  title: {
+    default: "Komodo",
+    template: "%s | Komodo",
+  },
+  description: "Your team's pull request review queue",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/** Sets data-theme before first paint so a reload never flashes. SPEC §1.3. */
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);else document.documentElement.setAttribute("data-theme","dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}})()`;
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={newsreader.variable}>
-      <body className="min-h-screen">{children}</body>
+    <html
+      lang="en"
+      data-theme="dark"
+      className={`${dmSans.variable} ${dmMono.variable} antialiased`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      {/* No fixed height here: the app group re-imposes it. */}
+      <body>
+        <StoreHydration />
+        {children}
+      </body>
     </html>
   );
 }

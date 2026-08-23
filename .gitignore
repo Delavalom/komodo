@@ -11,3 +11,8 @@ coverage/
 .next/
 .astro/
 .gstack/
+
+# Build artefacts and agent scratch state
+*.tsbuildinfo
+apps/*/.omc/
+packages/*/.omc/

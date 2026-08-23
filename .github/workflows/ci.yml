@@ -16,6 +16,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      # build first: `next build` generates .next/types, which typecheck needs
       - run: pnpm build
       - run: pnpm typecheck
-      - run: pnpm test

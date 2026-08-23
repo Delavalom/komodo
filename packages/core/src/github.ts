@@ -19,6 +19,38 @@ export interface PRMeta extends PRRef {
   labels: string[];
 }
 
+/**
+ * One row of a repository's open-PR listing.
+ *
+ * Deliberately only what `GET /pulls` returns for free: the poller runs on
+ * every repo on an interval, and a per-PR detail call would turn one request
+ * into a hundred. Size and review state are fetched separately, only for the
+ * pull requests that actually moved.
+ */
+export interface PRListItem {
+  number: number;
+  title: string;
+  author: string;
+  url: string;
+  headSha: string;
+  isDraft: boolean;
+  requestedReviewers: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PRSize {
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+}
+
+/** Who has signed off and who has asked for changes, latest review per person. */
+export interface ReviewDecisions {
+  approvals: string[];
+  changesRequested: string[];
+}
+
 export interface PRFile {
   path: string;
   status: string;
@@ -137,6 +169,72 @@ export class GitHubClient {
   }
 
   /** Post the full review: summary body + inline comments in one call. */
+  /** Every open pull request on a repository, newest first. */
+  async listOpenPRs(owner: string, repo: string): Promise<PRListItem[]> {
+    const out: PRListItem[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const batch = await this.request<any[]>(
+        "GET",
+        `/repos/${owner}/${repo}/pulls?state=open&per_page=100&page=${page}&sort=updated&direction=desc`,
+      );
+      out.push(
+        ...batch.map((d) => ({
+          number: d.number as number,
+          title: d.title as string,
+          author: (d.user?.login ?? "unknown") as string,
+          url: d.html_url as string,
+          headSha: d.head.sha as string,
+          isDraft: !!d.draft,
+          requestedReviewers: ((d.requested_reviewers ?? []) as any[]).map(
+            (r) => r.login as string,
+          ),
+          createdAt: Date.parse(d.created_at),
+          updatedAt: Date.parse(d.updated_at),
+        })),
+      );
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  async getPRSize(ref: PRRef): Promise<PRSize> {
+    const d = await this.request<any>(
+      "GET",
+      `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`,
+    );
+    return {
+      additions: d.additions ?? 0,
+      deletions: d.deletions ?? 0,
+      changedFiles: d.changed_files ?? 0,
+    };
+  }
+
+  /**
+   * Only a reviewer's most recent review counts: an APPROVED that a later
+   * CHANGES_REQUESTED superseded is not an approval, and the queue would be
+   * lying if it said otherwise.
+   */
+  async listReviewDecisions(ref: PRRef): Promise<ReviewDecisions> {
+    const reviews = await this.request<any[]>(
+      "GET",
+      `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews?per_page=100`,
+    );
+    const latest = new Map<string, string>();
+    for (const r of reviews) {
+      const login = r.user?.login;
+      if (!login) continue;
+      if (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED") {
+        latest.set(login, r.state);
+      }
+    }
+    const approvals: string[] = [];
+    const changesRequested: string[] = [];
+    for (const [login, state] of latest) {
+      (state === "APPROVED" ? approvals : changesRequested).push(login);
+    }
+    return { approvals, changesRequested };
+  }
+
   async postReview(
     ref: PRRef,
     headSha: string,
