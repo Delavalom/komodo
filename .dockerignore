@@ -1,0 +1,24 @@
+# The build runs its own install and its own build; copying either in from the
+# host is slower and, for node_modules, wrong — pnpm's store is full of
+# absolute symlinks that mean nothing inside the image.
+node_modules
+**/node_modules
+**/.next
+**/dist
+.git
+
+# Local state: a database, working trees and review records from someone's
+# laptop have no business in a deployment image.
+.komodo
+**/.komodo
+.env
+.env.*
+!.env.development
+
+# Agent and tooling scratch
+.omc
+**/.omc
+.claude
+.gstack
+*.log
+.DS_Store

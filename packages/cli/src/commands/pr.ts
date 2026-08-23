@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import pc from "picocolors";
 import {
   createProvider,
@@ -12,6 +12,8 @@ import {
   SEVERITY_LABEL,
   type PRRef,
 } from "@komodo/core";
+import { recordReview } from "@komodo/ingest";
+import { connectStore, isPostgresUrl } from "@komodo/store/connect";
 
 export async function prCommand(
   ref: string,
@@ -55,9 +57,44 @@ export async function prCommand(
       pc.dim(`  (${outcome.droppedJudgements.length} judgement(s) dropped: below min_severity or unanchorable)`),
     );
   }
-  if (outcome.reviewUrl) console.log(`\n${pc.bold("Posted:")} ${outcome.reviewUrl}`);
+  // Into the store, so the review is answerable rather than just printed. The
+  // same database `komodo dev` and `komodo serve` open, resolved the same way.
+  const reviewed = await saveToStore(github, outcome);
+
+  if (outcome.reviewUrl) console.log(`\n${pc.bold("Receipt:")} ${outcome.reviewUrl}`);
   console.log(`${pc.bold("Saved:")} ${outcome.recordPath}`);
-  console.log(pc.dim(`View locally: npx komodo-review ui`));
+  if (reviewed) {
+    const base = config.local.url.replace(/\/$/, "");
+    console.log(
+      `${pc.bold("Answer it:")} ` +
+        pc.cyan(`${base}/-/pr/${prRef.owner}/${prRef.repo}/${prRef.number}`),
+    );
+    console.log(pc.dim("Start the queue with `komodo-review dev` if it is not running."));
+  }
+}
+
+/**
+ * Writing to the store must never lose a review that already ran. A missing
+ * database or a schema this build cannot open is worth a warning, not an
+ * exception on top of a completed review whose record is already on disk.
+ */
+async function saveToStore(
+  github: GitHubClient,
+  outcome: Awaited<ReturnType<typeof runReview>>,
+): Promise<boolean> {
+  const target =
+    process.env.DATABASE_URL || join(process.cwd(), ".komodo", "komodo.db");
+  const store = await connectStore(isPostgresUrl(target) ? target : resolve(target));
+  try {
+    await recordReview({ store, github, outcome });
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(pc.yellow(`\nCould not write to the review queue: ${message}`));
+    return false;
+  } finally {
+    store.close();
+  }
 }
 
 /** Use cwd if it is a clone of the PR's repo; otherwise shallow-clone the head to a temp dir. */

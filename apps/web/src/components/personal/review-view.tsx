@@ -1,23 +1,19 @@
 "use client";
 
 import * as React from "react";
-import {
-  Code2,
-  FileText,
-  MessageSquare,
-  Plus,
-  Table2,
-  Workflow,
-} from "lucide-react";
+import { BarChart3, FileText, Table2, Workflow } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Card, SectionHeading } from "@/components/ui/card";
-import { CheckboxField, Segmented, Toggle } from "@/components/ui/controls";
-import { Badge, GreptileMark, TrexIcon } from "@/components/ui/display";
+import { CheckboxField, Toggle } from "@/components/ui/controls";
+import { Badge, KomodoMark } from "@/components/ui/display";
 import { usePersonalSettings } from "@/lib/data/queries";
 import { useUpdatePersonalSettings } from "@/lib/data/mutations";
 import type { PersonalSectionKey } from "@/lib/types";
 
+/**
+ * The four blocks a posted review can carry — the same four the org settings
+ * name, because there is one renderer and it knows four modules.
+ */
 const ROWS: {
   key: PersonalSectionKey;
   title: string;
@@ -27,30 +23,29 @@ const ROWS: {
   {
     key: "summary",
     title: "Summary",
-    description: "Include a text summary of the changes",
+    description: "What changed, in the reviewer's own words",
     icon: <FileText className="h-5 w-5 text-muted-foreground" />,
   },
   {
-    key: "issuesTable",
-    title: "Issues Table",
-    description: "Show a table of important files changed with ratings",
+    key: "confidence",
+    title: "Confidence Score",
+    description: "The merge-confidence rating and the verdict line",
+    icon: <BarChart3 className="h-5 w-5 text-muted-foreground" />,
+  },
+  {
+    key: "walkthrough",
+    title: "Walkthrough",
+    description: "Related files grouped into rows, each with a plain-language note",
     icon: <Table2 className="h-5 w-5 text-muted-foreground" />,
   },
   {
     key: "diagram",
-    title: "Diagram",
-    description: "Generate a sequence diagram of the changes",
+    title: "Sequence Diagram",
+    description: "A Mermaid diagram, when the change moved a flow",
     icon: <Workflow className="h-5 w-5 text-muted-foreground" />,
-  },
-  {
-    key: "commentsOutsideDiff",
-    title: "Comments Outside Diff",
-    description: "Allow comments on lines not in the diff",
-    icon: <MessageSquare className="h-5 w-5 text-muted-foreground" />,
   },
 ];
 
-/** SPEC §9.2 */
 export function PersonalReviewView() {
   const personal = usePersonalSettings();
   const update = useUpdatePersonalSettings();
@@ -64,7 +59,8 @@ export function PersonalReviewView() {
             <div>
               <div className="text-base font-medium">Show AI fix prompts</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                Copy &amp; paste into your coding agent
+                Every judgement carries a prompt written to be pasted into a
+                coding agent. This decides whether the queue shows it to you.
               </div>
             </div>
             <Toggle
@@ -74,42 +70,6 @@ export function PersonalReviewView() {
             />
           </div>
 
-          <div className="mt-6">
-            <div className="text-base font-medium">Fix with your Agent</div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              Link your profile and choose your coding agents.
-            </div>
-            <Card className="mt-4 p-5">
-              <ol className="relative space-y-6">
-                <li className="flex items-center gap-3">
-                  <span className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-[10px] text-[hsl(var(--background))]">
-                    ✓
-                  </span>
-                  <span className="text-sm">1. Profile linked</span>
-                  <span
-                    aria-hidden
-                    className="absolute left-[10px] top-5 h-6 w-px bg-border"
-                  />
-                </li>
-                <li className="flex flex-col gap-3">
-                  <span className="flex items-center gap-3">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-[3px] border border-border bg-secondary">
-                      <Code2 className="h-3 w-3" />
-                    </span>
-                    <span className="text-sm font-medium">
-                      2. Choose your coding agents
-                    </span>
-                  </span>
-                  <div className="pl-8">
-                    <Button variant="secondary" size="sm">
-                      <Plus className="h-3.5 w-3.5" />
-                      Select agent
-                    </Button>
-                  </div>
-                </li>
-              </ol>
-            </Card>
-          </div>
         </Card>
       </section>
 
@@ -171,49 +131,19 @@ export function PersonalReviewView() {
         </Card>
       </section>
 
-      <section className="space-y-4">
-        <SectionHeading
-          title="TREX Settings"
-          badge={<Badge>Beta</Badge>}
-          icon={<TrexIcon className="h-5 w-5" />}
-        />
-        <Card className="p-5">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <div className="text-base font-medium">TREX on my PRs</div>
-              <p className="mt-1 max-w-[720px] text-sm text-muted-foreground">
-                Run TREX-powered runtime validation on reviews you author.{" "}
-                <strong className="font-medium text-foreground">Default</strong>{" "}
-                follows your organization&rsquo;s TREX setting.{" "}
-                <strong className="font-medium text-foreground">Off</strong>{" "}
-                disables it for your PRs.
-              </p>
-            </div>
-            <Segmented
-              value={personal.trexOnMyPrs}
-              onChange={(trexOnMyPrs) => update({ trexOnMyPrs })}
-              options={[
-                { value: "default" as const, label: "Default" },
-                { value: "off" as const, label: "Off" },
-              ]}
-            />
-          </div>
-        </Card>
-      </section>
-
       <Card className="p-5">
         <div className="flex items-start gap-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border">
-            <GreptileMark className="h-4 w-4" />
+            <KomodoMark className="h-4 w-4" />
           </span>
           <div>
             <div className="flex items-center gap-2 text-sm">
-              <span className="font-medium">greptile</span>
+              <span className="font-medium">komodo</span>
               <Badge tone="outline">bot</Badge>
               <span className="text-muted-foreground">commented just now</span>
             </div>
             <p className="mt-1.5 text-[15px]">
-              Preview how Greptile comments look on your pull requests.
+              Preview how Komodo comments look on your pull requests.
             </p>
           </div>
         </div>

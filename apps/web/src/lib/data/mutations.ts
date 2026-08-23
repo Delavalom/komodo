@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Write seam. docs/SPEC.md §12.
+ * Write seam.
  *
  * Writes against store-owned entities forward to the server actions in
  * lib/data/actions.ts, so they land in the shared database and revalidate for
@@ -14,52 +14,52 @@ export const useSetRepoEnabled = () => actions.setRepoEnabled;
 
 export const useRetriggerReviews = () => actions.retriggerReviews;
 
-/** convex: api.memory.create({ description, kind, pattern, scope }) */
-export const useCreateMemoryRule = () =>
-  useDataStore((s) => s.createMemoryRule);
+export const useRescanRepositories = () => actions.rescanRepositories;
 
-/** convex: api.memory.update({ id, patch }) */
-export const useUpdateMemoryRule = () =>
-  useDataStore((s) => s.updateMemoryRule);
+export const useCreateMemoryRule = () => actions.createMemoryRule;
 
-/** convex: api.memory.remove({ id }) */
-export const useDeleteMemoryRule = () =>
-  useDataStore((s) => s.deleteMemoryRule);
+export const useUpdateMemoryRule = () => actions.updateMemoryRule;
 
-/** convex: api.repoClusters.create({ name, memberRepoIds }) */
-export const useCreateRepoCluster = () =>
-  useDataStore((s) => s.createRepoCluster);
+export const useDeleteMemoryRule = () => actions.deleteMemoryRule;
 
-/** convex: api.repoClusters.remove({ id }) */
-export const useDeleteRepoCluster = () =>
-  useDataStore((s) => s.deleteRepoCluster);
+export const useCreateRepoCluster = () => actions.createRepoCluster;
 
-/** convex: api.integrations.connect({ provider }) */
-export const useConnectIntegration = () =>
-  useDataStore((s) => s.connectIntegration);
+export const useDeleteRepoCluster = () => actions.deleteRepoCluster;
 
-/** convex: api.integrations.disconnect({ id }) */
-export const useDisconnectIntegration = () =>
-  useDataStore((s) => s.disconnectIntegration);
+export const useConnectIntegration = () => actions.connectIntegration;
+
+export const useDisconnectIntegration = () => actions.disconnectIntegration;
 
 export const useInviteMember = () => actions.inviteMember;
 
+export const useUpdateMember = () => actions.updateMember;
+
 export const useRemoveMember = () => actions.removeMember;
 
-/** convex: api.apiKeys.create({ name }) */
-export const useCreateApiKey = () => useDataStore((s) => s.createApiKey);
+export const useCreateApiKey = () => actions.createApiKey;
 
-/** convex: api.apiKeys.remove({ id }) */
-export const useDeleteApiKey = () => useDataStore((s) => s.deleteApiKey);
+export const useDeleteApiKey = () => actions.deleteApiKey;
 
-/** convex: api.settings.updateOrg({ orgId, patch }) */
-export const useUpdateOrgSettings = () =>
-  useDataStore((s) => s.updateOrgSettings);
+export const useUpdateOrgSettings = () => actions.updateOrgSettings;
 
-/** convex: api.settings.updatePersonal({ userId, patch }) */
 export const useUpdatePersonalSettings = () =>
   useDataStore((s) => s.updatePersonalSettings);
 
-/** Local view state, never a Convex call — see SPEC §3 on chip persistence. */
+/** Local view state, never a Convex call — see on chip persistence. */
 export const useSetJudgmentFilters = () => useDataStore((s) => s.setJudgmentFilters);
 export const useClearJudgmentFilters = () => useDataStore((s) => s.clearJudgmentFilters);
+
+export const useAnswerJudgement = () => actions.answerJudgement;
+
+export const useVoteJudgement = () => actions.voteJudgement;
+
+/**
+ * Says which member of the roster is at this browser.
+ *
+ * Not a sign-in — Komodo has none. It decides whose name the decision ledger
+ * records, which is what stops a shared deployment filing four people's calls
+ * under one.
+ */
+export const useSetActor = () => actions.setActor;
+
+export const usePostReceipt = () => actions.postReceipt;

@@ -16,9 +16,26 @@ min_severity: minor   # critical | major | minor | trivial
 #     instructions: "Check authorization and input validation on every handler."
 
 post:
-  update_description: false   # inject "Summary by Komodo" into the PR description
-  request_changes: true       # request changes when major/critical findings exist
+  mode: receipt               # receipt | full | none — what GitHub gets
+  update_description: false   # inject "Summary by Komodo" into the PR description (mode: full)
+  request_changes: true       # request changes when major/critical findings exist (mode: full)
   status_check: false         # post a commit status (pass/fail gate)
+
+# Who the queue is for, and what it watches. \`komodo pr\` does not need this;
+# \`komodo dev\` and \`komodo serve\` do — without a team they have nothing to
+# poll, and the queue stays empty.
+#
+# team:
+#   name: Core Infra
+#   you: your-github-login      # whose queue "mine" means
+#   members:                    # GitHub logins; the join key to PR authors
+#     - your-github-login
+#   repos:                      # owner/name — the first ones to watch. Others
+#     - your-org/your-repo      # under the same owner are discovered and
+#                               # listed under Settings → Manage Repositories.
+
+local:
+  url: http://localhost:4400  # where the queue is reachable; the receipt links here
 `;
 
 export async function initCommand(opts: { force: boolean }): Promise<void> {

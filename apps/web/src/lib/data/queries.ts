@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Read seam. docs/SPEC.md §12.
+ * Read seam.
  *
  * The shared entities come from the server snapshot through useSnapshot();
  * the configuration surfaces with no backing table yet still read local
@@ -14,13 +14,10 @@
  */
 import { useMemo } from "react";
 
-import { USAGE_FROM, USAGE_TO } from "@/lib/data/seed";
-import { useSnapshot } from "@/lib/data/provider";
+import { useNow, useSnapshot } from "@/lib/data/provider";
 import { useDataStore } from "@/lib/data/store";
 import {
   DAY_MS,
-  NOW,
-  rng,
   startOfDay,
   startOfMonth,
   startOfQuarter,
@@ -40,7 +37,7 @@ import type {
   LeaderRow,
   Member,
   MemoryQuery,
-  MemoryRule,
+  MemoryRuleStats,
   Organization,
   OrgSettings,
   PersonalSettings,
@@ -50,22 +47,37 @@ import type {
   Repository,
   SeriesPoint,
   Severity,
+  Team,
   Timeframe,
   UsageDay,
 } from "@/lib/types";
 
 /* ── Org ────────────────────────────────────────────────────────────────── */
 
+/**
+ * The organization, under the name the team chose for it.
+ *
+ * Two rows hold a name: `organizations`, which komodo.yaml rewrites on every
+ * boot, and `settings.orgDisplayName`, which the Organization screen owns. The
+ * screen wrote to the second and every surface read the first, so renaming the
+ * deployment changed nothing anyone could see. The stored preference wins when
+ * it is set, exactly as it does for every other field on that screen.
+ */
 export function useOrganization(): Organization {
-  return useSnapshot().organization;
+  const { organization, settings } = useSnapshot();
+  return useMemo(
+    () => ({
+      ...organization,
+      name: settings.orgDisplayName.trim() || organization.name,
+    }),
+    [organization, settings.orgDisplayName],
+  );
 }
 
-/** convex: api.repos.list({ orgId }) */
 export function useRepositories(): Repository[] {
   return useSnapshot().repositories;
 }
 
-/** convex: api.repos.list({ orgId, search }) */
 export function useRepositorySearch(search: string): Repository[] {
   const repos = useRepositories();
   return useMemo(() => {
@@ -120,6 +132,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
   const repoIndex = useRepoIndex();
   const me = useMe();
   const login = me?.githubLogin ?? null;
+  const now = useNow();
 
   const { lens = "all", search, author, repo } = query;
 
@@ -138,7 +151,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
 
       const repository = repoIndex.get(j.repoId);
       const changedLines = j.additions + j.deletions;
-      const waitingDays = Math.floor((NOW - j.updatedAt) / DAY_MS);
+      const waitingDays = Math.floor((now - j.updatedAt) / DAY_MS);
 
       // "Asked for and not yet given" — an approval or a changes-requested
       // from me means the ball is back in the author's court.
@@ -183,7 +196,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
     // Longest wait first: the queue's job is to surface what is going stale,
     // not what landed most recently.
     return filtered.sort((a, b) => a.updatedAt - b.updatedAt);
-  }, [judgments, findings, repoIndex, login, lens, search, author, repo]);
+  }, [judgments, findings, repoIndex, login, now, lens, search, author, repo]);
 }
 
 /** Row counts behind each lens, so the tabs can carry a badge. */
@@ -202,7 +215,6 @@ export function useQueueCounts(query: Omit<QueueQuery, "lens"> = {}) {
 
 /* ── Judgments ──────────────────────────────────────────────────────────── */
 
-/** convex: api.judgments.list({ orgId, search, filters, sort }) */
 export function useJudgments(query: JudgmentQuery = {}): Judgment[] {
   const prs = useSnapshot().judgments;
   const repoIndex = useRepoIndex();
@@ -270,21 +282,25 @@ export interface Window {
   to: number;
 }
 
-export function timeframeWindow(timeframe: Timeframe = "this-month"): Window {
+/** The window a timeframe names, measured from the render's clock. */
+export function timeframeWindow(
+  timeframe: Timeframe = "this-month",
+  now: number,
+): Window {
   switch (timeframe) {
     case "all":
-      return { from: startOfDay(NOW - 119 * DAY_MS), to: NOW };
+      return { from: startOfDay(now - 119 * DAY_MS), to: now };
     case "this-week":
-      return { from: startOfWeek(NOW), to: NOW };
+      return { from: startOfWeek(now), to: now };
     case "this-quarter":
-      return { from: startOfQuarter(NOW), to: NOW };
+      return { from: startOfQuarter(now), to: now };
     case "this-year":
-      return { from: startOfYear(NOW), to: NOW };
+      return { from: startOfYear(now), to: now };
     case "custom":
-      return { from: startOfDay(NOW - 29 * DAY_MS), to: NOW };
+      return { from: startOfDay(now - 29 * DAY_MS), to: now };
     case "this-month":
     default:
-      return { from: startOfMonth(NOW), to: NOW };
+      return { from: startOfMonth(now), to: now };
   }
 }
 
@@ -324,7 +340,7 @@ function bucketsFor(w: Window, granularity: Granularity): number[] {
 function useScopedJudgments(query: AnalyticsQuery) {
   const prs = useSnapshot().judgments;
   const repoIndex = useRepoIndex();
-  const { from, to } = timeframeWindow(query.timeframe);
+  const { from, to } = timeframeWindow(query.timeframe, useNow());
   const repos = query.repos;
   const authors = query.authors;
 
@@ -354,9 +370,33 @@ function useScopedFindings(query: AnalyticsQuery) {
   }, [findings, scoped]);
 }
 
+/**
+ * The rows behind the charts, for anything that needs them as rows.
+ *
+ * The Export button had nothing to export because the scoped sets were
+ * private to this module — the charts consumed them and no one else could.
+ * Handing them out costs nothing: they are derived, so an export and the chart
+ * above it cannot disagree.
+ */
+export function useAnalyticsRows(query: AnalyticsQuery): {
+  judgments: Judgment[];
+  findings: Finding[];
+} {
+  const { scoped } = useScopedJudgments(query);
+  const findings = useScopedFindings(query);
+  return useMemo(
+    () => ({ judgments: scoped, findings }),
+    [scoped, findings],
+  );
+}
+
+/** The teams komodo.yaml defines, for the analytics scope picker. */
+export function useTeams(): Team[] {
+  return useSnapshot().teams;
+}
+
 /* ── Analytics: PR Reviews tab ──────────────────────────────────────────── */
 
-/** convex: api.analytics.summary({ orgId, filters }) */
 export function useAnalyticsSummary(query: AnalyticsQuery): AnalyticsSummary {
   const { scoped } = useScopedJudgments(query);
   const findings = useScopedFindings(query);
@@ -405,7 +445,6 @@ function median(values: number[]): number {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-/** convex: api.analytics.reviewsSeries({ orgId, filters, metric }) */
 export function useReviewsSeries(
   query: AnalyticsQuery,
   metric: ReviewMetric,
@@ -452,7 +491,6 @@ export function useReviewsSeries(
   }, [scoped, from, to, granularity, metric]);
 }
 
-/** convex: api.analytics.bugsSeries({ orgId, filters, severity }) */
 export function useBugsSeries(
   query: AnalyticsQuery,
   severity: Severity | "all",
@@ -473,7 +511,6 @@ export function useBugsSeries(
   }, [findings, from, to, granularity, severity]);
 }
 
-/** convex: api.analytics.mergeTimeSeries({ orgId, filters, stat }) */
 export function useMergeTimeSeries(
   query: AnalyticsQuery,
   stat: "mean" | "median",
@@ -501,7 +538,6 @@ export function useMergeTimeSeries(
   }, [scoped, from, to, granularity, stat]);
 }
 
-/** convex: api.analytics.contributorsSeries({ orgId, filters }) */
 export function useContributorsSeries(query: AnalyticsQuery): SeriesPoint[] {
   const { scoped, from, to } = useScopedJudgments(query);
   const granularity = query.granularity ?? "day";
@@ -518,7 +554,6 @@ export function useContributorsSeries(query: AnalyticsQuery): SeriesPoint[] {
   }, [scoped, from, to, granularity]);
 }
 
-/** convex: api.analytics.addressedRateSeries({ orgId, filters }) */
 export function useAddressedRateSeries(query: AnalyticsQuery): SeriesPoint[] {
   const { scoped, from, to } = useScopedJudgments(query);
   const granularity = query.granularity ?? "day";
@@ -548,7 +583,6 @@ export function useAddressedRateTotals(query: AnalyticsQuery) {
   }, [scoped]);
 }
 
-/** convex: api.analytics.commentRatings({ orgId, filters }) */
 export function useCommentRatings(query: AnalyticsQuery) {
   const { scoped } = useScopedJudgments(query);
   return useMemo(
@@ -564,7 +598,6 @@ function topN<T>(rows: T[], n: number) {
   return rows.slice(0, n);
 }
 
-/** convex: api.analytics.leaderboards({ orgId, filters }) */
 export function useLeaderboards(query: AnalyticsQuery) {
   const { scoped } = useScopedJudgments(query);
   const findings = useScopedFindings(query);
@@ -682,7 +715,6 @@ export function useLeaderboards(query: AnalyticsQuery) {
 
 /* ── Analytics: Bugs Caught tab ─────────────────────────────────────────── */
 
-/** convex: api.findings.summary({ orgId, filters }) */
 export function useFindingsSummary(query: AnalyticsQuery): FindingsSummary {
   const findings = useScopedFindings(query);
   return useMemo(
@@ -704,7 +736,6 @@ export interface FindingRow extends Finding {
   prUrl: string;
 }
 
-/** convex: api.findings.list({ orgId, filters, search }) */
 export function useFindings(
   query: AnalyticsQuery,
   search: string,
@@ -742,16 +773,15 @@ export function useFindings(
 /* ── Memory ─────────────────────────────────────────────────────────────── */
 
 export interface MemoryPage {
-  rows: MemoryRule[];
+  rows: MemoryRuleStats[];
   total: number;
   page: number;
   perPage: number;
   pageCount: number;
 }
 
-/** convex: api.memory.list({ orgId, search, filters, page }) */
 export function useMemoryRules(query: MemoryQuery = {}): MemoryPage {
-  const rules = useDataStore((s) => s.memoryRules);
+  const rules = useSnapshot().memoryRules;
   const repoIndex = useRepoIndex();
   const perPage = query.perPage ?? 10;
   const page = query.page ?? 0;
@@ -810,28 +840,24 @@ export function useMemoryRules(query: MemoryQuery = {}): MemoryPage {
   }, [rules, repoIndex, query.search, query.type, query.status, query.repository, query.usage, query.acceptance, query.sortBy, query.sortDir, page, perPage]);
 }
 
-/** convex: api.memory.get({ id }) */
-export function useMemoryRule(id: string | null): MemoryRule | null {
-  const rules = useDataStore((s) => s.memoryRules);
+export function useMemoryRule(id: string | null): MemoryRuleStats | null {
+  const rules = useSnapshot().memoryRules;
   return useMemo(
     () => (id ? (rules.find((r) => r.id === id) ?? null) : null),
     [rules, id],
   );
 }
 
-/** convex: api.repoClusters.list({ orgId }) */
 export function useRepoClusters(): RepoCluster[] {
-  return useDataStore((s) => s.repoClusters);
+  return useSnapshot().repoClusters;
 }
 
-/** convex: api.integrations.list({ orgId }) */
 export function useIntegrations(): Integration[] {
-  return useDataStore((s) => s.integrations);
+  return useSnapshot().integrations;
 }
 
 /* ── Admin ──────────────────────────────────────────────────────────────── */
 
-/** convex: api.members.list({ orgId, search, role }) */
 export function useMembers(search = "", role: string = "all"): Member[] {
   const members = useSnapshot().members;
   return useMemo(() => {
@@ -844,9 +870,8 @@ export function useMembers(search = "", role: string = "all"): Member[] {
   }, [members, search, role]);
 }
 
-/** convex: api.apiKeys.list({ orgId, search }) */
 export function useApiKeys(search = ""): ApiKey[] {
-  const keys = useDataStore((s) => s.apiKeys);
+  const keys = useSnapshot().apiKeys;
   return useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return keys;
@@ -854,43 +879,93 @@ export function useApiKeys(search = ""): ApiKey[] {
   }, [keys, search]);
 }
 
-/** convex: api.settings.org({ orgId }) */
+/**
+ * How this deployment reviews.
+ *
+ * On the snapshot rather than in local state, because it is not a preference
+ * of the browser that opened the page — it is the configuration the ingester
+ * runs on. A change here reaches the next poll; a change in localStorage
+ * reached nothing.
+ */
 export function useOrgSettings(): OrgSettings {
-  return useDataStore((s) => s.orgSettings);
+  return useSnapshot().settings;
 }
 
-/** convex: api.settings.personal({ userId }) */
+/**
+ * One person's preferences, plus who they are.
+ *
+ * The preferences are per-browser and stay in local state. The identity is
+ * not: it comes from the roster komodo.yaml defines, so the header shows
+ * whoever this deployment is for rather than whoever the fixture named.
+ */
 export function usePersonalSettings(): PersonalSettings {
-  return useDataStore((s) => s.personalSettings);
+  const preferences = useDataStore((s) => s.personalPreferences);
+  const me = useMe();
+  return useMemo(
+    () => ({
+      ...preferences,
+      name: me?.name ?? "You",
+      email: me?.email ?? "",
+      githubLogin: me?.githubLogin ?? "",
+    }),
+    [preferences, me],
+  );
 }
 
 /* ── Usage ──────────────────────────────────────────────────────────────── */
 
-export const USAGE_WINDOW = { from: USAGE_FROM, to: USAGE_TO };
+/** Days of history the usage screen covers. */
+const USAGE_DAYS = 30;
+
+/** The window the usage screen reports on, ending at this render's clock. */
+export function useUsageWindow(): { from: number; to: number } {
+  const now = useNow();
+  return useMemo(
+    () => ({ from: startOfDay(now - (USAGE_DAYS - 1) * DAY_MS), to: startOfDay(now) }),
+    [now],
+  );
+}
 
 /**
- * convex: api.usage.daily({ orgId, from, to })
+ * Review volume, day by day.
  *
- * Credit spend has no source entity in a static dataset, so it is generated
- * from a seed. This is the ONE place that happens — see CONVENTIONS.
+ * Every figure here is counted from the judgments that produced it. It used to
+ * be counted from a seeded PRNG — `cliCredits` was literally `next() < 0.1`,
+ * a number no event in the system could ever have caused, on a screen whose
+ * whole job is to say what was spent. A deployment running on its own
+ * subscription has no credits to report; what it has is runs, and those are
+ * real.
  */
 export function useUsageDays(): UsageDay[] {
   const prs = useSnapshot().judgments;
+  const { from, to } = useUsageWindow();
+
   return useMemo(() => {
+    const reviewed = new Map<number, { prs: number; runs: number }>();
+    for (const pr of prs) {
+      if (pr.reviewCount === 0) continue;
+      const day = startOfDay(pr.updatedAt);
+      if (day < from || day > to) continue;
+      const row = reviewed.get(day) ?? { prs: 0, runs: 0 };
+      row.prs++;
+      row.runs += pr.reviewCount;
+      reviewed.set(day, row);
+    }
+
     const out: UsageDay[] = [];
-    for (let d = USAGE_FROM; d <= USAGE_TO; d += DAY_MS) {
-      const reviews = prs.filter(
-        (p) => startOfDay(p.updatedAt) === d && p.reviewCount > 0,
-      ).length;
-      const next = rng(`usage:${d}`);
+    for (let d = from; d <= to; d += DAY_MS) {
+      const row = reviewed.get(d) ?? { prs: 0, runs: 0 };
       out.push({
         date: d,
-        reviews,
-        codeReviewCredits: reviews,
-        trexCredits: next() < 0.15 ? Math.floor(next() * 2) : 0,
-        cliCredits: next() < 0.1 ? Math.floor(next() * 2) : 0,
+        reviews: row.prs,
+        codeReviewCredits: row.runs,
+        // A run started from a laptop lands in the same store through the same
+        // port, and nothing distinguishes it from one the poller started. Until
+        // a run records where it came from, this cannot honestly be anything
+        // but zero.
+        cliCredits: 0,
       });
     }
     return out;
-  }, [prs]);
+  }, [prs, from, to]);
 }

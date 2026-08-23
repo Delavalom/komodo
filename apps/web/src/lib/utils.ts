@@ -6,10 +6,14 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * "Now" is pinned to the capture date so server and client render identically
- * and every relative label is stable. docs/SPEC.md §11.
+ * The clock of last resort.
+ *
+ * Nothing that renders may use it. "Now" reaches the client as a
+ * request-scoped value through `useNow()` — read the reasoning there — and
+ * this constant survives only for the one thing that cannot take a hook: the
+ * pinned window the seeded dataset is written around.
  */
-export const NOW = Date.UTC(2026, 7, 18, 12, 0, 0);
+export const SEED_NOW = Date.UTC(2026, 7, 18, 12, 0, 0);
 
 /** The original renders absolute stamps in GMT-4. Pinned, never local. */
 const DISPLAY_OFFSET_MINUTES = -4 * 60;
@@ -26,8 +30,14 @@ function shifted(ts: number) {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** `~20 hours ago`, `1 day ago`. Note the tilde on sub-day values. §11 */
-export function relativeTime(ts: number, now: number = NOW): string {
+/**
+ * `~20 hours ago`, `1 day ago`. Note the tilde on sub-day values. §11
+ *
+ * `now` is required rather than defaulted: a default is how every age in the
+ * app came to be measured against a frozen constant. Client components take
+ * it from `useNow()`.
+ */
+export function relativeTime(ts: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - ts) / 1000));
   if (seconds < 60) return "just now";
   const minutes = Math.round(seconds / 60);

@@ -17,7 +17,6 @@ function ClusterIcon() {
   );
 }
 
-/** SPEC §7 */
 export function MemorySidebar({ orgSlug }: { orgSlug: string }) {
   const base = `/${orgSlug}/-/custom-context`;
   return (

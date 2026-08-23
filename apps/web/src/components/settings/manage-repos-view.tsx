@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import { Button } from "@/components/ui/button";
 import { Checkbox, Toggle } from "@/components/ui/controls";
 import { GithubIcon } from "@/components/ui/display";
 import { SearchInput } from "@/components/ui/input";
@@ -11,14 +12,30 @@ import { fullName, useRepositorySearch } from "@/lib/data/queries";
 import { useSetRepoEnabled } from "@/lib/data/mutations";
 import { plural } from "@/lib/utils";
 
-/** SPEC §8.1 */
 export function ManageReposView() {
   const [query, setQuery] = React.useState("");
   const [sortDir, setSortDir] = React.useState<"asc" | "desc" | null>(null);
   const [statusDir, setStatusDir] = React.useState<"asc" | "desc" | null>(null);
   const [selected, setSelected] = React.useState<string[]>([]);
+  const [pending, setPending] = React.useState(false);
   const repos = useRepositorySearch(query);
   const setEnabled = useSetRepoEnabled();
+
+  /**
+   * The selection used to count rows and do nothing with them. Enabling a
+   * repository is what puts it in front of the poller — see poll.ts, where
+   * `enabled` is the only filter — so doing it thirty times by hand after a
+   * scan is the thing worth saving.
+   */
+  async function setSelectedEnabled(enabled: boolean) {
+    setPending(true);
+    try {
+      for (const id of selected) await setEnabled(id, enabled);
+      setSelected([]);
+    } finally {
+      setPending(false);
+    }
+  }
 
   const rows = React.useMemo(() => {
     const copy = [...repos];
@@ -48,8 +65,35 @@ export function ManageReposView() {
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search for repos by name"
       />
-      <div className="text-sm text-muted-foreground">
-        {selected.length} selected
+      <p className="text-sm text-muted-foreground">
+        An enabled repository is polled for open pull requests; a disabled one
+        is left alone. The list is what the deployment&apos;s GitHub token can
+        see for each owner it already knows — Code Providers rescans it.
+      </p>
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-muted-foreground">
+          {selected.length} selected
+        </span>
+        {selected.length > 0 ? (
+          <>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => setSelectedEnabled(true)}
+            >
+              Enable
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => setSelectedEnabled(false)}
+            >
+              Disable
+            </Button>
+          </>
+        ) : null}
       </div>
 
       <DataTable>

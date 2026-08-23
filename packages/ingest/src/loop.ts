@@ -7,9 +7,13 @@
  * `komodo serve` restart resumes without bookkeeping.
  */
 import type { GitHubClient, KomodoConfig, ReviewProvider } from "@komodo/core";
+import { META_LAST_POLL_AT, META_LAST_POLL_ERROR } from "@komodo/store";
 import type { KomodoStore } from "@komodo/store";
 
+import type { RepoCheckout } from "./checkout.js";
+import { discoverRepositories } from "./discover.js";
 import { pollRepositories } from "./poll.js";
+import { applySettings } from "./settings.js";
 import { reviewPending } from "./review.js";
 
 export interface IngestOptions {
@@ -17,10 +21,16 @@ export interface IngestOptions {
   github: GitHubClient;
   /** Omit to poll only — useful before a provider is configured. */
   provider?: ReviewProvider;
+  /**
+   * komodo.yaml as parsed. Each pass overlays the team's stored settings on
+   * top of this — see ./settings.ts for which fields each side owns.
+   */
   config: KomodoConfig;
   /** Milliseconds between passes. */
   intervalMs?: number;
   post?: boolean;
+  /** Gives the reviewer a tree to read. Omit to review diffs alone. */
+  checkout?: RepoCheckout;
   signal?: AbortSignal;
   onProgress?: (msg: string) => void;
 }
@@ -29,11 +39,30 @@ const DEFAULT_INTERVAL_MS = 60_000;
 
 /** One poll-and-review pass. Exported so a CLI can run it exactly once. */
 export async function ingestOnce(options: IngestOptions): Promise<void> {
-  const { store, github, provider, config, onProgress } = options;
+  const { store, github, provider, onProgress } = options;
+
+  // Re-read every pass rather than once at boot. The settings screen writes to
+  // the store, and a team that raises the severity threshold should see the
+  // next poll honour it — not have to get someone to restart the service.
+  const settings = await store.loadSettings();
+  const config = applySettings(options.config, settings);
+
+  // Before the poll, not after: a repository discovered and auto-enabled this
+  // pass gets its pull requests in the same pass, rather than looking empty
+  // until the next one.
+  await discoverRepositories({
+    store,
+    github,
+    autoEnable: settings.autoEnableNewRepos,
+    onProgress,
+  });
 
   const polled = await pollRepositories(github, store, { onProgress });
   onProgress?.(
-    `Polled ${polled.seen} open PRs — ${polled.changed} changed, ${polled.closed} closed.`,
+    `Polled ${polled.seen} open PRs — ${polled.changed} changed, ${polled.closed} closed` +
+      (polled.unreachable
+        ? `, ${polled.unreachable} unreachable.`
+        : "."),
   );
 
   if (!provider) {
@@ -45,8 +74,11 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
     store,
     github,
     provider,
+    // The effective config, not options.config — this is what carries the
+    // team's settings into shouldReview() and into the prompt.
     config,
     post: options.post,
+    checkout: options.checkout,
     onProgress,
   });
 }
@@ -58,14 +90,36 @@ export async function runIngestLoop(options: IngestOptions): Promise<void> {
   while (!signal?.aborted) {
     try {
       await ingestOnce(options);
+      // The heartbeat the health endpoint reads. Written after the pass
+      // rather than before it, so "last poll" means a poll that finished.
+      await recordPass(options.store, null);
     } catch (err) {
       // One bad pass — a network blip, an expired token — must not take the
       // service down. The next pass recomputes everything from the store.
       const message = err instanceof Error ? err.message : String(err);
       onProgress?.(`Ingest pass failed: ${message}`);
+      await recordPass(options.store, message);
     }
     if (signal?.aborted) break;
     await sleep(interval, signal);
+  }
+}
+
+/**
+ * Leaves a trace of the pass for the health endpoint.
+ *
+ * Best effort on purpose: if the store is the thing that just broke, failing
+ * to write down that it broke must not turn one bad pass into a crash loop.
+ */
+async function recordPass(
+  store: KomodoStore,
+  error: string | null,
+): Promise<void> {
+  try {
+    await store.setMeta(META_LAST_POLL_AT, String(Date.now()));
+    await store.setMeta(META_LAST_POLL_ERROR, error ?? "");
+  } catch {
+    // Nothing useful to do here, and the next pass will try again.
   }
 }
 

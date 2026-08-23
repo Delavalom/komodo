@@ -13,7 +13,14 @@ import "server-only";
  */
 import { connectStore } from "@komodo/store/connect";
 import { seedStore } from "@komodo/store/seed";
-import type { KomodoStore, QueueSnapshot } from "@komodo/store";
+import { resolveActor } from "@/lib/data/actor";
+import type {
+  KomodoStore,
+  QueueSnapshot,
+  Review,
+  ReviewDetail,
+  ReviewFile,
+} from "@komodo/store";
 
 const DEFAULT_DB = ".komodo/komodo.db";
 
@@ -35,10 +42,16 @@ async function connect(): Promise<KomodoStore> {
     process.env.DATABASE_URL || process.env.KOMODO_DB || DEFAULT_DB;
   const store = await connectStore(target);
 
-  // An empty database means nobody has run the ingester yet. Seeding it beats
-  // opening on an empty table and looking broken.
-  const { repositories } = await store.snapshot();
-  if (repositories.length === 0) await seedStore(store);
+  // An empty database on a laptop means nobody has run the ingester yet, and
+  // seeding beats opening on empty tables and looking broken. On a deployment
+  // the same line invents repositories and pull requests the team does not
+  // have — indistinguishable, in the UI, from real ones. So it is opt-in:
+  // `komodo dev` asks for it, `komodo serve` does not, and `next dev` gets it
+  // from .env.development.
+  if (process.env.KOMODO_SEED === "1") {
+    const { repositories } = await store.snapshot();
+    if (repositories.length === 0) await seedStore(store);
+  }
 
   return store;
 }
@@ -48,6 +61,65 @@ export function getStore(): Promise<KomodoStore> {
   return handle.__komodoStore;
 }
 
+/**
+ * The clock, read on the server, once per request.
+ *
+ * A function rather than an expression at the call site: every age the app
+ * renders is measured from this, and reading `Date.now()` inside a component —
+ * even a server one — is a call React is entitled to run twice and get two
+ * answers for. Here it is plain module code, and the value it returns travels
+ * down as a prop.
+ */
+export function requestNow(): number {
+  return Date.now();
+}
+
 export async function loadSnapshot(): Promise<QueueSnapshot> {
-  return (await getStore()).snapshot();
+  const snapshot = await (await getStore()).snapshot();
+
+  // `isYou` is stored as whatever komodo.yaml's `team.you` names, which is
+  // right for a one-person install and wrong for a shared one: it made the
+  // header, the "mine" lens and the answer ledger all describe the same
+  // person no matter who was actually at the keyboard. The store keeps the
+  // deployment's default; this re-points it at whoever this device says it
+  // is, so what the queue shows and what the ledger records agree.
+  const actor = await resolveActor(snapshot.members);
+  if (!actor) return snapshot;
+
+  return {
+    ...snapshot,
+    members: snapshot.members.map((m) => ({ ...m, isYou: m.id === actor.id })),
+  };
+}
+
+/**
+ * One review run, read on its own.
+ *
+ * Deliberately outside the snapshot: a run carries every judgement body the
+ * reviewer wrote and, behind them, the patches. The snapshot is loaded once
+ * per request for every page in the app, and this belongs to exactly one.
+ */
+export async function loadReview(
+  reviewId: string,
+): Promise<ReviewDetail | null> {
+  return (await getStore()).loadReview(reviewId);
+}
+
+/** The newest run for a pull request — what the detail page opens on. */
+export async function loadLatestReview(
+  prId: string,
+): Promise<ReviewDetail | null> {
+  return (await getStore()).loadLatestReview(prId);
+}
+
+/** Every run, newest first. History here is never overwritten. */
+export async function loadReviewRuns(prId: string): Promise<Review[]> {
+  return (await getStore()).listReviewRuns(prId);
+}
+
+/** The patches, read only when someone opens the diff. */
+export async function loadReviewFiles(
+  reviewId: string,
+): Promise<ReviewFile[]> {
+  return (await getStore()).loadReviewFiles(reviewId);
 }

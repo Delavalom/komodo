@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1787089950839,
+  "lastScanned": 1787347605428,
   "projectRoot": "/Users/delavalom/delavalom-labs/komodo",
   "techStack": {
     "languages": [
@@ -20,13 +20,14 @@
   "build": {
     "buildCommand": "pnpm build",
     "testCommand": "pnpm test",
-    "lintCommand": null,
-    "devCommand": null,
+    "lintCommand": "pnpm lint",
+    "devCommand": "pnpm dev",
     "scripts": {
+      "dev": "pnpm -C apps/web dev",
       "build": "pnpm -r build",
-      "check:drift": "node scripts/check-drift.mjs",
-      "test": "pnpm check:drift && pnpm -r test",
-      "typecheck": "pnpm -r typecheck"
+      "lint": "pnpm -r lint",
+      "typecheck": "pnpm -r typecheck",
+      "test": "pnpm typecheck && pnpm -r --if-present test"
     }
   },
   "conventions": {
@@ -38,9 +39,7 @@
   "structure": {
     "isMonorepo": true,
     "workspaces": [],
-    "mainDirectories": [
-      "scripts"
-    ],
+    "mainDirectories": [],
     "gitBranches": {
       "defaultBranch": "main",
       "branchingStrategy": null
@@ -52,46 +51,252 @@
       "path": "apps",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1787089950820,
+      "lastAccessed": 1787347605391,
       "keyFiles": []
-    },
-    "copy_example": {
-      "path": "copy_example",
-      "purpose": null,
-      "fileCount": 21,
-      "lastAccessed": 1787089950821,
-      "keyFiles": [
-        "Screenshot 2026-07-31 at 9.38.56 pm.png",
-        "Screenshot 2026-07-31 at 9.39.10 pm.png",
-        "Screenshot 2026-07-31 at 9.41.33 pm.png",
-        "Screenshot 2026-07-31 at 9.41.52 pm.png",
-        "Screenshot 2026-07-31 at 9.42.11 pm.png"
-      ]
     },
     "packages": {
       "path": "packages",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1787089950828,
-      "keyFiles": []
-    },
-    "scripts": {
-      "path": "scripts",
-      "purpose": "Build/utility scripts",
-      "fileCount": 1,
-      "lastAccessed": 1787089950828,
-      "keyFiles": [
-        "check-drift.mjs"
-      ]
-    },
-    "skills": {
-      "path": "skills",
-      "purpose": null,
-      "fileCount": 0,
-      "lastAccessed": 1787089950829,
+      "lastAccessed": 1787347605392,
       "keyFiles": []
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "packages/store/src/sqlite.ts",
+      "accessCount": 7,
+      "lastAccessed": 1787198678926,
+      "type": "file"
+    },
+    {
+      "path": "packages/store/src/postgres.ts",
+      "accessCount": 6,
+      "lastAccessed": 1787198772110,
+      "type": "file"
+    },
+    {
+      "path": "packages/store/src/port.ts",
+      "accessCount": 4,
+      "lastAccessed": 1787198604982,
+      "type": "file"
+    },
+    {
+      "path": "packages/store/src/seed.ts",
+      "accessCount": 3,
+      "lastAccessed": 1787199053178,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/app/(app)/-/pr/[owner]/[repo]/[number]/page.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1787217132717,
+      "type": "file"
+    },
+    {
+      "path": "packages/store/test/conformance.ts",
+      "accessCount": 2,
+      "lastAccessed": 1787198825140,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/config.ts",
+      "accessCount": 2,
+      "lastAccessed": 1787199169442,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/render/markdown.ts",
+      "accessCount": 2,
+      "lastAccessed": 1787199179449,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/pipeline.ts",
+      "accessCount": 2,
+      "lastAccessed": 1787199195049,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/review/whole.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1787217127464,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/review/queue.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1787217127523,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/app/(app)/[org]/-/pull-requests/[owner]/[repo]/[number]/page.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1787217131614,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/review/header.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1787217132337,
+      "type": "file"
+    },
+    {
+      "path": "Dockerfile",
+      "accessCount": 2,
+      "lastAccessed": 1787350918919,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/lib/data/queries.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197884463,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/store.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197887915,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/lib/types.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197888432,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/schema.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197892014,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/github.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197896598,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/poll.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197899784,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/review.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197902086,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/map.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197904690,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/loop.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197906968,
+      "type": "file"
+    },
+    {
+      "path": "packages/store/src/types.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787197914239,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/record.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787199265721,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/review/labels.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1787202261230,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/app/(app)/[org]/-/pull-requests/page.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1787202264661,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/pull-requests/view.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1787202265872,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/queue/view.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1787202266437,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/lib/data/actions.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787217138177,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/lib/data/server.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787217138257,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/review/closing.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1787348361238,
+      "type": "file"
+    },
+    {
+      "path": "packages/cli/src/web.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787350436062,
+      "type": "file"
+    },
+    {
+      "path": "packages/cli/scripts/bundle-web.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1787350480671,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/test/checkout.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787350866326,
+      "type": "file"
+    },
+    {
+      "path": ".dockerignore",
+      "accessCount": 1,
+      "lastAccessed": 1787350926754,
+      "type": "file"
+    },
+    {
+      "path": "packages/cli/src/commands/prompt.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787414492184,
+      "type": "file"
+    },
+    {
+      "path": "plugin/skills/komodo-review/SKILL.md",
+      "accessCount": 1,
+      "lastAccessed": 1787414564182,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/personal/review-view.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1787435018854,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }

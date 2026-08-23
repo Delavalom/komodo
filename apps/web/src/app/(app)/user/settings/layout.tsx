@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { TrexBanner } from "@/components/shell/banner";
 import { PersonalHeader } from "@/components/shell/org-header";
 import { PersonalSidebar } from "@/components/personal/sidebar";
 
@@ -10,7 +9,6 @@ export default function PersonalSettingsLayout({
 }) {
   return (
     <>
-      <TrexBanner />
       <PersonalHeader />
       <main className="flex min-h-0 flex-1 overflow-hidden">
         <PersonalSidebar />

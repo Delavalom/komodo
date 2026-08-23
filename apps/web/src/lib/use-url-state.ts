@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 /**
  * The URL is the state container — filters, active tab, open drawer.
  * `set` deletes empty values so the default state writes no params, matching
- * the original's encodings exactly. docs/SPEC.md §3.
+ * the original's encodings exactly.
  */
 export function useUrlState() {
   const router = useRouter();

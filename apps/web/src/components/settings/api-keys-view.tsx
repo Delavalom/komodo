@@ -13,14 +13,37 @@ import { useApiKeys } from "@/lib/data/queries";
 import { useCreateApiKey, useDeleteApiKey } from "@/lib/data/mutations";
 import { absoluteStamp } from "@/lib/utils";
 
-/** SPEC §8.11 */
+/**
+ * Keys for the HTTP API under /api/v1.
+ *
+ * The secret is shown once, here, and then never again — the server keeps
+ * only a SHA-256 of it. That is a real constraint on this screen rather than a
+ * decoration: there is no "reveal" button because there is nothing to reveal,
+ * and a lost key is replaced rather than recovered.
+ */
 export function ApiKeysView() {
   const [search, setSearch] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
+  const [pending, setPending] = React.useState(false);
+  // The plaintext, held only until this screen is dismissed.
+  const [minted, setMinted] = React.useState<string | null>(null);
   const keys = useApiKeys(search);
   const create = useCreateApiKey();
   const remove = useDeleteApiKey();
+
+  const submit = async () => {
+    if (pending || !name.trim()) return;
+    setPending(true);
+    try {
+      const { secret } = await create(name.trim());
+      setName("");
+      setOpen(false);
+      setMinted(secret);
+    } finally {
+      setPending(false);
+    }
+  };
 
   const createButton = (
     <Button variant="brand" onClick={() => setOpen(true)}>
@@ -50,7 +73,8 @@ export function ApiKeysView() {
             <TH sortable sorted={null} onSort={() => {}}>
               Name
             </TH>
-            <TH className="w-[364px]">ID</TH>
+            <TH className="w-[240px]">Key</TH>
+            <TH className="w-[180px]">Last used</TH>
             <TH className="w-[364px]" sortable sorted="desc" onSort={() => {}}>
               Created
             </TH>
@@ -60,11 +84,11 @@ export function ApiKeysView() {
         <tbody>
           {keys.length === 0 ? (
             <tr>
-              <td colSpan={4}>
+              <td colSpan={5}>
                 <EmptyState
                   icon={<KeyRound className="h-6 w-6" />}
                   title="No API keys yet"
-                  description="Create an API key to integrate Greptile into your workflow."
+                  description="Create an API key to read the queue and trigger reviews from your own tooling."
                   action={createButton}
                 />
               </td>
@@ -74,7 +98,10 @@ export function ApiKeysView() {
               <TR key={key.id}>
                 <TD>{key.name}</TD>
                 <TD className="font-mono text-xs text-muted-foreground">
-                  {key.keyId}
+                  {key.prefix}…
+                </TD>
+                <TD className="text-muted-foreground">
+                  {key.lastUsedAt ? absoluteStamp(key.lastUsedAt) : "Never"}
                 </TD>
                 <TD className="text-muted-foreground">
                   {absoluteStamp(key.createdAt)}
@@ -107,14 +134,10 @@ export function ApiKeysView() {
             </Button>
             <Button
               variant="secondary"
-              disabled={!name.trim()}
-              onClick={() => {
-                create(name.trim());
-                setName("");
-                setOpen(false);
-              }}
+              disabled={pending || !name.trim()}
+              onClick={() => void submit()}
             >
-              Create API Key
+              {pending ? "Creating…" : "Create API Key"}
             </Button>
           </div>
         }
@@ -127,6 +150,33 @@ export function ApiKeysView() {
               placeholder="e.g. CI pipeline"
             />
           </Field>
+        </div>
+      </Modal>
+
+      <Modal
+        open={minted !== null}
+        onClose={() => setMinted(null)}
+        title="Copy your API key"
+        subtitle="This is the only time it is shown. Komodo stores a hash, not the key — if you lose it, create another."
+        footer={
+          <div className="flex justify-end">
+            <Button variant="brand" onClick={() => setMinted(null)}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 p-5">
+          <pre className="overflow-x-auto rounded-[2px] border border-border bg-secondary p-3 font-mono text-xs">
+            {minted}
+          </pre>
+          <p className="text-sm text-muted-foreground">
+            Send it as{" "}
+            <code className="font-mono text-xs">
+              Authorization: Bearer &lt;key&gt;
+            </code>{" "}
+            to <code className="font-mono text-xs">/api/v1/queue</code>.
+          </p>
         </div>
       </Modal>
     </div>
