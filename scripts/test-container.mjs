@@ -18,7 +18,6 @@ try {
     [
       "run",
       "--detach",
-      "--rm",
       "--name",
       name,
       "--publish",
@@ -34,7 +33,7 @@ try {
   started = true;
 
   const origin = new URL(`http://127.0.0.1:${port}`);
-  const health = await waitForHealth(new URL("/api/health", origin), 60_000);
+  const health = await waitForHealth(new URL("/api/health", origin), 60_000, name);
   assert.equal(health.ok, true);
   assert.equal(health.db, "ok");
   assert.equal(health.lastPollAt, null, "the container smoke must not poll GitHub");
@@ -56,9 +55,9 @@ try {
 } finally {
   if (started) {
     try {
-      execFileSync("docker", ["stop", "--time", "5", name], { stdio: "ignore" });
+      execFileSync("docker", ["rm", "--force", "--volumes", name], { stdio: "ignore" });
     } catch {
-      // A container that already exited has nothing left to stop.
+      // A container that was already removed has nothing left to clean up.
     }
   }
 }
@@ -78,7 +77,7 @@ async function reservePort() {
   return port;
 }
 
-async function waitForHealth(url, timeoutMs) {
+async function waitForHealth(url, timeoutMs, containerName) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
@@ -88,6 +87,14 @@ async function waitForHealth(url, timeoutMs) {
       lastError = new Error(`health returned ${response.status}`);
     } catch (error) {
       lastError = error;
+      const running = execFileSync(
+        "docker",
+        ["inspect", "--format", "{{.State.Running}}", containerName],
+        { encoding: "utf8" },
+      ).trim();
+      if (running !== "true") {
+        throw new Error("container exited before health became ready", { cause: error });
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
