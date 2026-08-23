@@ -8,11 +8,14 @@
   "packageManager": "pnpm@11.22.0",
   "scripts": {
     "dev": "pnpm -C apps/web dev",
-    "build": "pnpm -r build",
+    "build": "pnpm build:release",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "check:release": "node scripts/check-release.mjs",
     "test": "pnpm check:release && pnpm typecheck && pnpm -r --if-present test",
-    "build:release": "pnpm -C apps/web build && pnpm -C packages/cli build"
+    "build:release": "pnpm --filter '@komodo/ingest...' build && pnpm -C apps/web build && pnpm -C packages/cli build",
+    "test:e2e": "node scripts/test-packed-cli.mjs",
+    "test:e2e:container": "node scripts/test-container.mjs",
+    "verify": "pnpm check:release && pnpm lint && pnpm build:release && pnpm typecheck && pnpm -r --if-present test && pnpm test:e2e"
   }
 }

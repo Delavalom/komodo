@@ -1,16 +1,32 @@
 # Releasing
 
-Komodo ships two artifacts from this repository, and they are not independent.
+Komodo ships three artifacts from this repository. Their release paths share
+one verification gate.
 
-- **`komodo-review` on npm** — the CLI, with the web app packed inside it.
-- **The Claude Code plugin** — no registry: a marketplace *is* a git
+- **`komodo-review` on npm** is the CLI, with the web app packed inside it.
+- **`ghcr.io/delavalom/komodo`** is the team deployment image.
+- **The Claude Code plugin** has no registry. A marketplace *is* a git
   repository, so pushing to `main` is the publish.
 
 The plugin's skill runs `npx komodo-review prompt`, which resolves to the
 `latest` tag on npm. **npm goes first.** A plugin pushed ahead of the package
-it calls installs cleanly and fails on its first step — which is exactly what
+it calls installs cleanly and fails on its first step. This is exactly what
 happened when the plugin advertised 0.4.0 and the registry's `latest` was a
 0.2.0 that had no `prompt` command.
+
+## Before pushing
+
+Run the same gate that GitHub runs for every pull request and every push to
+`main`:
+
+```bash
+pnpm verify
+```
+
+The gate checks the release manifests, lint, the production build, types, unit
+and integration tests, and the installed npm package end to end. GitHub also
+builds and runs the container image. The pull request template asks what
+changed, which automated test proves it, and which shipped path you ran.
 
 ## Cutting one
 
@@ -22,8 +38,8 @@ happened when the plugin advertised 0.4.0 and the registry's `latest` was a
 #      .claude-plugin/marketplace.json    plugins[].version
 pnpm check:release
 
-# 2. The full bar (AGENTS.md 10), plus the plugin manifest as Claude reads it
-pnpm lint && pnpm build && pnpm typecheck && pnpm -r test
+# 2. The full bar, plus the plugin manifest as Claude reads it
+pnpm verify
 claude plugin validate .
 
 # 3. Merge to main, then tag. The tag triggers Release, which refuses to
@@ -33,23 +49,22 @@ git tag v0.4.0 && git push origin v0.4.0
 
 That publishes the npm package (with provenance) and the
 `ghcr.io/delavalom/komodo` image. Then the plugin is already live for anyone
-who has added the marketplace — but only after they run `/plugin update`: the
-cache is keyed by version (`~/.claude/plugins/cache/komodo/komodo/<version>/`),
-so a plugin change without a version bump reaches nobody.
+who has added the marketplace. They must run `/plugin update` because the
+cache is keyed by version (`~/.claude/plugins/cache/komodo/komodo/<version>/`).
+A plugin change without a version bump reaches nobody.
 
-`workflow_dispatch` runs the same job with `dry_run` on, which packs and
-`npm publish --dry-run`s without shipping anything.
+`workflow_dispatch` verifies and builds both release artifacts. It runs
+`npm publish --dry-run` and never publishes npm or GHCR output.
 
 ## Publishing by hand
 
 Only if the workflow is unavailable. `pnpm` packs and `npm` publishes: pnpm
-rewrites the `workspace:` protocol that npm cannot read, and npm is the one
-that can attach provenance (which it will not do outside CI — expect an
-unsigned tarball).
+rewrites the `workspace:` protocol that npm cannot read. npm can attach
+provenance, but it cannot do that outside CI. Expect an unsigned tarball.
 
 ```bash
 npm login
-pnpm build:release                              # the app before the CLI
+pnpm build:release                              # libraries, app, then CLI
 pnpm --filter komodo-review pack --pack-destination /tmp
 npm publish /tmp/komodo-review-*.tgz --access public
 ```
