@@ -23,8 +23,13 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Names the unpack directory, so upgrading the CLI cannot reuse a stale app. */
-function cliVersion(): string {
+/**
+ * Names the unpack directory, so upgrading the CLI cannot reuse a stale app —
+ * and answers `--version`, so the two can never disagree about which release
+ * this is. It was a literal in index.ts for three releases and said 0.1.0
+ * throughout.
+ */
+export function cliVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "dev";

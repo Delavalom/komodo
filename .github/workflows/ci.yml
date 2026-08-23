@@ -13,10 +13,15 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # 24 because @komodo/store's SQLite driver reaches node:sqlite, and
+          # the conformance suite runs against both drivers. On 22 the SQLite
+          # half cannot run at all.
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check:release
       - run: pnpm lint
       # build first: `next build` generates .next/types, which typecheck needs
       - run: pnpm build
       - run: pnpm typecheck
+      - run: pnpm -r --if-present test

@@ -7,6 +7,15 @@ npx komodo-review init   # 1. detect your Claude/Codex login + GitHub auth
 npx komodo-review pr 43  # 2. review the PR, post to GitHub, view locally
 ```
 
+Or inside Claude Code, with the instance you are already talking to as the
+reviewer — no API key and no second subscription:
+
+```
+/plugin marketplace add Delavalom/komodo
+/plugin install komodo@komodo
+/komodo:review
+```
+
 ## How it works
 
 - **Claude subscription** → runs on the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), reusing the Claude Code login you created yourself with `claude`.
@@ -31,11 +40,14 @@ no inbound path and no secret to rotate — only egress to GitHub and to the
 model provider.
 
 ```bash
-docker build -t komodo .
 docker run -p 4400:4400 --env-file komodo.env \
   -v $PWD/komodo.yaml:/app/komodo.yaml \
-  -v komodo-state:/app/.komodo komodo
+  -v komodo-state:/app/.komodo \
+  ghcr.io/delavalom/komodo:latest
 ```
+
+Every tagged release publishes that image; `docker build -t komodo .` from a
+clone builds the same thing.
 
 A deployment needs a `team:` block in komodo.yaml — the logins whose queue this
 is, and the first repositories to watch. Everything else under those owners is
@@ -127,7 +139,10 @@ curl -H "Authorization: Bearer kmd_…" https://komodo.example.com/api/v1/queue
 
 ## Status
 
-`komodo-review` is [live on npm](https://www.npmjs.com/package/komodo-review). Cloud version (pick any model, pay per credit) is in beta.
+`komodo-review` is [live on npm](https://www.npmjs.com/package/komodo-review),
+and the Claude Code plugin installs from this repository. Cloud version (pick
+any model, pay per credit) is in beta. Releasing both is
+[RELEASING.md](RELEASING.md).
 
 ## License
 

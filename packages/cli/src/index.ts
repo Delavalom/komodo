@@ -7,13 +7,14 @@ import { promptCommand } from "./commands/prompt.js";
 import { devCommand, serveCommand } from "./commands/serve.js";
 import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
+import { cliVersion } from "./web.js";
 
 const program = new Command();
 
 program
   .name("komodo-review")
   .description("🦎 AI code review on your own Claude or ChatGPT subscription")
-  .version("0.1.0");
+  .version(cliVersion());
 
 program
   .command("init")

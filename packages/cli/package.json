@@ -1,12 +1,17 @@
 {
   "name": "komodo-review",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "AI code review on your own Claude or ChatGPT subscription. CodeRabbit-class reviews, $0/seat.",
   "type": "module",
   "license": "MIT",
+  "homepage": "https://github.com/Delavalom/komodo#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Delavalom/komodo.git"
+    "url": "git+https://github.com/Delavalom/komodo.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/Delavalom/komodo/issues"
   },
   "keywords": [
     "code-review",
@@ -22,6 +27,12 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup && node scripts/bundle-web.mjs",
     "typecheck": "tsc -p tsconfig.json",
