@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 
-const image = process.argv[2];
-assert.ok(image, "usage: node scripts/test-container.mjs <image>");
+const args = process.argv.slice(2);
+if (args[0] === "--") args.shift();
+assert.equal(args.length, 1, "usage: node scripts/test-container.mjs [--] <image>");
+const [image] = args;
 
 const port = await reservePort();
 const name = `komodo-e2e-${process.pid}-${Date.now()}`;
