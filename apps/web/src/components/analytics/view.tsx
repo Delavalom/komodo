@@ -47,19 +47,25 @@ import {
   useOrganization,
   useRepositories,
   useReviewsSeries,
+  useAnalyticsRows,
+  useRepoIndex,
+  useTeams,
   type ReviewMetric,
 } from "@/lib/data/queries";
 import { useUrlState } from "@/lib/use-url-state";
 import { cn, days, percent, relativeTime } from "@/lib/utils";
+import { useNow } from "@/lib/data/provider";
 import type { Severity } from "@/lib/types";
 
-const FINDINGS_TAB = "greptile-findings";
+const FINDINGS_TAB = "findings";
 
 export function AnalyticsView() {
   const org = useOrganization();
   const { get, set } = useUrlState();
   const repos = useRepositories();
   const authors = useAuthors();
+  const teams = useTeams();
+  const repoIndex = useRepoIndex();
 
   const [filters, setFilters] =
     React.useState<AnalyticsFilters>(DEFAULT_FILTERS);
@@ -73,15 +79,69 @@ export function AnalyticsView() {
     granularity: filters.granularity,
   };
 
+  const rows = useAnalyticsRows(query);
+
+  /**
+   * The rows behind the charts, as a file.
+   *
+   * Deliberately the scoped rows rather than the plotted series: a chart is a
+   * summary of these, and a summary is the one thing a spreadsheet can make
+   * for itself.
+   */
+  function exportRows(which: "reviews" | "findings") {
+    const csv =
+      which === "findings"
+        ? toCsv(
+            ["severity", "security", "title", "file", "status", "repository", "pull_request", "created_at"],
+            rows.findings.map((finding) => {
+              const judgment = rows.judgments.find((j) => j.id === finding.judgmentId);
+              const repo = judgment ? repoIndex.get(judgment.repoId) : null;
+              return [
+                finding.severity,
+                finding.isSecurity ? "yes" : "no",
+                finding.title,
+                finding.filePath,
+                finding.status,
+                repo ? fullName(repo) : "",
+                judgment ? `#${judgment.number}` : "",
+                new Date(finding.createdAt).toISOString(),
+              ];
+            }),
+          )
+        : toCsv(
+            ["repository", "number", "title", "author", "state", "verdict", "impact", "reviews", "comments", "addressed", "created_at", "merged_at"],
+            rows.judgments.map((judgment) => {
+              const repo = repoIndex.get(judgment.repoId);
+              return [
+                repo ? fullName(repo) : judgment.repoId,
+                String(judgment.number),
+                judgment.title,
+                judgment.author,
+                judgment.state,
+                judgment.verdict ?? "",
+                judgment.impact,
+                String(judgment.reviewCount),
+                String(judgment.totalComments),
+                String(judgment.addressedComments),
+                new Date(judgment.createdAt).toISOString(),
+                judgment.mergedAt ? new Date(judgment.mergedAt).toISOString() : "",
+              ];
+            }),
+          );
+
+    download(`komodo-${which}-${filters.timeframe}.csv`, csv);
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[1216px] px-5 py-6">
       <AnalyticsFilterBar
         filters={filters}
         onChange={setFilters}
-        teamOptions={["delavalom"]}
+        teamOptions={teams.map((team) => team.name)}
         repoOptions={repos.map(fullName)}
         authorOptions={authors}
+        onExport={() => exportRows(tab)}
       />
 
       <div className="mt-4 flex items-end gap-1 border-b border-border">
@@ -170,7 +230,7 @@ function ReviewsTab({ query, orgSlug }: { query: Query; orgSlug: string }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel
           icon={<PullRequestIcon className="h-4 w-4" />}
-          title="PRs reviewed by Greptile"
+          title="PRs reviewed by Komodo"
           control={
             <Select
               value={metric}
@@ -254,7 +314,7 @@ function ReviewsTab({ query, orgSlug }: { query: Query; orgSlug: string }) {
         <Panel
           icon={<Check className="h-4 w-4" />}
           title="Addressed rate"
-          hint="Greptile comments counted as addressed when follow-up code changes resolve the feedback."
+          hint="Judgements counted as addressed once someone has answered them in the queue."
           footerTitle="Top repos by addressed rate"
           footer={<LeaderList rows={boards.topReposByAddressedRate} />}
         >
@@ -321,6 +381,7 @@ const SEVERITY_TONE: Record<Severity, "error" | "warn" | "default"> = {
 };
 
 function FindingsTab({ query }: { query: Query }) {
+  const now = useNow();
   const [search, setSearch] = React.useState("");
   const summary = useFindingsSummary(query);
   const rows = useFindings(query, search);
@@ -333,7 +394,7 @@ function FindingsTab({ query }: { query: Query }) {
           {
             label: "Security",
             value: String(summary.security),
-            hint: "Findings Greptile classified as security-relevant.",
+            hint: "Findings the reviewer classified as security-relevant.",
           },
           {
             label: "P0",
@@ -409,7 +470,7 @@ function FindingsTab({ query }: { query: Query }) {
                   </StatusPill>
                 </TD>
                 <TD className="text-muted-foreground">
-                  {relativeTime(row.createdAt)}
+                  {relativeTime(row.createdAt, now)}
                 </TD>
               </TR>
             ))
@@ -424,4 +485,22 @@ function FindingsTab({ query }: { query: Query }) {
       ) : null}
     </div>
   );
+}
+
+/** RFC 4180 quoting: a title with a comma in it must not become two columns. */
+function toCsv(header: string[], rows: string[][]): string {
+  const escape = (value: string) =>
+    /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  return [header, ...rows]
+    .map((row) => row.map(escape).join(","))
+    .join("\n");
+}
+
+function download(filename: string, body: string) {
+  const url = URL.createObjectURL(new Blob([body], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }

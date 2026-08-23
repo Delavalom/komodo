@@ -16,7 +16,7 @@ export {
   type RereadProvider,
   type RereadResult,
 } from "./reread.js";
-export type { ReviewInput, ReviewProvider } from "./types.js";
+export type { ReviewInput, ReviewMemory, ReviewProvider } from "./types.js";
 
 export interface ProviderStatus {
   claude: boolean;

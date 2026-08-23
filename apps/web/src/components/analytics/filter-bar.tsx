@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Calendar, ExternalLink, GitBranch, User, Users } from "lucide-react";
+import { Calendar, Download, GitBranch, User, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,19 +40,21 @@ export const DEFAULT_FILTERS: AnalyticsFilters = {
   granularity: "day",
 };
 
-/** SPEC §6.1 */
 export function AnalyticsFilterBar({
   filters,
   onChange,
   teamOptions,
   repoOptions,
   authorOptions,
+  onExport,
 }: {
   filters: AnalyticsFilters;
   onChange: (next: AnalyticsFilters) => void;
   teamOptions: string[];
   repoOptions: string[];
   authorOptions: string[];
+  /** Writes what is on screen to a file. The button did nothing before. */
+  onExport: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-3">
@@ -83,9 +85,9 @@ export function AnalyticsFilterBar({
         onChange={(authors) => onChange({ ...filters, authors })}
       />
       <TimeframeMenu filters={filters} onChange={onChange} />
-      <Button>
-        <ExternalLink className="h-3.5 w-3.5" />
-        Export
+      <Button onClick={onExport}>
+        <Download className="h-3.5 w-3.5" />
+        Export CSV
       </Button>
     </div>
   );

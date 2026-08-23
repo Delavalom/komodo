@@ -1,7 +1,14 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/sqlite.ts", "src/postgres.ts", "src/connect.ts", "src/seed.ts"],
+  entry: [
+    "src/index.ts",
+    "src/sqlite.ts",
+    "src/postgres.ts",
+    "src/connect.ts",
+    "src/seed.ts",
+    "src/api-key.ts",
+  ],
   format: ["esm"],
   platform: "node",
   target: "node22",

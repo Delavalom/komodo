@@ -21,10 +21,8 @@ import { SavedFooter, Sidebar } from "@/components/shell/sidebar";
 import { IS_CLOUD } from "@/lib/flags";
 import { SearchInput } from "@/components/ui/input";
 import { MemoryNavIcon } from "@/components/shell/nav-icons";
-import { TrexIcon } from "@/components/ui/display";
 import { CheckCircleIcon } from "@/components/settings/icons";
 
-/** SPEC §8 */
 export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
   const base = `/${orgSlug}/-/settings`;
   const [query, setQuery] = React.useState("");
@@ -60,7 +58,7 @@ export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
           children: [
             {
               href: `${base}/review#when-reviews`,
-              label: "When Greptile Revie…",
+              label: "When Komodo Reviews",
               icon: <SlidersHorizontal className="h-4 w-4" />,
             },
             {
@@ -74,8 +72,8 @@ export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
               icon: <ScrollText className="h-4 w-4" />,
             },
             {
-              href: `${base}/review#greptile-comments`,
-              label: "Greptile Comments",
+              href: `${base}/review#komodo-comments`,
+              label: "Komodo Comments",
               icon: <MessageSquare className="h-4 w-4" />,
             },
             {
@@ -92,19 +90,6 @@ export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
               href: `${base}/review#auto-approve`,
               label: "Auto-approve PRs",
               icon: <ShieldCheck className="h-4 w-4" />,
-            },
-          ],
-        },
-        {
-          href: `${base}/trex`,
-          label: "TREX",
-          icon: <TrexIcon className="h-4 w-4" />,
-          badge: "Beta",
-          children: [
-            {
-              href: `${base}/trex#trex`,
-              label: "Settings",
-              icon: <SettingsIcon className="h-4 w-4" />,
             },
           ],
         },

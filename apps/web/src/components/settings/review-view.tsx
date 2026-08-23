@@ -5,9 +5,6 @@ import Link from "next/link";
 import {
   BarChart3,
   FileText,
-  MessageSquare,
-  Plus,
-  Sparkles,
   Table2,
   Trash2,
   Workflow,
@@ -34,19 +31,35 @@ import { useOrgSettings, useOrganization } from "@/lib/data/queries";
 import { useUpdateOrgSettings } from "@/lib/data/mutations";
 import type { ImpactLevel, SummarySectionKey } from "@/lib/types";
 
+/**
+ * Strictness is a floor on severity — see MIN_SEVERITY in
+ * packages/ingest/src/settings.ts, which is where this turns into config the
+ * reviewer reads.
+ */
 const STRICTNESS_HINT = {
-  low: "Greptile will only comment on P0s.",
-  medium: "Greptile will never comment on P2s.",
-  high: "Greptile will never comment on P2s.",
+  low: "Only critical findings. Everything else is dropped.",
+  medium: "Critical and major findings. Minor ones are dropped.",
+  high: "Everything down to minor findings.",
 } as const;
 
 const RISK_HINT: Record<ImpactLevel, string> = {
-  low: "Approves only low-risk changes.",
-  medium: "Approves low and medium-risk changes.",
-  high: "Approves everything short of critical changes.",
-  critical: "Approves every change Greptile scores 5/5.",
+  low: "Approves only when nothing worse than a trivial note was found.",
+  medium: "Approves when nothing worse than a minor finding was found.",
+  high: "Approves when nothing critical was found.",
+  critical: "Approves regardless of what was found — effectively always.",
 };
 
+/**
+ * The blocks a posted review can carry.
+ *
+ * One per module in @komodo/core's renderer — no more. The screen used to
+ * offer an "Issue Table" and "Comments Outside Diff" that nothing rendered,
+ * which made every other control here look equally decorative.
+ *
+ * They apply to what GitHub gets in `post.mode: full`. In the default receipt
+ * mode GitHub gets a link and the review itself lives in Komodo, where none of
+ * this applies.
+ */
 const SUMMARY_ROWS: {
   key: SummarySectionKey;
   title: string;
@@ -55,62 +68,65 @@ const SUMMARY_ROWS: {
   hint?: string;
 }[] = [
   {
-    key: "prSummary",
-    title: "PR Summary",
-    description: "Include a text summary of the changes",
+    key: "summary",
+    title: "Summary",
+    description: "What changed, in the reviewer's own words",
     icon: <FileText className="h-5 w-5 text-muted-foreground" />,
   },
   {
-    key: "confidenceScore",
+    key: "confidence",
     title: "Confidence Score",
-    description: "Include a confidence rating for the PR",
+    description: "The merge-confidence rating and the verdict line",
     icon: <BarChart3 className="h-5 w-5 text-muted-foreground" />,
-    hint: "How sure Greptile is that the change is safe to merge, from 0 to 5.",
+    hint: "How sure Komodo is that the change is safe to merge, from 0 to 5.",
   },
   {
-    key: "issueTable",
-    title: "Issue Table",
-    description: "Show a table of important files changed with ratings",
+    key: "walkthrough",
+    title: "Walkthrough",
+    description: "Related files grouped into rows, each with a plain-language note",
     icon: <Table2 className="h-5 w-5 text-muted-foreground" />,
   },
   {
-    key: "sequenceDiagram",
+    key: "diagram",
     title: "Sequence Diagram",
-    description: "Generate a sequence diagram of the changes",
+    description: "A Mermaid diagram, when the change moved a flow",
     icon: <Workflow className="h-5 w-5 text-muted-foreground" />,
-  },
-  {
-    key: "commentsOutsideDiff",
-    title: "Comments Outside Diff",
-    description: "Allow comments on lines not in the diff",
-    icon: <MessageSquare className="h-5 w-5 text-muted-foreground" />,
   },
 ];
 
 const INSTRUCTIONS_PLACEHOLDER =
   'Question every "temporary" workaround that has outlived a presidential term.';
 
-const HEADER_PLACEHOLDER = `**Heads up:** Greptile reviewed this. Push back if it's wrong — it has no feelings.
+const HEADER_PLACEHOLDER = `**Heads up:** Komodo reviewed this. Push back if it's wrong — it has no feelings.
 ---`;
 
-/** SPEC §8.4 — one page, seven anchored sections. */
 export function ReviewSettingsView() {
   const org = useOrganization();
   const settings = useOrgSettings();
   const update = useUpdateOrgSettings();
+  const [draftToken, setDraftToken] = React.useState("");
+
+  /** Commits whatever is in the box, ignoring a repeat and a blank. */
+  function addToken() {
+    const token = draftToken.trim().replace(/,$/, "");
+    setDraftToken("");
+    if (!token) return;
+    if (settings.authorFilterTokens.includes(token)) return;
+    update({ authorFilterTokens: [...settings.authorFilterTokens, token] });
+  }
 
   return (
     <div className="space-y-10 pb-16">
-      {/* ── When Greptile Reviews ─────────────────────────────────────── */}
+      {/* ── When Komodo Reviews ───────────────────────────────────────── */}
       <section className="space-y-4">
         <SectionHeading
           id="when-reviews"
-          title="When Greptile Reviews"
-          subtitle="Control when Greptile runs and how much it reviews"
+          title="When Komodo Reviews"
+          subtitle="Which pull requests are worth a review, and when"
         />
         <SettingRow
           title="Auto-review on new commits"
-          description="Automatically re-review when new commits are pushed to an open pull request."
+          description="Re-review when new commits are pushed. Off, the first verdict stands until someone retriggers it from the queue."
           control={
             <Toggle
               checked={settings.autoReviewNewCommits}
@@ -123,7 +139,7 @@ export function ReviewSettingsView() {
         />
         <SettingRow
           title="Review draft pull requests"
-          description="When enabled, Greptile reviews draft PRs and MRs automatically."
+          description="When enabled, Komodo reviews draft pull requests too."
           control={
             <Toggle
               checked={settings.reviewDraftPrs}
@@ -134,12 +150,12 @@ export function ReviewSettingsView() {
         />
         <SettingRow
           title="File change limit"
-          description="Greptile skips PRs over this file count unless someone explicitly tags @greptileai."
+          description="Pull requests touching more files than this are skipped and marked as such. Set 0 for no limit."
           control={
             <NumberStepper
               value={settings.fileChangeLimit}
               onChange={(fileChangeLimit) => update({ fileChangeLimit })}
-              min={1}
+              min={0}
               max={5000}
             />
           }
@@ -147,8 +163,8 @@ export function ReviewSettingsView() {
         <Card className="p-5">
           <div className="text-base font-medium">Filters</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Control which pull requests Greptile reviews — PRs that don&apos;t
-            pass these filters are skipped.
+            Pull requests whose author does not pass this filter are skipped
+            and recorded as skipped, not silently dropped.
           </p>
           <Card className="mt-4 bg-secondary p-4">
             <div className="flex flex-wrap items-center gap-3">
@@ -193,20 +209,43 @@ export function ReviewSettingsView() {
                     {token}
                   </span>
                 ))}
+                {/* The list could be emptied and never added to: every token
+                    on screen had come from komodo.yaml, and the filter was
+                    unreachable for anyone without shell access to the server.
+                    Enter commits, which is also what the chips expect. */}
+                <input
+                  value={draftToken}
+                  onChange={(event) => setDraftToken(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === ",") {
+                      event.preventDefault();
+                      addToken();
+                    }
+                  }}
+                  onBlur={addToken}
+                  placeholder={
+                    settings.authorFilterTokens.length
+                      ? "Add a login…"
+                      : "dependabot[bot]"
+                  }
+                  aria-label="Add a GitHub login to the author filter"
+                  className="min-w-[140px] flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+                />
               </div>
               <Button
                 variant="ghost"
-                aria-label="Remove filter"
+                aria-label="Clear the author filter"
                 onClick={() => update({ authorFilterTokens: [] })}
                 className="h-9 w-9 p-0"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
-            <Button variant="secondary" size="sm" className="mt-4">
-              <Plus className="h-3.5 w-3.5" />
-              Add Filter
-            </Button>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {settings.authorFilterMode === "exclude"
+                ? "Pull requests opened by these logins are skipped."
+                : "Only pull requests opened by these logins are reviewed."}
+            </p>
           </Card>
         </Card>
       </section>
@@ -216,7 +255,7 @@ export function ReviewSettingsView() {
         <SectionHeading
           id="pr-summaries"
           title="PR Summaries"
-          subtitle="Adjust what Greptile posts at the top of the PR"
+          subtitle="What Komodo posts on the pull request itself"
         />
         <Link
           href="/user/settings/review"
@@ -226,7 +265,7 @@ export function ReviewSettingsView() {
         </Link>
         <SettingRow
           title="Update pull request description"
-          description="When this is on, Greptile edits the top-level pull request description to include its summary of the changes."
+          description="When this is on, Komodo edits the pull request description to include its summary of the changes."
           control={
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground">less noisy</span>
@@ -245,8 +284,9 @@ export function ReviewSettingsView() {
             What&apos;s included in your PR summary
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Choose which sections appear in the summary Greptile posts on your
-            pull requests.
+            Choose which blocks appear in the review Komodo posts. These apply
+            when posting is set to full; in the default receipt mode GitHub gets
+            a link and the review lives here.
           </p>
           <div className="mt-4 space-y-3">
             {SUMMARY_ROWS.map((row) => {
@@ -313,7 +353,7 @@ export function ReviewSettingsView() {
         <SectionHeading
           id="custom-instructions"
           title="Custom Instructions"
-          subtitle="Fine-tune how Greptile reviews your code"
+          subtitle="Guidance handed to the reviewer with every diff"
         />
         <Card className="p-5">
           <div className="flex items-center gap-1.5 text-base font-medium">
@@ -335,9 +375,9 @@ export function ReviewSettingsView() {
         </Card>
 
         <SectionHeading
-          id="greptile-comments"
-          title="What should Greptile comment on?"
-          subtitle="Adjust what Greptile should comment on"
+          id="komodo-comments"
+          title="What should Komodo comment on?"
+          subtitle="The severity floor for everything it raises"
         />
         <SettingRow
           title="Strictness Level"
@@ -357,13 +397,13 @@ export function ReviewSettingsView() {
         </SettingRow>
 
         <SectionHeading
-          title="What should be included in a Greptile comment?"
-          subtitle="Adjust what Greptile says when replying to code and highlighting issues"
+          title="What should be included in a Komodo comment?"
+          subtitle="Text Komodo adds to whatever it posts"
         />
         <Card className="p-5">
           <div className="text-base font-medium">Comment Header</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Custom text added to the top of every Greptile review comment.
+            Custom text added to the top of every comment Komodo posts.
           </p>
           <Textarea
             rows={4}
@@ -375,49 +415,22 @@ export function ReviewSettingsView() {
         </Card>
       </section>
 
-      {/* ── Default Coding Agents ─────────────────────────────────────── */}
+      {/* ── Fix prompts ───────────────────────────────────────────────── */}
       <section className="space-y-4">
         <SectionHeading
-          id="coding-agents"
-          title="Default Coding Agents"
-          subtitle="Users who haven't configured personal IDE preferences will see these Fix with your Agent badges on review comments."
+          id="fix-prompts"
+          title="Fix Prompts"
+          subtitle="Every judgement carries a prompt written to be pasted into a coding agent. This decides whether it also travels to GitHub."
         />
         <SettingRow
-          title="Prompt to Fix with AI"
-          description="Adds a copy-paste prompt to review comments"
+          title="Include fix prompts in posted comments"
+          description="Adds a collapsed copy-paste prompt under each inline comment. The queue always shows it; this is only about what GitHub gets."
           control={
             <Toggle
               checked={settings.promptToFixWithAi}
               onChange={(promptToFixWithAi) => update({ promptToFixWithAi })}
-              label="Prompt to Fix with AI"
+              label="Include fix prompts in posted comments"
             />
-          }
-        />
-        <SettingRow
-          title="Fix with your Agent defaults"
-          description={
-            <>
-              Choose which coding agents appear as one-click fix buttons on
-              review comments. Users can override these in{" "}
-              <Link
-                href="/user/settings/review"
-                className="underline underline-offset-4 hover:text-foreground"
-              >
-                personal settings
-              </Link>
-              .
-            </>
-          }
-          control={
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-[2px] bg-[hsl(var(--color-gray-950))] px-2 py-1 text-[11px] font-medium text-white">
-                <Sparkles className="h-3 w-3 text-[#d97757]" />
-                Fix in Claude
-              </span>
-              <Button variant="secondary" className="h-7 w-7 p-0">
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            </div>
           }
         />
       </section>
@@ -427,14 +440,14 @@ export function ReviewSettingsView() {
         <SectionHeading
           id="status-checks"
           title="Status Checks"
-          subtitle="Configure how to monitor Greptile"
+          subtitle="The commit status Komodo posts, and when it fails"
         />
         <Card className="p-5">
           <div className="flex items-start justify-between gap-6">
             <div>
               <div className="text-base font-medium">Use Status Checks</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                Use status checks to indicate Greptile&apos;s review status
+                Post a commit status carrying the review&rsquo;s confidence
               </div>
             </div>
             <Toggle
@@ -466,7 +479,7 @@ export function ReviewSettingsView() {
         </Card>
         <SettingRow
           title="Post Status Comments"
-          description="Post status comments when Greptile encounters an error or a filter"
+          description="Comment on the pull request when a review was skipped or could not finish, saying which and why"
           control={
             <Toggle
               checked={settings.postStatusComments}
@@ -483,11 +496,11 @@ export function ReviewSettingsView() {
           id="auto-approve"
           title="Auto-approve PRs"
           badge={<Badge>Beta</Badge>}
-          subtitle="Let Greptile Approve Your PRs"
+          subtitle="Let Komodo approve a pull request outright"
         />
         <SettingRow
           title="Auto-approve pull requests"
-          description="Requires a 5/5 Greptile review."
+          description="Only applies when posting is set to full — a receipt cannot carry an approval."
           control={
             <Toggle
               checked={settings.autoApprovePrs}
@@ -498,7 +511,7 @@ export function ReviewSettingsView() {
         />
         <SettingRow
           title="Maximum risk to auto-approve"
-          description="Set the highest risk level Greptile will auto-approve."
+          description="The worst finding an approval will tolerate."
           control={
             <Segmented
               value={settings.maxAutoApproveRisk}

@@ -11,142 +11,94 @@
  * component pulls in nothing from the store package at runtime.
  */
 export type {
+  Answer,
+  ApiKey,
+  Bucket,
   Finding,
   FindingStatus,
   ImpactLevel,
+  Integration,
+  IntegrationProvider,
+  IntegrationStatus,
+  JudgementKind,
+  JudgementOption,
+  JudgementVote,
+  MemoryFile,
+  MemoryKind,
+  MemoryRule,
+  MemoryRuleStats,
+  MemoryStatus,
+  JudgementSeverity,
   Judgment,
   Member,
   MemberRole,
   Organization,
+  OrgSettings,
   PullRequest,
   PullRequestState,
+  RepoCluster,
   Repository,
+  Review,
+  ReviewDetail,
+  ReviewFile,
+  ReviewJudgement,
   ReviewStatus,
   Severity,
+  SummarySectionConfig,
+  SummarySectionKey,
   Team,
   Verdict,
+  WalkthroughEntry,
 } from "@komodo/store";
 
 /* Re-exporting does not bind the names locally, and the query shapes below
    need them. */
-import type { Finding, ImpactLevel, Judgment, ReviewStatus, Verdict } from "@komodo/store";
+import type {
+  Finding,
+  SummarySectionKey,
+  MemoryKind,
+  MemoryStatus,
+  ImpactLevel,
+  Judgment,
+  ReviewStatus,
+  SummarySectionConfig,
+  Verdict,
+} from "@komodo/store";
 
-export type MemoryKind = "rule" | "file";
 
-export type MemoryStatus = "active" | "inactive";
 
-export type IntegrationProvider = "atlassian" | "linear" | "devin";
 
-export type IntegrationStatus = "connected" | "not_configured" | "error";
-
-export interface MemoryFile {
-  path: string;
-  uses: number;
-  repoFullName: string;
-}
-
-export interface MemoryRule {
-  id: string;
-  description: string;
-  kind: MemoryKind;
-  pattern: string;
-  files: MemoryFile[];
-  repoId: string | null;
-  fileGlob: string;
-  status: MemoryStatus;
-  usageCount: number;
-  usesThisMonth: number;
-  acceptanceRate: number | null;
-  upvotes: number;
-  downvotes: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface RepoCluster {
-  id: string;
-  name: string;
-  memberRepoIds: string[];
-  createdAt: number;
-}
-
-export interface Integration {
-  id: string;
-  provider: IntegrationProvider;
-  status: IntegrationStatus;
-  connectedAt: number | null;
-}
-
-export interface ApiKey {
-  id: string;
-  name: string;
-  keyId: string;
-  createdAt: number;
-}
 
 export interface UsageDay {
   date: number;
   codeReviewCredits: number;
-  trexCredits: number;
   cliCredits: number;
   reviews: number;
 }
 
-/** The org-wide agent configuration behind /settings/review, /trex, /memory. */
-export interface OrgSettings {
-  autoReviewNewCommits: boolean;
-  reviewDraftPrs: boolean;
-  fileChangeLimit: number;
-  authorFilterMode: "exclude" | "include";
-  authorFilterTokens: string[];
-  updatePrDescription: boolean;
-  summarySections: Record<SummarySectionKey, SummarySectionConfig>;
-  customInstructions: string;
-  strictness: "low" | "medium" | "high";
-  commentHeader: string;
-  promptToFixWithAi: boolean;
-  useStatusChecks: boolean;
-  requiredConfidence: number;
-  postStatusComments: boolean;
-  autoApprovePrs: boolean;
-  maxAutoApproveRisk: ImpactLevel;
-  trexEnabled: boolean;
-  memoryRuleCreators: "everyone" | "admins";
-  autoEnableNewRepos: boolean;
-  helpImproveGreptile: boolean;
-  featureTips: boolean;
-  orgDisplayName: string;
+/**
+ * A personal review preference names the same blocks the org settings do —
+ * there is one renderer, and it knows four modules.
+ */
+export type PersonalSectionKey = SummarySectionKey;
+
+/** What one person has chosen, in their own browser. */
+export interface PersonalPreferences {
+  showAiFixPrompts: boolean;
+  reviewSections: Record<PersonalSectionKey, SummarySectionConfig>;
 }
 
-export type SummarySectionKey =
-  | "prSummary"
-  | "confidenceScore"
-  | "issueTable"
-  | "sequenceDiagram"
-  | "commentsOutsideDiff";
-
-export interface SummarySectionConfig {
-  enabled: boolean;
-  collapsible: boolean;
-  defaultOpen: boolean;
-}
-
-export type PersonalSectionKey =
-  | "summary"
-  | "issuesTable"
-  | "diagram"
-  | "commentsOutsideDiff";
-
-export interface PersonalSettings {
+/**
+ * Preferences plus who the reader is.
+ *
+ * Identity is not a preference and is not stored per browser: it comes from
+ * the roster komodo.yaml defines, joined in at read time. A hardcoded name
+ * here meant every deployment showed the same person in its header.
+ */
+export interface PersonalSettings extends PersonalPreferences {
   name: string;
   email: string;
-  showAiFixPrompts: boolean;
-  selectedAgents: string[];
-  reviewSections: Record<PersonalSectionKey, SummarySectionConfig>;
-  trexOnMyPrs: "default" | "off";
-  weeklyDigest: boolean;
-  githubLinked: boolean;
-  cursorCloudAgents: IntegrationStatus;
+  githubLogin: string;
 }
 
 /* ── Query shapes ───────────────────────────────────────────────────────── */

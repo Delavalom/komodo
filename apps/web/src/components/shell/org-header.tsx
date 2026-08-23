@@ -2,15 +2,15 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BookOpen,
   Building2,
   ChevronsUpDown,
+  Check,
   Gift,
   Inbox,
   LineChart,
-  LogOut,
   Plus,
   Settings as SettingsIcon,
   SquarePen,
@@ -20,17 +20,21 @@ import {
 import {
   Avatar,
   Badge,
-  GreptileMark,
+  KomodoMark,
 } from "@/components/ui/display";
 import { Popover, PopoverItem } from "@/components/ui/controls";
 import { InviteModal } from "@/components/shell/invite-modal";
-import { useOrganization, usePersonalSettings } from "@/lib/data/queries";
+import {
+  useMembers,
+  useOrganization,
+  usePersonalSettings,
+} from "@/lib/data/queries";
+import { useSetActor } from "@/lib/data/mutations";
 import { cn } from "@/lib/utils";
 import { MemoryNavIcon, PullRequestIcon } from "@/components/shell/nav-icons";
 
-const DOCS_URL = "https://greptile.com/docs";
+const DOCS_URL = "https://github.com/Delavalom/komodo#readme";
 
-/** SPEC §2.2 + §2.3 */
 export function OrgHeader() {
   const org = useOrganization();
   const [switcherOpen, setSwitcherOpen] = React.useState(false);
@@ -39,7 +43,7 @@ export function OrgHeader() {
     <header className="shrink-0 border-b border-border">
       <div className="flex h-14 items-center gap-3 px-5">
         <Link href={`/${org.slug}`} aria-label={org.name}>
-          <GreptileMark className="h-7 w-7" />
+          <KomodoMark className="h-7 w-7" />
         </Link>
 
         <Popover
@@ -90,7 +94,6 @@ export function OrgHeader() {
   );
 }
 
-/** SPEC §2.6 — the org chrome is replaced entirely on personal settings. */
 export function PersonalHeader() {
   const org = useOrganization();
   return (
@@ -123,8 +126,26 @@ export function PersonalHeader() {
 
 function HeaderActions() {
   const personal = usePersonalSettings();
+  const members = useMembers();
+  const setActor = useSetActor();
+  const router = useRouter();
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [switching, setSwitching] = React.useState(false);
+
+  const switchTo = async (githubLogin: string) => {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      await setActor(githubLogin);
+      // The snapshot decides who "you" are, so the whole shell has to re-read
+      // it — the queue's "mine" lens and the header both move.
+      router.refresh();
+      setMenuOpen(false);
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   return (
     <div className="flex items-center gap-1">
@@ -174,6 +195,35 @@ function HeaderActions() {
             <SquarePen className="h-3.5 w-3.5" />
           </span>
         </div>
+        {/* Not a sign-in — Komodo has none. This says which member of the
+            roster is at this browser, so the decision ledger records four
+            names on a shared deployment instead of one. */}
+        {members.length > 1 ? (
+          <div className="border-b border-border py-1">
+            <div className="px-3 py-1.5 text-[11px] text-muted-foreground">
+              Acting as
+            </div>
+            {members.map((member) => (
+              <button
+                key={member.id}
+                type="button"
+                disabled={switching}
+                onClick={() => void switchTo(member.githubLogin)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm",
+                  "transition-colors hover:bg-muted-accent disabled:opacity-50",
+                  member.isYou && "bg-muted-accent",
+                )}
+              >
+                <Avatar seed={member.email} label={member.name} size={20} />
+                <span className="min-w-0 flex-1 truncate">{member.name}</span>
+                {member.isYou ? (
+                  <Check className="h-3.5 w-3.5 text-muted-foreground" />
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="py-1">
           <Link
             href="/user/settings/account"
@@ -183,14 +233,6 @@ function HeaderActions() {
             <SettingsIcon className="h-4 w-4 text-muted-foreground" />
             Settings
           </Link>
-          <button
-            type="button"
-            onClick={() => setMenuOpen(false)}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[hsl(var(--destructive))] transition-colors hover:bg-muted-accent"
-          >
-            <LogOut className="h-4 w-4" />
-            Logout
-          </button>
         </div>
       </Popover>
 

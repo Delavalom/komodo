@@ -16,6 +16,17 @@ export function buildReviewPrompt(input: ReviewInput): string {
 
   const custom = config.instructions ? `\n## Repository instructions\n${config.instructions}` : "";
 
+  // What this team has taught Komodo, already narrowed to the rules whose
+  // scope matches these files. Labelled rather than anonymous so a judgement
+  // can cite the rule it is enforcing — "because you asked for this" is a
+  // materially different claim from "because I think so", and the reader has
+  // to be able to tell them apart.
+  const memories = input.memories?.length
+    ? `\n## What this team has told Komodo\nThese are the team's own conventions. Treat a breach as worth a judgement, and cite the rule by name in \`sources\`.\n${input.memories
+        .map((m) => `- **${m.label}**: ${m.text}`)
+        .join("\n")}`
+    : "";
+
   const diffs = files
     .map((f) => {
       const header = `### ${f.path} (${f.status}, +${f.additions}/-${f.deletions})`;
@@ -37,7 +48,7 @@ ${profileNote}
 
 ### Description
 ${pr.body || "(empty)"}
-${custom}${pathInstructions}
+${custom}${memories}${pathInstructions}
 
 ## Diff
 Each diff line is prefixed with its line number in the NEW version of the file. Findings MUST cite one of these numbers (added "+" lines strongly preferred).

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { DataProvider } from "@/lib/data/provider";
-import { loadSnapshot } from "@/lib/data/server";
+import { loadSnapshot, requestNow } from "@/lib/data/server";
 
 /**
  * The app shell is fixed-height: nothing here scrolls except the panes that
@@ -13,7 +13,7 @@ import { loadSnapshot } from "@/lib/data/server";
  * client hooks through DataProvider. Only the app group gets it, which is why
  * the marketing routes stay static.
  *
- * docs/SPEC.md §8 · docs/SPEC-MARKETING.md §M12.2 · AGENTS.md rule 8.
+ * · AGENTS.md rule 8.
  */
 /**
  * The queue is live data, so these routes render per request. Prerendering
@@ -27,10 +27,13 @@ export default async function AppShellLayout({
   children: ReactNode;
 }) {
   const snapshot = await loadSnapshot();
+  const now = requestNow();
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <DataProvider snapshot={snapshot}>{children}</DataProvider>
+      <DataProvider snapshot={snapshot} now={now}>
+        {children}
+      </DataProvider>
     </div>
   );
 }

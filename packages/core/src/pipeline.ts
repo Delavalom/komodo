@@ -10,10 +10,11 @@ import {
   type PRMeta,
   type PRRef,
 } from "./github.js";
-import type { ReviewProvider } from "./providers/types.js";
+import type { ReviewMemory, ReviewProvider } from "./providers/types.js";
 import {
   renderDescriptionBlock,
   renderJudgementComment,
+  renderReceipt,
   renderReviewBody,
   renderWalkthroughComment,
   sortJudgements,
@@ -28,6 +29,14 @@ export interface RunReviewOptions {
   github: GitHubClient;
   /** Local checkout of the PR head for full-repo context. */
   repoDir?: string;
+  /**
+   * The team's own conventions, already narrowed to those that apply here.
+   *
+   * Selected by the caller rather than here: choosing them needs the store,
+   * and this package must not acquire that dependency. See
+   * packages/ingest/src/memory.ts.
+   */
+  memories?: ReviewMemory[];
   /** Post to GitHub (default true). false = local-only dry run. */
   post?: boolean;
   /** Directory where review JSON records are written (default <cwd>/.komodo/reviews). */
@@ -43,6 +52,16 @@ export interface RunReviewOutcome {
   droppedJudgements: Judgement[];
 }
 
+/**
+ * Where the receipt points. The review id is the judgment id the store
+ * derives — `owner/name#number@sha` — and the route spells it out in path
+ * segments, so the link survives being read by a human.
+ */
+function komodoReviewUrl(config: KomodoConfig, pr: PRMeta): string {
+  const base = config.local.url.replace(/\/$/, "");
+  return `${base}/-/pr/${pr.owner}/${pr.repo}/${pr.number}?run=${pr.headSha}`;
+}
+
 export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcome> {
   const { ref, provider, config, github, onProgress } = opts;
   const post = opts.post ?? true;
@@ -56,7 +75,10 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   onProgress?.(`Reviewing ${files.length}/${allFiles.length} files with ${provider.name}…`);
   if (!files.length) throw new Error("No reviewable files after path filters.");
 
-  const result = await provider.review({ pr, files, config, repoDir: opts.repoDir }, onProgress);
+  const result = await provider.review(
+    { pr, files, config, repoDir: opts.repoDir, memories: opts.memories },
+    onProgress,
+  );
 
   const { valid, dropped } = validateJudgements(result, files, config);
   const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
@@ -95,15 +117,40 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   writeFileSync(recordPath, JSON.stringify(record, null, 2));
 
   let reviewUrl: string | undefined;
-  if (post) {
+  if (post && config.post.mode === "receipt") {
+    // The review already exists — in Komodo. This tells GitHub it happened and
+    // where to answer it, and stops there: an inline comment per judgement
+    // would be the same content in a place that cannot take an answer.
+    onProgress?.("Posting the receipt to GitHub…");
+    const receipt = await github.upsertWalkthroughComment(
+      ref,
+      WALKTHROUGH_MARKER,
+      withHeader(config, renderReceipt(pr, finalResult, komodoReviewUrl(config, pr))),
+    );
+    reviewUrl = receipt.html_url;
+
+    if (config.post.status_check) {
+      await github.postStatus(
+        ref,
+        pr.headSha,
+        finalResult.confidence >= config.post.status_min_confidence
+          ? "success"
+          : "failure",
+        `Komodo: ${finalResult.confidence}/5 — ${finalResult.verdict}`,
+      );
+    }
+    record.posted = true;
+    writeFileSync(recordPath, JSON.stringify(record, null, 2));
+  } else if (post && config.post.mode === "full") {
     onProgress?.("Posting review to GitHub…");
-    const walkthrough = renderWalkthroughComment(pr, finalResult, config);
+    const walkthrough = withHeader(config, renderWalkthroughComment(pr, finalResult, config));
     await github.upsertWalkthroughComment(ref, WALKTHROUGH_MARKER, walkthrough);
 
-    const comments = finalResult.judgements.map((f) => judgementToComment(f, renderJudgementComment(f)));
+    const comments = finalResult.judgements.map((f) =>
+      judgementToComment(f, renderJudgementComment(f, config.post.include_fix_prompts)),
+    );
     const hasBlocking = finalResult.judgements.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK.major);
-    const event =
-      hasBlocking && config.post.request_changes ? ("REQUEST_CHANGES" as const) : ("COMMENT" as const);
+    const event = reviewEvent(config, finalResult, hasBlocking);
     let review: { html_url: string };
     try {
       review = await github.postReview(ref, pr.headSha, renderReviewBody(finalResult), event, comments);
@@ -124,7 +171,9 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
       await github.postStatus(
         ref,
         pr.headSha,
-        finalResult.confidence >= 3 ? "success" : "failure",
+        finalResult.confidence >= config.post.status_min_confidence
+          ? "success"
+          : "failure",
         `Komodo: ${finalResult.confidence}/5 — ${finalResult.verdict}`,
       );
     }
@@ -133,6 +182,43 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   }
 
   return { record, recordPath, reviewUrl, droppedJudgements: dropped };
+}
+
+/**
+ * Prepends the configured header to a comment body.
+ *
+ * After the marker, not before it: `upsertWalkthroughComment` finds its own
+ * comment by searching for the marker, and a header is exactly the kind of
+ * text someone edits later. Keeping the marker first means the comment stays
+ * findable no matter what the header becomes.
+ */
+function withHeader(config: KomodoConfig, body: string): string {
+  const header = config.post.header.trim();
+  if (!header) return body;
+  if (!body.startsWith(WALKTHROUGH_MARKER)) return `${header}\n\n${body}`;
+  return `${WALKTHROUGH_MARKER}\n\n${header}${body.slice(WALKTHROUGH_MARKER.length)}`;
+}
+
+/**
+ * Which review event GitHub gets.
+ *
+ * Approval is opt-in and narrow: it needs `auto_approve.enabled`, and every
+ * judgement at or below `max_severity`. An empty judgement list qualifies,
+ * which is the case it mostly exists for — the pull request the reviewer had
+ * nothing to say about.
+ */
+function reviewEvent(
+  config: KomodoConfig,
+  result: ReviewResult,
+  hasBlocking: boolean,
+): "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
+  const { auto_approve } = config.post;
+  if (auto_approve.enabled) {
+    const ceiling = SEVERITY_RANK[auto_approve.max_severity];
+    const clean = result.judgements.every((j) => SEVERITY_RANK[j.severity] <= ceiling);
+    if (clean) return "APPROVE";
+  }
+  return hasBlocking && config.post.request_changes ? "REQUEST_CHANGES" : "COMMENT";
 }
 
 /** Drop judgements below min_severity or anchored to lines GitHub can't comment on. */

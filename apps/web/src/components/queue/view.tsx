@@ -13,6 +13,7 @@
  * what is going stale.
  */
 import * as React from "react";
+import Link from "next/link";
 import { AlertTriangle, GitBranch, ShieldAlert, User } from "lucide-react";
 
 import { Avatar, Badge, StatusPill } from "@/components/ui/display";
@@ -22,12 +23,14 @@ import {
   fullName,
   useAuthors,
   useMe,
+  useOrganization,
   useQueue,
   useQueueCounts,
   useRepositories,
 } from "@/lib/data/queries";
 import { useUrlState } from "@/lib/use-url-state";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
+import { useNow } from "@/lib/data/provider";
 import type { QueueLens, QueueRow, Verdict } from "@/lib/types";
 
 const LENSES: { key: QueueLens; label: string; hint: string }[] = [
@@ -56,6 +59,7 @@ export function QueueView() {
   const repos = useRepositories();
   const authors = useAuthors();
   const me = useMe();
+  const org = useOrganization();
 
   const [search, setSearch] = React.useState("");
   const lens = (get("lens") as QueueLens | null) ?? "mine";
@@ -153,13 +157,25 @@ export function QueueView() {
             {rows.length === 0 ? (
               <EmptyRow colSpan={4}>{emptyMessage(lens)}</EmptyRow>
             ) : (
-              rows.map((row) => <QueueRowCells key={row.id} row={row} />)
+              rows.map((row) => (
+                  <QueueRowCells key={row.id} row={row} orgSlug={org.slug} />
+                ))
             )}
           </tbody>
         </DataTable>
       </div>
     </div>
   );
+}
+
+/**
+ * A judgment id is `owner/name#number@sha`, and the route spells the same
+ * three parts out in path segments — so a link into a review is readable, and
+ * a run can be named without encoding an id into a URL.
+ */
+function reviewHref(orgSlug: string, row: QueueRow): string {
+  const [repoFullName, number] = row.prId.split("#");
+  return `/${orgSlug}/-/pull-requests/${repoFullName}/${number}`;
 }
 
 function emptyMessage(lens: QueueLens): string {
@@ -175,7 +191,9 @@ function emptyMessage(lens: QueueLens): string {
   }
 }
 
-function QueueRowCells({ row }: { row: QueueRow }) {
+function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
+  const now = useNow();
+
   return (
     <TR>
       <TD className="py-3">
@@ -183,14 +201,14 @@ function QueueRowCells({ row }: { row: QueueRow }) {
           <Avatar seed={row.author} label={row.author} size={16} className="mt-0.5" />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <a
-                href={row.url}
-                target="_blank"
-                rel="noreferrer"
+              {/* Into the review, not out to GitHub. The judgements are here,
+                  and they are what the row is a summary of. */}
+              <Link
+                href={reviewHref(orgSlug, row)}
                 className="truncate text-[15px] transition-colors hover:text-[hsl(var(--accent))]"
               >
                 {row.title}
-              </a>
+              </Link>
               {row.needsMyReview ? <Badge>Your review</Badge> : null}
               {row.isBlocked ? <Badge tone="outline">Blocked</Badge> : null}
             </div>
@@ -252,7 +270,7 @@ function QueueRowCells({ row }: { row: QueueRow }) {
       </TD>
       <TD title={absoluteStamp(row.updatedAt)}>
         <span className={cn(row.isStale && "text-[hsl(var(--warn))]")}>
-          {relativeTime(row.updatedAt)}
+          {relativeTime(row.updatedAt, now)}
         </span>
         <div className="mt-1 text-xs text-muted-foreground">
           {plural(row.changedFiles, "file")}

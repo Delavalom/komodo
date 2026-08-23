@@ -18,7 +18,6 @@ import {
 import { useCreateRepoCluster, useDeleteRepoCluster } from "@/lib/data/mutations";
 import { plural } from "@/lib/utils";
 
-/** SPEC §7.2 */
 export function RepoClustersView() {
   const clusters = useRepoClusters();
   const repoIndex = useRepoIndex();

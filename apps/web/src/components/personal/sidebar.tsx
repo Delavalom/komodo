@@ -6,7 +6,6 @@ import { Code2, Rocket, User } from "lucide-react";
 import { SavedFooter, Sidebar } from "@/components/shell/sidebar";
 import { SearchInput } from "@/components/ui/input";
 
-/** SPEC §9 — note "Connections" points at /integrations. */
 export function PersonalSidebar() {
   const [query, setQuery] = React.useState("");
   const items = [

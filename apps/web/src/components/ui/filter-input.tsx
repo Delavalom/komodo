@@ -8,7 +8,7 @@ import { CloseGlyph } from "./display";
 
 /**
  * The chip/facet search box used on Pull Requests and Memory.
- * docs/SPEC.md §5 and §7.1 — including the exact popover copy.
+ * and §7.1 — including the exact popover copy.
  */
 
 export interface FacetValue {

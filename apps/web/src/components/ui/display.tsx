@@ -18,7 +18,7 @@ export function Badge({
 }) {
   const tones = {
     brand:
-      "bg-[hsl(var(--greptile-brand-green))] text-[hsl(var(--color-gray-950))]",
+      "bg-[hsl(var(--komodo-brand-green))] text-[hsl(var(--color-gray-950))]",
     muted: "bg-muted-accent text-muted-foreground",
     outline: "border border-border text-muted-foreground",
   } as const;
@@ -57,7 +57,7 @@ export function StatusPill({
   );
 }
 
-/* ── Avatars — deterministic gradients, never a CDN. SPEC §12 ───────────── */
+/* ── Avatars — deterministic gradients, never a CDN. ───────────── */
 
 function gradientFor(seed: string) {
   const h = hashSeed(seed);
@@ -113,28 +113,17 @@ export function GithubIcon({ className }: { className?: string }) {
   );
 }
 
-export function GreptileMark({ className }: { className?: string }) {
+export function KomodoMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" aria-hidden className={cn("h-6 w-6", className)}>
       <path
-        fill="hsl(var(--greptile-brand-green))"
+        fill="hsl(var(--komodo-brand-green))"
         d="M16 2 30 10v12L16 30 2 22V10L16 2Z"
         opacity="0.28"
       />
       <path
-        fill="hsl(var(--greptile-brand-green))"
+        fill="hsl(var(--komodo-brand-green))"
         d="M16 4.6 27.4 11v10L16 27.4 4.6 21V11L16 4.6Zm0 3.1L7.4 12.6v7.2l4.9 2.8v-6l3.7-2.1 3.7 2.1v6l4.9-2.8v-7.2L16 7.7Z"
-      />
-    </svg>
-  );
-}
-
-export function TrexIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden className={cn("h-4 w-4", className)}>
-      <path
-        fill="currentColor"
-        d="M4 5h6l1 3h5l4 3-3 1v3l-3 3v3h-3v-3l-2-1-2 3H4l3-4-3-3V5Zm3 2v2h2V7H7Z"
       />
     </svg>
   );
@@ -177,7 +166,7 @@ export function EmptyState({
   );
 }
 
-/* ── Pagination — `1–10 of 30` + `‹ 1 2 3 ›`. SPEC §7.1 ─────────────────── */
+/* ── Pagination — `1–10 of 30` + `‹ 1 2 3 ›`. ─────────────────── */
 
 export function Pagination({
   page,
@@ -380,7 +369,7 @@ export function CloseGlyph() {
 
 /**
  * Right-side panel. The original PUSHES the table narrower rather than
- * overlaying it, so this is an in-flow column, not a fixed overlay. SPEC §7.1
+ * overlaying it, so this is an in-flow column, not a fixed overlay.
  */
 export function Drawer({
   open,

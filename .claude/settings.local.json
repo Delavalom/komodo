@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__mobbin__search_screens",
+      "WebFetch(domain:docs.coderabbit.ai)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:openrouter.ai)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "mcp__mobbin__search_flows",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:coderabbit.ai)",
+      "WebFetch(domain:www.coderabbit.ai)",
+      "WebFetch(domain:docs.github.com)"
+    ]
+  }
+}

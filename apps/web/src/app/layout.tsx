@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description: "Your team's pull request review queue",
 };
 
-/** Sets data-theme before first paint so a reload never flashes. SPEC §1.3. */
+/** Sets data-theme before first paint so a reload never flashes. */
 const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);else document.documentElement.setAttribute("data-theme","dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}})()`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

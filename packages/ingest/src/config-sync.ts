@@ -38,6 +38,15 @@ export async function applyTeamConfig(
     plan: "pro",
   });
 
+  // A repository the store already holds keeps whatever Manage Repositories
+  // last said about it. The file names who is on the team and which
+  // repositories they care about; whether one of them is switched on right now
+  // is a decision someone makes on the screen, and a restart that quietly
+  // undid it would make that screen another control that does not hold.
+  const enabledNow = new Map(
+    (await store.snapshot()).repositories.map((r) => [r.id, r.enabled]),
+  );
+
   const repoIds: string[] = [];
   for (const full of repos) {
     const [owner, repo] = full.split("/");
@@ -48,7 +57,7 @@ export async function applyTeamConfig(
         owner,
         name: repo,
         provider: "github",
-        enabled: true,
+        enabled: enabledNow.get(full) ?? true,
         reviewCount: 0,
       }),
     );

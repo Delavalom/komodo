@@ -45,13 +45,45 @@ export const KomodoConfigSchema = z.object({
     .array(z.object({ path: z.string(), instructions: z.string() }))
     .default([]),
   instructions: z.string().optional(),
+  /**
+   * Which pull requests are worth a review at all.
+   *
+   * Every field here is a way of not spending a subscription's quota: a draft
+   * nobody is asking about, a WIP title, a bot's dependency bump, a
+   * thousand-file vendor drop. The poller enforces them — see
+   * `shouldReview` in packages/ingest/src/review.ts — and records a skipped
+   * judgment rather than dropping the pull request silently, so the queue can
+   * say why it passed.
+   */
   auto_review: z
     .object({
       drafts: z.boolean().default(false),
       ignore_title_keywords: z.array(z.string()).default(["WIP", "DO NOT REVIEW"]),
       labels: z.array(z.string()).default([]),
+      /**
+       * Author filter. `exclude` skips the listed logins — bots, usually.
+       * `include` inverts it: only the listed logins are reviewed, which is
+       * how a team tries Komodo on one person's pull requests first.
+       */
+      authors: z
+        .object({
+          mode: z.enum(["exclude", "include"]).default("exclude"),
+          tokens: z.array(z.string()).default([]),
+        })
+        .prefault({}),
+      /** Skip pull requests touching more files than this. 0 disables the cap. */
+      max_files: z.number().int().min(0).default(0),
+      /**
+       * Re-review when a pull request's head moves.
+       *
+       * On, a push re-enters the work list and gets a fresh judgment against
+       * the new head. Off, the first verdict stands until someone retriggers
+       * it by hand — which is what a team that reviews once and then talks
+       * about it actually wants.
+       */
+      on_new_commits: z.boolean().default(true),
     })
-    .default({ drafts: false, ignore_title_keywords: ["WIP", "DO NOT REVIEW"], labels: [] }),
+    .prefault({}),
   modules: z
     .object({
       summary: ModuleToggleSchema.default({ enabled: true, collapsible: false, defaultOpen: true }),
@@ -62,9 +94,69 @@ export const KomodoConfigSchema = z.object({
     .prefault({}),
   post: z
     .object({
+      /**
+       * What GitHub gets.
+       *
+       * `receipt` — one comment: the verdict and a link back to the review in
+       * Komodo. The judgements, the questions and the answers stay here, where
+       * they can be answered. This is the default because it is the product's
+       * position: a review is a set of decisions, and GitHub has nowhere to
+       * put one.
+       *
+       * `full` — the walkthrough plus an inline comment per judgement. What a
+       * team still living on GitHub expects, and what Komodo did before the
+       * review had a home of its own.
+       *
+       * `none` — nothing is posted at all.
+       */
+      mode: z.enum(["receipt", "full", "none"]).default("receipt"),
       update_description: z.boolean().default(false),
       request_changes: z.boolean().default(true),
       status_check: z.boolean().default(false),
+      /** Prepended to whatever Komodo posts. Empty means nothing is added. */
+      header: z.string().default(""),
+      /**
+       * Say so on the pull request when a review did not happen.
+       *
+       * A skip is a decision, and a decision nobody can see looks like a
+       * failure. With this on, a pull request that was filtered out or whose
+       * review errored gets the same single Komodo comment, saying which and
+       * why. Off, Komodo stays silent about the reviews it did not run.
+       */
+      status_comments: z.boolean().default(false),
+      /**
+       * Include the copy-paste "fix prompt" under each inline comment.
+       *
+       * Useful to a team whose next step is a coding agent, noise to one whose
+       * next step is a person.
+       */
+      include_fix_prompts: z.boolean().default(true),
+      /**
+       * The commit status passes at or above this confidence.
+       *
+       * Was hardcoded at 3. A team that wants the check to be advisory sets 0;
+       * one that wants it to be a gate sets 4.
+       */
+      status_min_confidence: z.number().int().min(0).max(5).default(3),
+      /**
+       * Approve outright when the review found nothing worse than `max_risk`.
+       *
+       * Off by default and deliberately so: an approval is a claim a human
+       * made, and handing it to a model by default is the one thing a review
+       * tool should not do quietly.
+       */
+      auto_approve: z
+        .object({
+          enabled: z.boolean().default(false),
+          /**
+           * The worst severity an approval tolerates. Stated in core's own
+           * severity vocabulary rather than the queue's impact levels — the
+           * translation between the two belongs in ingest, next to the rest
+           * of it.
+           */
+          max_severity: z.enum(SEVERITIES).default("trivial"),
+        })
+        .prefault({}),
     })
     .prefault({}),
   /**
@@ -91,6 +183,11 @@ export const KomodoConfigSchema = z.object({
     .object({
       base_branch: z.string().default("auto"),
       auto_ui: z.boolean().default(true),
+      /**
+       * Where this deployment's review queue is reachable. The receipt links
+       * back here, so on a team deployment it has to be the public URL.
+       */
+      url: z.string().default("http://localhost:4400"),
     })
     .prefault({}),
 });

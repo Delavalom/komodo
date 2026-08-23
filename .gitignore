@@ -6,6 +6,9 @@ dist/
 .env
 .env.*
 !.env.example
+# Committed on purpose: it carries no secret, only the dev-only decision to
+# seed the sample queue. Next loads it for `next dev` and nothing else.
+!.env.development
 coverage/
 .turbo/
 .next/

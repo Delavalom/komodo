@@ -16,7 +16,7 @@ export function Card({
   );
 }
 
-/** The mono uppercase panel header used across Analytics. SPEC §1.4 */
+/** The mono uppercase panel header used across Analytics. */
 export function PanelHeader({
   icon,
   title,
@@ -44,7 +44,7 @@ export function PanelHeader({
   );
 }
 
-/** `text-2xl` heading + muted subtitle — every settings section. SPEC §8.4 */
+/** `text-2xl` heading + muted subtitle — every settings section. */
 export function SectionHeading({
   title,
   subtitle,
@@ -72,7 +72,7 @@ export function SectionHeading({
   );
 }
 
-/** A settings card row: title/description left, control right. SPEC §8.4 */
+/** A settings card row: title/description left, control right. */
 export function SettingRow({
   title,
   description,
@@ -109,7 +109,7 @@ export function SettingRow({
   );
 }
 
-/** The muted explainer chip that tracks a segmented control. SPEC §8.4 */
+/** The muted explainer chip that tracks a segmented control. */
 export function HintChip({ children }: { children: React.ReactNode }) {
   return (
     <span className="mt-2 inline-block rounded-[2px] bg-muted-accent px-2 py-1 text-xs text-muted-foreground">

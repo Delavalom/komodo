@@ -6,12 +6,19 @@
  * and a handful of findings. This is the only place the two vocabularies
  * meet, which keeps the mapping testable without a network or a model.
  */
-import type { ReviewResult, Severity as CoreSeverity } from "@komodo/core";
+import type {
+  Judgement,
+  ReviewRecord,
+  ReviewResult,
+  Severity as CoreSeverity,
+} from "@komodo/core";
+import { SEVERITY_RANK } from "@komodo/core";
 import { verdictFor } from "@komodo/store";
 import type {
   FindingInput,
   ImpactLevel,
   JudgmentInput,
+  ReviewInput,
   Severity,
 } from "@komodo/store";
 
@@ -58,7 +65,42 @@ export function isSecurityFinding(j: ReviewResult["judgements"][number]): boolea
   return SECURITY_TERMS.test(`${j.tag} ${j.title} ${j.lede} ${j.sourceNote}`);
 }
 
-export function toFindings(result: ReviewResult): FindingInput[] {
+/**
+ * Orders the judgements of a run the way the store will number them.
+ *
+ * `toReview` sorts the postable and dropped sets together by severity and
+ * hands the result to `saveReview`, which assigns ordinals by position. So
+ * this is the one definition of "which ordinal does this judgement get", and
+ * both callers use it rather than each sorting for themselves.
+ */
+function orderedJudgements(
+  result: ReviewResult,
+  dropped: Judgement[],
+): Judgement[] {
+  return [...result.judgements, ...dropped].sort(
+    (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity],
+  );
+}
+
+/**
+ * The queue's summary rows for a run.
+ *
+ * `reviewId` is optional only because a caller may not have one; passing it
+ * links each finding to the judgement it summarises, which is what lets the
+ * finding's status follow the answer that judgement gets. Without it the
+ * finding is permanently 'open' — correct, but inert.
+ */
+export function toFindings(
+  result: ReviewResult,
+  reviewId?: string,
+  dropped: Judgement[] = [],
+): FindingInput[] {
+  // Ordinals are positions in the sorted set, not in the postable one — a
+  // finding's own index says nothing about its judgement's id.
+  const ordinalOf = new Map<Judgement, number>(
+    orderedJudgements(result, dropped).map((j, i) => [j, i]),
+  );
+
   return result.judgements.map((j) => ({
     title: j.title,
     // lede then detail is the order the reviewer wrote them in: consequence
@@ -67,6 +109,10 @@ export function toFindings(result: ReviewResult): FindingInput[] {
     severity: SEVERITY[j.severity],
     isSecurity: isSecurityFinding(j),
     filePath: j.path,
+    judgementId:
+      reviewId !== undefined && ordinalOf.has(j)
+        ? `${reviewId}:${ordinalOf.get(j)}`
+        : null,
   }));
 }
 
@@ -84,6 +130,85 @@ export function toJudgment(
     impact,
     verdict: verdictFor("completed", result.confidence, impact),
   };
+}
+
+/**
+ * The whole review, as Komodo keeps it.
+ *
+ * `dropped` is the set `runReview` refused to post: judgements below
+ * min_severity, or anchored to a line GitHub's review API cannot comment on.
+ * They are kept here and marked unpostable, because the reason they were
+ * dropped is a property of GitHub's API and not of the judgement. Filtering
+ * for GitHub happens when posting; it has no business deciding what this app
+ * is allowed to show.
+ */
+export function toReview(
+  prId: string,
+  record: ReviewRecord,
+  dropped: Judgement[] = [],
+): ReviewInput {
+  const { result } = record;
+  const postable = new Set(result.judgements);
+
+  // Severity order across both sets, so the reader works through the worst
+  // first regardless of what GitHub would have accepted. Shared with
+  // toFindings, which has to predict the ordinals this produces.
+  const all = orderedJudgements(result, dropped);
+
+  return {
+    prId,
+    headSha: record.pr.headSha,
+    provider: record.provider,
+    model: record.model ?? null,
+    summary: result.summary,
+    walkthrough: result.walkthrough,
+    confidence: result.confidence,
+    effort: result.effort,
+    verdictLine: result.verdict,
+    diagram: result.diagram ?? null,
+    recordId: record.id,
+    files: record.files.map((f) => ({
+      path: f.path,
+      additions: f.additions,
+      deletions: f.deletions,
+      status: f.status,
+      patch: f.patch ?? null,
+    })),
+    judgements: all.map((j) => ({
+      path: j.path,
+      line: j.line,
+      endLine: j.endLine ?? null,
+      severity: j.severity,
+      kind: j.kind,
+      tag: j.tag,
+      title: j.title,
+      lede: j.lede,
+      detail: j.detail,
+      ask: j.ask,
+      sources: j.sources,
+      sourceNote: j.sourceNote,
+      code: j.code,
+      options: j.options,
+      suggestion: j.suggestion ?? null,
+      fixPrompt: j.fixPrompt,
+      postable: postable.has(j),
+    })),
+  };
+}
+
+/**
+ * What to write when a pull request was deliberately passed over.
+ *
+ * Distinct from `toFailedJudgment` even though the row looks the same: a skip
+ * is settled and a failure is not. The work list treats `skipped` as done with
+ * this head and `error` as worth another try, so writing the wrong one either
+ * loops forever or gives up on a review that was only ever a network blip.
+ */
+export function toSkippedJudgment(
+  prId: string,
+  headSha: string,
+): JudgmentInput {
+  return { prId, headSha, status: "skipped", score: 0, impact: "low", verdict: null };
 }
 
 /** What to write when a review could not finish. Keeps the PR in the queue. */
