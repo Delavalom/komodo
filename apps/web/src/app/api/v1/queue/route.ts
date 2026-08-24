@@ -23,6 +23,7 @@ export async function GET(request: Request) {
   return Response.json({
     organization: snapshot.organization,
     repositories: snapshot.repositories,
+    pullRequests: snapshot.pullRequests,
     judgments: snapshot.judgments,
     findings: snapshot.findings,
   });

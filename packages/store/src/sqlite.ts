@@ -29,6 +29,7 @@ import type {
 } from "./port.js";
 import type {
   Answer,
+  AIReviewJob,
   ApiKey,
   Finding,
   Integration,
@@ -119,6 +120,22 @@ CREATE TABLE IF NOT EXISTS pull_requests (
 );
 CREATE INDEX IF NOT EXISTS pull_requests_repo ON pull_requests (repoId);
 CREATE INDEX IF NOT EXISTS pull_requests_updated ON pull_requests (updatedAt);
+
+CREATE TABLE IF NOT EXISTS ai_review_jobs (
+  id             TEXT PRIMARY KEY,
+  prId           TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  headSha        TEXT NOT NULL,
+  trigger        TEXT NOT NULL,
+  state          TEXT NOT NULL,
+  requestedBy    TEXT,
+  requestedAt    INTEGER NOT NULL,
+  updatedAt      INTEGER NOT NULL,
+  workerId       TEXT,
+  leaseExpiresAt INTEGER,
+  lastError      TEXT
+);
+CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
+  ON ai_review_jobs (state, leaseExpiresAt, requestedAt);
 
 CREATE TABLE IF NOT EXISTS judgments (
   id                TEXT PRIMARY KEY,
@@ -380,6 +397,8 @@ export class SqliteStore implements KomodoStore {
       teams: this.readTeams(),
       members: this.readMembers(),
       repositories: this.readRepositories(),
+      pullRequests: await this.listPullRequests(),
+      aiReviewJobs: await this.listAIReviewJobs(),
       judgments: this.readJudgments(),
       findings: this.readFindings(),
       memoryRules: await this.listMemoryRules(),
@@ -394,6 +413,13 @@ export class SqliteStore implements KomodoStore {
       .prepare("SELECT * FROM pull_requests ORDER BY updatedAt DESC")
       .all() as Row[];
     return rows.map(toPullRequest);
+  }
+
+  async listAIReviewJobs(): Promise<AIReviewJob[]> {
+    const rows = this.db
+      .prepare("SELECT * FROM ai_review_jobs ORDER BY requestedAt, id")
+      .all() as Row[];
+    return rows.map(toAIReviewJob);
   }
 
   async listPullRequestsNeedingReview(
@@ -1116,6 +1142,94 @@ export class SqliteStore implements KomodoStore {
     return id;
   }
 
+  async requestAIReview(input: {
+    prId: string;
+    headSha: string;
+    trigger: AIReviewJob["trigger"];
+    requestedBy?: string | null;
+    requestedAt: number;
+  }): Promise<string> {
+    const id = `${input.prId}@${input.headSha}`;
+    this.db.prepare(
+      `INSERT INTO ai_review_jobs
+         (id, prId, headSha, trigger, state, requestedBy, requestedAt,
+          updatedAt, workerId, leaseExpiresAt, lastError)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, NULL, NULL, NULL)
+       ON CONFLICT (id) DO UPDATE SET
+         trigger = excluded.trigger,
+         state = 'queued',
+         requestedBy = excluded.requestedBy,
+         requestedAt = excluded.requestedAt,
+         updatedAt = excluded.updatedAt,
+         workerId = NULL,
+         leaseExpiresAt = NULL,
+         lastError = NULL
+       WHERE excluded.trigger IN ('manual', 'interactive')
+         AND ai_review_jobs.state != 'running'`,
+    ).run(
+      id,
+      input.prId,
+      input.headSha,
+      input.trigger,
+      input.requestedBy ?? null,
+      input.requestedAt,
+      input.requestedAt,
+    );
+    return id;
+  }
+
+  async claimNextAIReview(input: {
+    workerId: string;
+    now: number;
+    leaseMs: number;
+  }): Promise<{ job: AIReviewJob; pr: PullRequest } | null> {
+    const row = this.db.prepare(
+      `UPDATE ai_review_jobs
+       SET state = 'running', workerId = ?, leaseExpiresAt = ?, updatedAt = ?
+       WHERE id = (
+         SELECT id FROM ai_review_jobs
+         WHERE state = 'queued'
+            OR (state = 'running' AND leaseExpiresAt < ?)
+         ORDER BY requestedAt, id
+         LIMIT 1
+       )
+       RETURNING *`,
+    ).get(
+      input.workerId,
+      input.now + input.leaseMs,
+      input.now,
+      input.now,
+    ) as Row | undefined;
+    if (!row) return null;
+    const job = toAIReviewJob(row);
+    const prRow = this.db
+      .prepare("SELECT * FROM pull_requests WHERE id = ?")
+      .get(job.prId) as Row | undefined;
+    return prRow ? { job, pr: toPullRequest(prRow) } : null;
+  }
+
+  async finishAIReviewJob(input: {
+    jobId: string;
+    workerId: string;
+    state: "completed" | "skipped" | "failed" | "cancelled";
+    finishedAt: number;
+    error?: string | null;
+  }): Promise<boolean> {
+    const result = this.db.prepare(
+      `UPDATE ai_review_jobs
+       SET state = ?, updatedAt = ?, lastError = ?, workerId = NULL,
+           leaseExpiresAt = NULL
+       WHERE id = ? AND state = 'running' AND workerId = ?`,
+    ).run(
+      input.state,
+      input.finishedAt,
+      input.error ?? null,
+      input.jobId,
+      input.workerId,
+    ) as { changes: number };
+    return result.changes === 1;
+  }
+
   async upsertJudgment(input: JudgmentInput): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     const now = Date.now();
@@ -1275,12 +1389,24 @@ export class SqliteStore implements KomodoStore {
   async retriggerReviews(judgmentIds: string[]): Promise<void> {
     if (!judgmentIds.length) return;
     const holes = judgmentIds.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT prId, headSha FROM judgments WHERE id IN (${holes})`)
+      .all(...judgmentIds) as Row[];
     this.db
       .prepare(
         `UPDATE judgments SET status = 'pending', verdict = NULL, updatedAt = ?
          WHERE id IN (${holes})`,
       )
       .run(Date.now(), ...judgmentIds);
+    const requestedAt = Date.now();
+    for (const row of rows) {
+      await this.requestAIReview({
+        prId: str(row.prId),
+        headSha: str(row.headSha),
+        trigger: "manual",
+        requestedAt,
+      });
+    }
   }
 
   async saveTeam(team: Omit<Team, "id"> & { id?: string }): Promise<string> {
@@ -1370,6 +1496,22 @@ function toPullRequest(r: Row): PullRequest {
     createdAt: num(r.createdAt),
     updatedAt: num(r.updatedAt),
     mergedAt: r.mergedAt === null ? null : num(r.mergedAt),
+  };
+}
+
+function toAIReviewJob(r: Row): AIReviewJob {
+  return {
+    id: str(r.id),
+    prId: str(r.prId),
+    headSha: str(r.headSha),
+    trigger: str(r.trigger) as AIReviewJob["trigger"],
+    state: str(r.state) as AIReviewJob["state"],
+    requestedBy: r.requestedBy == null ? null : str(r.requestedBy),
+    requestedAt: num(r.requestedAt),
+    updatedAt: num(r.updatedAt),
+    workerId: r.workerId == null ? null : str(r.workerId),
+    leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
+    lastError: r.lastError == null ? null : str(r.lastError),
   };
 }
 

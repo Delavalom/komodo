@@ -1,7 +1,7 @@
 # Inventory-first review queue
 
-Status: Proposed  
-Date: 2026-08-23
+Status: Accepted; implementation in progress
+Date: 2026-08-24
 
 ## Decision
 
@@ -19,6 +19,20 @@ in the product.
 AI work should use a durable job and attempt model. `Judgment` should return to
 meaning only an AI result. It should not also mean not requested, queued,
 running, failed, and ready to retry.
+
+Komodo supports two executors over that same job model:
+
+- A local worker inside `komodo dev`, using an explicitly configured,
+  enterprise-approved Claude Code executable. The checkout, diff, prompt, and
+  review result remain on the employee's machine and network boundary.
+- An interactive Komodo skill inside an already-approved Claude session. The
+  skill claims one job, reviews the local checkout, and submits the structured
+  result to the local Komodo service.
+
+The local worker is the default UX when the enterprise launcher supports
+headless Agent SDK sessions. The interactive skill is a policy-compatible
+handoff, not a separate queue or review format. Uploading source or diffs to a
+third-party Komodo worker is not part of this design.
 
 ## What produced the reported logs
 
@@ -170,6 +184,19 @@ An AI result does not close a GitHub pull request. A human approval does not
 make the pull request merged. The row stays until GitHub reports it merged or
 closed.
 
+The default **Needs my review** lens is broader than GitHub's explicit review
+request list. It means:
+
+```text
+open AND not draft AND author is a roster teammate AND author is not me
+AND I have not approved or requested changes
+```
+
+An explicit GitHub review request remains useful row context, but is not an
+eligibility requirement. This makes the lens a personal view over the team's
+whole repository inventory, including PRs that use team-level or informal
+review assignment.
+
 ### Do not claim to know why a PR is open without the facts
 
 Komodo currently knows the requested reviewers, approvals, changes requests,
@@ -261,7 +288,8 @@ type ReviewTrigger =
   | "new_commit"
   | "ready_for_review"
   | "reopened"
-  | "manual";
+  | "manual"
+  | "interactive";
 
 type ReviewJobState =
   | "queued"

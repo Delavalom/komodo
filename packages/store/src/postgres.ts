@@ -26,6 +26,7 @@ import { mergeSettings } from "./settings.js";
 import { fromPgPool, type SqlClient } from "./sql-client.js";
 import type {
   Answer,
+  AIReviewJob,
   ApiKey,
   Finding,
   Integration,
@@ -115,6 +116,22 @@ CREATE TABLE IF NOT EXISTS pull_requests (
 );
 CREATE INDEX IF NOT EXISTS pull_requests_repo ON pull_requests ("repoId");
 CREATE INDEX IF NOT EXISTS pull_requests_updated ON pull_requests ("updatedAt");
+
+CREATE TABLE IF NOT EXISTS ai_review_jobs (
+  id               TEXT PRIMARY KEY,
+  "prId"           TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "headSha"        TEXT NOT NULL,
+  trigger          TEXT NOT NULL,
+  state            TEXT NOT NULL,
+  "requestedBy"    TEXT,
+  "requestedAt"    BIGINT NOT NULL,
+  "updatedAt"      BIGINT NOT NULL,
+  "workerId"       TEXT,
+  "leaseExpiresAt" BIGINT,
+  "lastError"      TEXT
+);
+CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
+  ON ai_review_jobs (state, "leaseExpiresAt", "requestedAt");
 
 CREATE TABLE IF NOT EXISTS judgments (
   id                  TEXT PRIMARY KEY,
@@ -432,6 +449,8 @@ export class PostgresStore implements KomodoStore {
       teams,
       members,
       repositories,
+      pullRequests,
+      aiReviewJobs,
       judgments,
       findings,
       memoryRules,
@@ -444,6 +463,8 @@ export class PostgresStore implements KomodoStore {
       this.readTeams(),
       this.readMembers(),
       this.readRepositories(),
+      this.listPullRequests(),
+      this.listAIReviewJobs(),
       this.readJudgments(),
       this.readFindings(),
       this.listMemoryRules(),
@@ -457,6 +478,8 @@ export class PostgresStore implements KomodoStore {
       teams,
       members,
       repositories,
+      pullRequests,
+      aiReviewJobs,
       judgments,
       findings,
       memoryRules,
@@ -471,6 +494,13 @@ export class PostgresStore implements KomodoStore {
       `SELECT * FROM pull_requests ORDER BY "updatedAt" DESC`,
     );
     return rows.map(toPullRequest);
+  }
+
+  async listAIReviewJobs(): Promise<AIReviewJob[]> {
+    const { rows } = await this.sql.query<Row>(
+      `SELECT * FROM ai_review_jobs ORDER BY "requestedAt", id`,
+    );
+    return rows.map(toAIReviewJob);
   }
 
   async listPullRequestsNeedingReview(
@@ -1171,6 +1201,95 @@ export class PostgresStore implements KomodoStore {
     return id;
   }
 
+  async requestAIReview(input: {
+    prId: string;
+    headSha: string;
+    trigger: AIReviewJob["trigger"];
+    requestedBy?: string | null;
+    requestedAt: number;
+  }): Promise<string> {
+    const id = `${input.prId}@${input.headSha}`;
+    await this.sql.query(
+      `INSERT INTO ai_review_jobs
+         (id, "prId", "headSha", trigger, state, "requestedBy",
+          "requestedAt", "updatedAt", "workerId", "leaseExpiresAt", "lastError")
+       VALUES ($1,$2,$3,$4,'queued',$5,$6,$6,NULL,NULL,NULL)
+       ON CONFLICT (id) DO UPDATE SET
+         trigger = EXCLUDED.trigger,
+         state = 'queued',
+         "requestedBy" = EXCLUDED."requestedBy",
+         "requestedAt" = EXCLUDED."requestedAt",
+         "updatedAt" = EXCLUDED."updatedAt",
+         "workerId" = NULL,
+         "leaseExpiresAt" = NULL,
+         "lastError" = NULL
+       WHERE EXCLUDED.trigger IN ('manual', 'interactive')
+         AND ai_review_jobs.state != 'running'`,
+      [
+        id,
+        input.prId,
+        input.headSha,
+        input.trigger,
+        input.requestedBy ?? null,
+        input.requestedAt,
+      ],
+    );
+    return id;
+  }
+
+  async claimNextAIReview(input: {
+    workerId: string;
+    now: number;
+    leaseMs: number;
+  }): Promise<{ job: AIReviewJob; pr: PullRequest } | null> {
+    const { rows } = await this.sql.query<Row>(
+      `UPDATE ai_review_jobs
+       SET state = 'running', "workerId" = $1, "leaseExpiresAt" = $2,
+           "updatedAt" = $3
+       WHERE id = (
+         SELECT id FROM ai_review_jobs
+         WHERE state = 'queued'
+            OR (state = 'running' AND "leaseExpiresAt" < $3)
+         ORDER BY "requestedAt", id
+         FOR UPDATE SKIP LOCKED
+         LIMIT 1
+       )
+       RETURNING *`,
+      [input.workerId, input.now + input.leaseMs, input.now],
+    );
+    if (!rows[0]) return null;
+    const job = toAIReviewJob(rows[0]);
+    const { rows: prRows } = await this.sql.query<Row>(
+      `SELECT * FROM pull_requests WHERE id = $1`,
+      [job.prId],
+    );
+    return prRows[0] ? { job, pr: toPullRequest(prRows[0]) } : null;
+  }
+
+  async finishAIReviewJob(input: {
+    jobId: string;
+    workerId: string;
+    state: "completed" | "skipped" | "failed" | "cancelled";
+    finishedAt: number;
+    error?: string | null;
+  }): Promise<boolean> {
+    const { rows } = await this.sql.query<Row>(
+      `UPDATE ai_review_jobs
+       SET state = $1, "updatedAt" = $2, "lastError" = $3,
+           "workerId" = NULL, "leaseExpiresAt" = NULL
+       WHERE id = $4 AND state = 'running' AND "workerId" = $5
+       RETURNING id`,
+      [
+        input.state,
+        input.finishedAt,
+        input.error ?? null,
+        input.jobId,
+        input.workerId,
+      ],
+    );
+    return rows.length === 1;
+  }
+
   async upsertJudgment(input: JudgmentInput): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     const now = Date.now();
@@ -1321,11 +1440,24 @@ export class PostgresStore implements KomodoStore {
 
   async retriggerReviews(judgmentIds: string[]): Promise<void> {
     if (!judgmentIds.length) return;
+    const { rows } = await this.sql.query<Row>(
+      `SELECT "prId", "headSha" FROM judgments WHERE id = ANY($1)`,
+      [judgmentIds],
+    );
     await this.sql.query(
       `UPDATE judgments SET status = 'pending', verdict = NULL, "updatedAt" = $1
        WHERE id = ANY($2)`,
       [Date.now(), judgmentIds],
     );
+    const requestedAt = Date.now();
+    for (const row of rows) {
+      await this.requestAIReview({
+        prId: str(row.prId),
+        headSha: str(row.headSha),
+        trigger: "manual",
+        requestedAt,
+      });
+    }
   }
 
   async saveTeam(team: Omit<Team, "id"> & { id?: string }): Promise<string> {
@@ -1491,6 +1623,22 @@ function toPullRequest(r: Row): PullRequest {
     createdAt: num(r.createdAt),
     updatedAt: num(r.updatedAt),
     mergedAt: r.mergedAt === null || r.mergedAt === undefined ? null : num(r.mergedAt),
+  };
+}
+
+function toAIReviewJob(r: Row): AIReviewJob {
+  return {
+    id: str(r.id),
+    prId: str(r.prId),
+    headSha: str(r.headSha),
+    trigger: str(r.trigger) as AIReviewJob["trigger"],
+    state: str(r.state) as AIReviewJob["state"],
+    requestedBy: r.requestedBy == null ? null : str(r.requestedBy),
+    requestedAt: num(r.requestedAt),
+    updatedAt: num(r.updatedAt),
+    workerId: r.workerId == null ? null : str(r.workerId),
+    leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
+    lastError: r.lastError == null ? null : str(r.lastError),
   };
 }
 

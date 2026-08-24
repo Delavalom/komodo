@@ -74,7 +74,37 @@ export async function rescanRepositories(): Promise<void> {
 }
 
 export async function retriggerReviews(judgmentIds: string[]): Promise<void> {
-  await (await getStore()).retriggerReviews(judgmentIds);
+  const store = await getStore();
+  await store.retriggerReviews(judgmentIds);
+  await store.setMeta("review.providerPausedUntil", "0");
+  revalidatePath("/", "layout");
+}
+
+/** Queue one immutable current head for the local or interactive worker. */
+export async function requestAIReview(
+  prId: string,
+  expectedHeadSha: string,
+): Promise<void> {
+  const store = await getStore();
+  const snapshot = await store.snapshot();
+  const pr = snapshot.pullRequests.find((candidate) => candidate.id === prId);
+  if (!pr || pr.state !== "open") {
+    throw new Error("That pull request is no longer open.");
+  }
+  if (pr.headSha !== expectedHeadSha) {
+    throw new Error("The pull request changed. Reload before requesting a review.");
+  }
+
+  await store.requestAIReview({
+    prId,
+    headSha: pr.headSha,
+    trigger: "manual",
+    requestedBy: await resolveActorLogin(snapshot.members),
+    requestedAt: Date.now(),
+  });
+  // An explicit retry means the operator believes the provider is usable
+  // again; do not leave it behind the automatic failure circuit.
+  await store.setMeta("review.providerPausedUntil", "0");
   revalidatePath("/", "layout");
 }
 

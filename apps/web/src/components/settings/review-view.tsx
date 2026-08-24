@@ -125,6 +125,19 @@ export function ReviewSettingsView() {
           subtitle="Which pull requests are worth a review, and when"
         />
         <SettingRow
+          title="Auto-review new pull requests"
+          description="Review pull requests first seen after a repository's initial inventory import. Existing backlog stays inventory-only until selected manually."
+          control={
+            <Toggle
+              checked={settings.autoReviewNewPullRequests}
+              onChange={(autoReviewNewPullRequests) =>
+                update({ autoReviewNewPullRequests })
+              }
+              label="Auto-review new pull requests"
+            />
+          }
+        />
+        <SettingRow
           title="Auto-review on new commits"
           description="Re-review when new commits are pushed. Off, the first verdict stands until someone retriggers it from the queue."
           control={

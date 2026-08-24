@@ -7,6 +7,9 @@ import { promptCommand } from "./commands/prompt.js";
 import { devCommand, serveCommand } from "./commands/serve.js";
 import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
+import { doctorCommand } from "./commands/doctor.js";
+import { claimCommand } from "./commands/claim.js";
+import { submitCommand } from "./commands/submit.js";
 import { cliVersion } from "./web.js";
 
 const program = new Command();
@@ -82,6 +85,27 @@ program
   .command("config")
   .description("Print the resolved komodo.yaml configuration")
   .action(configCommand);
+
+program
+  .command("doctor")
+  .argument("[provider]", "provider to diagnose", "claude")
+  .description("Verify the provider launcher, proxy, authentication, and SDK session")
+  .action(doctorCommand);
+
+program
+  .command("claim")
+  .description("Claim one queued review for the current interactive agent session")
+  .option("--db <path>", "local Komodo database (default .komodo/komodo.db)")
+  .option("--out <path>", "claim context JSON path")
+  .action(claimCommand);
+
+program
+  .command("submit")
+  .argument("<claim>", "claim context JSON from komodo-review claim")
+  .argument("<result>", "ReviewResult JSON written by the interactive agent")
+  .description("Validate an interactive review and complete its local Komodo job")
+  .option("--base <branch>", "base branch to diff against (default: auto-detect)")
+  .action(submitCommand);
 
 program.parseAsync().catch((err) => {
   console.error(err instanceof Error ? err.message : err);

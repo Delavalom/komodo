@@ -12,6 +12,7 @@
  */
 import type {
   Answer,
+  AIReviewJob,
   ApiKey,
   Bucket,
   Finding,
@@ -34,6 +35,7 @@ import type {
   Verdict,
   ImpactLevel,
   ReviewStatus,
+  ReviewTrigger,
 } from "./types.js";
 
 /** Everything one page of the app needs, in one round trip. */
@@ -48,6 +50,10 @@ export interface QueueSnapshot {
   teams: Team[];
   members: Member[];
   repositories: Repository[];
+  /** Raw GitHub inventory. A PR exists here before Komodo reviews it. */
+  pullRequests: PullRequest[];
+  /** Durable AI intent, separate from results in judgments. */
+  aiReviewJobs: AIReviewJob[];
   judgments: Judgment[];
   findings: Finding[];
   /** What the team has taught Komodo, with its counted usage figures. */
@@ -71,6 +77,8 @@ export interface StoreReader {
   snapshot(): Promise<QueueSnapshot>;
 
   listPullRequests(): Promise<PullRequest[]>;
+
+  listAIReviewJobs(): Promise<AIReviewJob[]>;
 
   /**
    * Pull requests whose current head has no settled judgment — the ingester's
@@ -238,6 +246,31 @@ export interface StoreWriter {
 
   /** Idempotent on (repoId, number). Never touches the PR's judgment. */
   upsertPullRequest(pr: PullRequestInput): Promise<string>;
+
+  /** Idempotent on the immutable `(prId, headSha)` job id. */
+  requestAIReview(input: {
+    prId: string;
+    headSha: string;
+    trigger: ReviewTrigger;
+    requestedBy?: string | null;
+    requestedAt: number;
+  }): Promise<string>;
+
+  /** Atomically leases the next queued or abandoned job. */
+  claimNextAIReview(input: {
+    workerId: string;
+    now: number;
+    leaseMs: number;
+  }): Promise<{ job: AIReviewJob; pr: PullRequest } | null>;
+
+  /** Settles a lease only when it is still owned by this worker. */
+  finishAIReviewJob(input: {
+    jobId: string;
+    workerId: string;
+    state: "completed" | "skipped" | "failed" | "cancelled";
+    finishedAt: number;
+    error?: string | null;
+  }): Promise<boolean>;
 
   /**
    * Idempotent on (prId, headSha) — the property that makes the ingester

@@ -17,6 +17,7 @@ import Link from "next/link";
 import { AlertTriangle, GitBranch, ShieldAlert, User } from "lucide-react";
 
 import { Avatar, Badge, StatusPill } from "@/components/ui/display";
+import { Button } from "@/components/ui/button";
 import { FilterInput, type FacetDef } from "@/components/ui/filter-input";
 import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
 import {
@@ -29,6 +30,7 @@ import {
   useRepositories,
 } from "@/lib/data/queries";
 import { useUrlState } from "@/lib/use-url-state";
+import { useRequestAIReview } from "@/lib/data/mutations";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
 import type { QueueLens, QueueRow, Verdict } from "@/lib/types";
@@ -52,6 +54,16 @@ const VERDICT_TONE: Record<Verdict, "default" | "warn" | "error" | "success"> = 
   ship_with_notes: "default",
   needs_work: "warn",
   blocked: "error",
+};
+
+const AI_STATE_LABEL: Record<QueueRow["aiState"], string> = {
+  not_requested: "Not requested",
+  queued: "Queued",
+  running: "Reviewing",
+  completed: "Completed",
+  skipped: "Skipped",
+  failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 export function QueueView() {
@@ -193,6 +205,8 @@ function emptyMessage(lens: QueueLens): string {
 
 function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
   const now = useNow();
+  const requestAIReview = useRequestAIReview();
+  const [requesting, startRequest] = React.useTransition();
 
   return (
     <TR>
@@ -259,7 +273,36 @@ function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
             </div>
           </>
         ) : (
-          <StatusPill>Not reviewed</StatusPill>
+          <div className="space-y-1.5">
+            <StatusPill
+              tone={
+                row.aiState === "failed"
+                  ? "error"
+                  : row.aiState === "queued" || row.aiState === "running"
+                    ? "warn"
+                    : "default"
+              }
+            >
+              {AI_STATE_LABEL[row.aiState]}
+            </StatusPill>
+            {[
+              "not_requested",
+              "failed",
+              "skipped",
+              "cancelled",
+            ].includes(row.aiState) ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={requesting}
+                onClick={() =>
+                  startRequest(() => requestAIReview(row.id, row.headSha))
+                }
+              >
+                {requesting ? "Queuing…" : "Review with AI"}
+              </Button>
+            ) : null}
+          </div>
         )}
       </TD>
       <TD>

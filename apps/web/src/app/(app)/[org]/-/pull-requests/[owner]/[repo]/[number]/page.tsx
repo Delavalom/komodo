@@ -15,7 +15,6 @@ import { ReviewHeader } from "@/components/review/header";
 import { DecisionQueue } from "@/components/review/queue";
 import { WholeReview } from "@/components/review/whole";
 import {
-  loadLatestReview,
   loadReview,
   loadReviewFiles,
   loadReviewRuns,
@@ -36,21 +35,24 @@ export default async function ReviewPage({
   const { owner, repo, number } = await params;
   const query = await searchParams;
 
-  const { organization, repositories, judgments } = await loadSnapshot();
+  const { organization, repositories, pullRequests, judgments } = await loadSnapshot();
   const repoId = `${owner}/${repo}`;
   const prId = `${repoId}#${number}`;
 
   // Every id in the store is derived from these three, so the row is found by
   // construction rather than by search.
   const repository = repositories.find((r) => r.id === repoId);
-  const judgment = judgments.find((j) => j.prId === prId);
-  if (!repository || !judgment) notFound();
+  const pr = pullRequests.find((candidate) => candidate.id === prId);
+  const judgment = judgments.find(
+    (candidate) => candidate.prId === prId && candidate.headSha === pr?.headSha,
+  );
+  if (!repository || !pr) notFound();
 
   const runs = await loadReviewRuns(prId);
   const run = first(query.run);
   const detail = run
     ? await loadReview(`${prId}@${run}`)
-    : await loadLatestReview(prId);
+    : await loadReview(`${prId}@${pr.headSha}`);
 
   const files = detail ? await loadReviewFiles(detail.review.id) : [];
   const view = first(query.view) === "whole" ? "whole" : "queue";
@@ -60,7 +62,7 @@ export default async function ReviewPage({
     // children below own theirs. AGENTS.md rule 8.
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ReviewHeader
-        pr={judgment}
+        pr={pr}
         repoFullName={`${repository.owner}/${repository.name}`}
         runs={runs}
         current={detail?.review ?? null}
@@ -69,7 +71,7 @@ export default async function ReviewPage({
       />
 
       {!detail ? (
-        <NoRun status={judgment.status} />
+        <NoRun status={judgment?.status ?? "not_requested"} />
       ) : view === "whole" ? (
         <WholeReview detail={detail} files={files} />
       ) : (
@@ -78,7 +80,7 @@ export default async function ReviewPage({
           judgements={detail.judgements}
           answers={detail.answers}
           votes={detail.votes}
-          prUrl={judgment.url}
+          prUrl={pr.url}
         />
       )}
     </div>
@@ -93,9 +95,10 @@ export default async function ReviewPage({
 function NoRun({ status }: { status: string }) {
   const reason: Record<string, string> = {
     pending: "Komodo has not reviewed this head yet.",
+    not_requested: "This pull request is in the team inventory. No AI review has been requested yet.",
     skipped: "Komodo skipped this one — nothing here was reviewable.",
-    error: "The last review of this head failed. It stays in the work list.",
-    usage_limit: "The provider's usage limit was reached before this ran.",
+    error: "The last review of this head failed. Retry it from the queue when the provider is ready.",
+    usage_limit: "The provider's usage limit was reached. Retry it from the queue after the limit resets.",
     trial_ended: "The trial ended before this was reviewed.",
     completed:
       "This was reviewed before Komodo kept review bodies. Re-run it to see the judgements.",

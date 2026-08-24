@@ -1,11 +1,9 @@
 ---
 name: komodo-review
 description: >
-  Run a Komodo code review on the current branch. The running Claude instance
-  is the reviewer — no API key, no LLM subscription, no GitHub auth needed.
-  Produces judgements you answer in a local queue. Use when the user asks to
-  "review my changes", "review this branch", "run komodo", or wants a code
-  review before pushing.
+  Run a Komodo review from the current approved Claude session, either for the
+  current branch or for one job claimed from a local Komodo queue. Source,
+  diffs, prompts, and results stay on the local machine.
 ---
 
 # Komodo review
@@ -13,9 +11,48 @@ description: >
 You are the reviewer. Komodo supplies the prompt, validates what you write,
 and gives the result somewhere to live.
 
-Nothing here needs credentials. `gh` and a Claude or Codex subscription are
-only needed to review someone *else's* PR or to post back to GitHub — see
-"Reviewing a pull request" at the end.
+Nothing here starts another model process. This Claude session is the
+reviewer. A claimed teammate PR needs the user's existing `gh` authentication
+only to check out the branch; never attempt a login on the user's behalf.
+
+## Queue job mode
+
+Use this mode when the user asks to work through the local Komodo queue.
+
+### 1. Claim one job
+
+```bash
+npx komodo-review claim
+```
+
+The command prints a claim JSON path and the exact `owner/repo#number`. If no
+job is queued, tell the user and stop. Do not claim several jobs at once.
+
+### 2. Check out the claimed head
+
+Use the printed PR reference with the user's existing GitHub CLI session:
+
+```bash
+gh pr checkout <number> --repo <owner/repo> --detach
+```
+
+Confirm `git rev-parse HEAD` matches `headSha` in the claim JSON. The submit
+command refuses a different head.
+
+### 3. Review and submit
+
+Run `npx komodo-review prompt`, follow the prompt exactly, and write the single
+ReviewResult JSON object it requests to a temporary file. Then:
+
+```bash
+npx komodo-review submit <claim-json> <result-json>
+```
+
+This validates the result, writes the judgment and review into the same local
+Komodo store, and completes the claimed job. If validation fails, correct the
+JSON and submit again. Do not summarize an unsubmitted result as completed.
+
+## Current branch mode
 
 ## 1. Get the prompt
 
@@ -48,10 +85,13 @@ prompt's own rules govern everything else.
 
 ## 3. Save it
 
-Write the JSON to a temp file, then:
+Write the requested ReviewResult JSON to a temp file. Wrap it with the local
+diff metadata before validation:
 
 ```bash
-npx komodo-review validate /tmp/komodo-review.json
+npx komodo-review diff > /tmp/komodo-context.json
+# Set the context object's `result` field to the ReviewResult JSON.
+npx komodo-review validate /tmp/komodo-context.json
 ```
 
 It validates against the schema and prints where it saved the record. If it
@@ -71,10 +111,11 @@ review closes. A summary in the terminal is not the deliverable.
 If a queue is already running on that port, say so instead of starting
 another.
 
-## Reviewing a pull request
+## Direct headless pull-request mode
 
-To review a PR rather than the current branch, Komodo runs the review itself
-on the user's own Claude or Codex subscription:
+Use this only when the approved environment permits Komodo to start its own
+provider process. On managed Pinterest machines, prefer Queue job mode so this
+already-approved Claude session performs the review.
 
 ```bash
 npx komodo-review pr <ref>              # posts a receipt to GitHub

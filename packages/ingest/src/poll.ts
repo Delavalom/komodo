@@ -8,7 +8,13 @@
  * identically. The cost is minutes of lag, which a review queue can afford.
  */
 import type { GitHubClient } from "@komodo/core";
-import type { KomodoStore, PullRequest, Repository } from "@komodo/store";
+import type {
+  KomodoStore,
+  OrgSettings,
+  PullRequest,
+  Repository,
+  ReviewTrigger,
+} from "@komodo/store";
 
 export interface PollResult {
   seen: number;
@@ -21,14 +27,15 @@ export interface PollResult {
 /**
  * One pass over every watched repository.
  *
- * The detail and reviews calls only fire for a pull request that is new or
- * whose head moved. Everything else costs one listing per repo, so the poll
- * stays cheap enough to run on a short interval against a real team's repos.
+ * Size calls only fire for a new pull request or a moved head. Review
+ * decisions refresh when GitHub says the PR activity timestamp changed, while
+ * listing fields are written on every successful observation. This keeps the
+ * human queue current without paying one request per unchanged PR per pass.
  */
 export async function pollRepositories(
   github: GitHubClient,
   store: KomodoStore,
-  options: { onProgress?: (msg: string) => void } = {},
+  options: { onProgress?: (msg: string) => void; settings?: OrgSettings } = {},
 ): Promise<PollResult> {
   // `enabled` is the whole switch, and deliberately the only one. It used to
   // be `enabled` intersected with what some team watched, which was invisible
@@ -75,22 +82,37 @@ export async function pollRepositories(
       continue;
     }
 
+    const baselineKey = `inventory.baseline.${repo.id}`;
+    const baselineComplete = (await store.getMeta(baselineKey)) !== null;
+
     for (const item of listed) {
       seen++;
       const id = `${repo.id}#${item.number}`;
       stillOpen.add(id);
       const previous = known.get(id);
 
-      // Size and review state cost a request each. Only a new pull request or
-      // a new head is worth paying for.
+      // Size only changes with the head. Review decisions can change on the
+      // same head, and GitHub advances updatedAt when that activity happens.
       const moved = !previous || previous.headSha !== item.headSha;
-      if (!moved) continue;
-      changed++;
+      const activityChanged =
+        !previous || moved || previous.updatedAt !== item.updatedAt;
+      if (moved) changed++;
 
       const ref = { owner: repo.owner, repo: repo.name, number: item.number };
       const [size, decisions] = await Promise.all([
-        github.getPRSize(ref),
-        github.listReviewDecisions(ref),
+        moved
+          ? github.getPRSize(ref)
+          : Promise.resolve({
+              additions: previous.additions,
+              deletions: previous.deletions,
+              changedFiles: previous.changedFiles,
+            }),
+        activityChanged
+          ? github.listReviewDecisions(ref)
+          : Promise.resolve({
+              approvals: previous.approvals,
+              changesRequested: previous.changesRequested,
+            }),
       ]);
 
       await store.upsertPullRequest({
@@ -113,7 +135,25 @@ export async function pollRepositories(
         updatedAt: item.updatedAt,
         mergedAt: null,
       });
+
+      const trigger = automaticTrigger(previous, item.headSha, item.isDraft);
+      if (
+        baselineComplete &&
+        trigger &&
+        shouldRequestAutomatically(trigger, item.isDraft, options.settings)
+      ) {
+        await store.requestAIReview({
+          prId: id,
+          headSha: item.headSha,
+          trigger,
+          requestedAt: Date.now(),
+        });
+      }
     }
+
+    // Written only after the repository's complete listing was processed.
+    // A crash before here repeats baseline mode and cannot create a backlog.
+    if (!baselineComplete) await store.setMeta(baselineKey, String(Date.now()));
   }
 
   // Anything the store still calls open that the listing no longer returned
@@ -129,6 +169,28 @@ export async function pollRepositories(
   );
 
   return { seen, changed, closed, unreachable };
+}
+
+function automaticTrigger(
+  previous: PullRequest | undefined,
+  headSha: string,
+  isDraft: boolean,
+): ReviewTrigger | null {
+  if (!previous) return "new_pull_request";
+  if (previous.headSha !== headSha) return "new_commit";
+  if (previous.isDraft && !isDraft) return "ready_for_review";
+  return null;
+}
+
+function shouldRequestAutomatically(
+  trigger: ReviewTrigger,
+  isDraft: boolean,
+  settings: OrgSettings | undefined,
+): boolean {
+  if (!settings) return false;
+  if (isDraft && !settings.reviewDraftPrs) return false;
+  if (trigger === "new_commit") return settings.autoReviewNewCommits;
+  return settings.autoReviewNewPullRequests;
 }
 
 /**

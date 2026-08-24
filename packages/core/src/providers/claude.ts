@@ -10,7 +10,18 @@ import type { ReviewInput, ReviewProvider } from "./types.js";
  */
 export class ClaudeProvider implements ReviewProvider {
   readonly name = "claude";
-  constructor(private model?: string) {}
+  private readonly model?: string;
+  private readonly executable?: string;
+
+  constructor(options: string | { model?: string; executable?: string } = {}) {
+    // Keep the old string constructor source-compatible for embedders while
+    // giving Komodo a place to pass the managed enterprise launcher.
+    if (typeof options === "string") this.model = options;
+    else {
+      this.model = options.model;
+      this.executable = options.executable;
+    }
+  }
 
   async review(input: ReviewInput, onProgress?: (msg: string) => void): Promise<ReviewResult> {
     const prompt = buildReviewPrompt(input);
@@ -21,6 +32,9 @@ export class ClaudeProvider implements ReviewProvider {
       prompt,
       options: {
         ...(this.model ? { model: this.model } : {}),
+        ...(this.executable
+          ? { pathToClaudeCodeExecutable: this.executable }
+          : {}),
         cwd: input.repoDir ?? process.cwd(),
         allowedTools: ["Read", "Glob", "Grep"],
         maxTurns: 40,
@@ -37,7 +51,9 @@ export class ClaudeProvider implements ReviewProvider {
       if (m.type === "result") {
         if (m.subtype && m.subtype !== "success") {
           throw new Error(
-            `Claude review failed (${m.subtype}). If you are not logged in, run \`claude\` once to sign in, or set ANTHROPIC_API_KEY.`,
+            `Claude review failed (${m.subtype})${
+              this.executable ? ` through ${this.executable}` : ""
+            }. Verify the approved launcher with \`komodo-review doctor claude\`.`,
           );
         }
         structured = m.structured_output ?? m.structuredOutput;
@@ -47,6 +63,39 @@ export class ClaudeProvider implements ReviewProvider {
 
     const raw = structured ?? extractJson(finalText);
     return ReviewResultSchema.parse(raw);
+  }
+
+  /**
+   * Exercises the same SDK child-process path as a real review without
+   * sending repository data. `--version` alone only proves the launcher can
+   * start; this proves its proxy, authentication, and Agent SDK session work.
+   */
+  async healthCheck(): Promise<string> {
+    for await (const message of query({
+      prompt: "Reply with the single word OK.",
+      options: {
+        ...(this.model ? { model: this.model } : {}),
+        ...(this.executable
+          ? { pathToClaudeCodeExecutable: this.executable }
+          : {}),
+        allowedTools: [],
+        maxTurns: 1,
+        systemPrompt:
+          "This is a connectivity check. Do not use tools. Reply with OK.",
+      } as any,
+    })) {
+      const result = message as any;
+      if (result.type !== "result") continue;
+      if (!result.subtype || result.subtype === "success") {
+        return typeof result.result === "string" ? result.result.trim() : "OK";
+      }
+      throw new Error(
+        `Claude connectivity check failed (${result.subtype})${
+          this.executable ? ` through ${this.executable}` : ""
+        }.`,
+      );
+    }
+    throw new Error("Claude connectivity check ended without a result.");
   }
 }
 
