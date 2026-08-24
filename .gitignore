@@ -21,3 +21,5 @@ apps/*/.omc/
 packages/*/.omc/
 
 *.tgz
+
+.npmrc

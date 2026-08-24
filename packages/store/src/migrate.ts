@@ -262,6 +262,39 @@ CREATE INDEX IF NOT EXISTS judgement_votes_judgement ON judgement_votes ("judgem
       },
     ],
   },
+  {
+    id: "010-ai-review-jobs",
+    sqlite: `CREATE TABLE IF NOT EXISTS ai_review_jobs (
+  id             TEXT PRIMARY KEY,
+  prId           TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  headSha        TEXT NOT NULL,
+  trigger        TEXT NOT NULL,
+  state          TEXT NOT NULL,
+  requestedBy    TEXT,
+  requestedAt    INTEGER NOT NULL,
+  updatedAt      INTEGER NOT NULL,
+  workerId       TEXT,
+  leaseExpiresAt INTEGER,
+  lastError      TEXT
+);
+CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
+  ON ai_review_jobs (state, leaseExpiresAt, requestedAt)`,
+    postgres: `CREATE TABLE IF NOT EXISTS ai_review_jobs (
+  id               TEXT PRIMARY KEY,
+  "prId"           TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "headSha"        TEXT NOT NULL,
+  trigger          TEXT NOT NULL,
+  state            TEXT NOT NULL,
+  "requestedBy"    TEXT,
+  "requestedAt"    BIGINT NOT NULL,
+  "updatedAt"      BIGINT NOT NULL,
+  "workerId"       TEXT,
+  "leaseExpiresAt" BIGINT,
+  "lastError"      TEXT
+);
+CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
+  ON ai_review_jobs (state, "leaseExpiresAt", "requestedAt")`,
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

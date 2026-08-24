@@ -6,6 +6,8 @@ import { CONFIG_FILENAMES, detectProviders } from "@komodo/core";
 
 const TEMPLATE = `# Komodo code review configuration — https://github.com/Delavalom/komodo
 provider: auto        # auto | claude | codex
+# claude:
+#   executable: /absolute/path/to/company-approved/claude
 profile: chill        # chill (signal only) | assertive (thorough)
 min_severity: minor   # critical | major | minor | trivial
 

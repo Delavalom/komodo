@@ -12,6 +12,8 @@
  */
 export type {
   Answer,
+  AIReviewJob,
+  AIReviewJobState,
   ApiKey,
   Bucket,
   Finding,
@@ -43,6 +45,7 @@ export type {
   ReviewFile,
   ReviewJudgement,
   ReviewStatus,
+  ReviewTrigger,
   Severity,
   SummarySectionConfig,
   SummarySectionKey,
@@ -54,12 +57,13 @@ export type {
 /* Re-exporting does not bind the names locally, and the query shapes below
    need them. */
 import type {
+  AIReviewJobState,
   Finding,
   SummarySectionKey,
   MemoryKind,
   MemoryStatus,
   ImpactLevel,
-  Judgment,
+  PullRequest,
   ReviewStatus,
   SummarySectionConfig,
   Verdict,
@@ -109,14 +113,23 @@ export interface PersonalSettings extends PersonalPreferences {
  * time — none of it is stored, so it cannot go stale against the row it
  * describes.
  */
-export interface QueueRow extends Judgment {
+export interface QueueRow extends PullRequest {
+  /** The raw PR id, repeated under the name older route code expects. */
+  prId: string;
+  /** Current-head AI result only. Null before a review has produced one. */
+  judgmentId: string | null;
+  aiState: AIReviewJobState | "not_requested";
+  verdict: Verdict | null;
+  status: ReviewStatus | "not_requested";
+  impact: ImpactLevel | null;
+  score: number | null;
   repoFullName: string;
   /** additions + deletions, and the bucket it falls in. */
   changedLines: number;
   sizeLabel: "XS" | "S" | "M" | "L" | "XL";
   /** How long this has been sitting since anything last happened to it. */
   waitingDays: number;
-  /** Open, not a draft, and my review was asked for and not yet given. */
+  /** Open teammate PR that I have not approved or requested changes on. */
   needsMyReview: boolean;
   /** Komodo says blocked, or a human already requested changes. */
   isBlocked: boolean;

@@ -57,7 +57,7 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
     onProgress,
   });
 
-  const polled = await pollRepositories(github, store, { onProgress });
+  const polled = await pollRepositories(github, store, { onProgress, settings });
   onProgress?.(
     `Polled ${polled.seen} open PRs — ${polled.changed} changed, ${polled.closed} closed` +
       (polled.unreachable

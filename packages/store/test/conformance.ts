@@ -158,6 +158,91 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(row.additions).toBe(40);
     });
 
+    it("exposes raw pull requests in the shared snapshot before any AI review", async () => {
+      await store.upsertPullRequest(pr());
+
+      const snapshot = await store.snapshot();
+      expect(snapshot.pullRequests).toHaveLength(1);
+      expect(snapshot.pullRequests[0]).toMatchObject({
+        id: "acme/api#1",
+        headSha: "aaa111",
+        title: "Add rate limiting",
+      });
+      expect(snapshot.judgments).toEqual([]);
+    });
+
+    it("requests one durable AI job per pull-request head", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const first = await store.requestAIReview({
+        prId,
+        headSha: "aaa111",
+        trigger: "new_pull_request",
+        requestedAt: T0,
+      });
+      const second = await store.requestAIReview({
+        prId,
+        headSha: "aaa111",
+        trigger: "new_pull_request",
+        requestedAt: T0 + 1,
+      });
+
+      expect(second).toBe(first);
+      expect(await store.listAIReviewJobs()).toHaveLength(1);
+      expect((await store.snapshot()).aiReviewJobs[0]).toMatchObject({
+        id: "acme/api#1@aaa111",
+        state: "queued",
+        trigger: "new_pull_request",
+      });
+    });
+
+    it("leases a job once, reclaims an expired lease, and enforces ownership", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({
+        prId,
+        headSha: "aaa111",
+        trigger: "new_pull_request",
+        requestedAt: T0,
+      });
+
+      const first = await store.claimNextAIReview({
+        workerId: "worker-a",
+        now: T0,
+        leaseMs: 100,
+      });
+      expect(first?.pr.id).toBe(prId);
+      expect(
+        await store.claimNextAIReview({
+          workerId: "worker-b",
+          now: T0 + 50,
+          leaseMs: 100,
+        }),
+      ).toBeNull();
+
+      const reclaimed = await store.claimNextAIReview({
+        workerId: "worker-b",
+        now: T0 + 101,
+        leaseMs: 100,
+      });
+      expect(reclaimed?.job.workerId).toBe("worker-b");
+      expect(
+        await store.finishAIReviewJob({
+          jobId: first!.job.id,
+          workerId: "worker-a",
+          state: "completed",
+          finishedAt: T0 + 102,
+        }),
+      ).toBe(false);
+      expect(
+        await store.finishAIReviewJob({
+          jobId: reclaimed!.job.id,
+          workerId: "worker-b",
+          state: "completed",
+          finishedAt: T0 + 102,
+        }),
+      ).toBe(true);
+      expect((await store.listAIReviewJobs())[0].state).toBe("completed");
+    });
+
     it("keys judgments on (prId, headSha), so a re-review replaces", async () => {
       const prId = await store.upsertPullRequest(pr());
       const a = await store.upsertJudgment({
@@ -560,6 +645,11 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(j.status).toBe("pending");
       expect(j.verdict).toBeNull();
       expect(await store.listPullRequestsNeedingReview()).toHaveLength(1);
+      expect((await store.listAIReviewJobs())[0]).toMatchObject({
+        id: judgmentId,
+        state: "queued",
+        trigger: "manual",
+      });
     });
 
     it("round-trips a team's roster and watched repos", async () => {

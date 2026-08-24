@@ -127,8 +127,7 @@ export function useMe(): Member | null {
  * has waited, how big it is, and its worst findings.
  */
 export function useQueue(query: QueueQuery = {}): QueueRow[] {
-  const judgments = useSnapshot().judgments;
-  const findings = useSnapshot().findings;
+  const { pullRequests, aiReviewJobs, judgments, findings, members } = useSnapshot();
   const repoIndex = useRepoIndex();
   const me = useMe();
   const login = me?.githubLogin ?? null;
@@ -145,32 +144,71 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
       else findingsFor.set(f.judgmentId, [f]);
     }
 
+    const teammateLogins = new Set(
+      members.map((member) => member.githubLogin.toLowerCase()),
+    );
+    const judgmentForHead = new Map(
+      judgments.map((judgment) => [
+        `${judgment.prId}@${judgment.headSha}`,
+        judgment,
+      ]),
+    );
+    const jobForHead = new Map(
+      aiReviewJobs.map((job) => [`${job.prId}@${job.headSha}`, job]),
+    );
+
     const rows: QueueRow[] = [];
-    for (const j of judgments) {
-      if (j.state !== "open" || j.isDraft) continue;
+    for (const pr of pullRequests) {
+      if (pr.state !== "open" || pr.isDraft) continue;
 
-      const repository = repoIndex.get(j.repoId);
-      const changedLines = j.additions + j.deletions;
-      const waitingDays = Math.floor((now - j.updatedAt) / DAY_MS);
+      const repository = repoIndex.get(pr.repoId);
+      const judgment = judgmentForHead.get(`${pr.id}@${pr.headSha}`) ?? null;
+      const job = jobForHead.get(`${pr.id}@${pr.headSha}`) ?? null;
+      const changedLines = pr.additions + pr.deletions;
+      const waitingDays = Math.floor((now - pr.updatedAt) / DAY_MS);
 
-      // "Asked for and not yet given" — an approval or a changes-requested
-      // from me means the ball is back in the author's court.
+      // This is a personal lens over the team's inventory, not GitHub's
+      // explicit review-request inbox. Team-level and informal assignments
+      // still need to be visible. Once I approve or request changes, the ball
+      // is back in the author's court for this observed review state.
+      const normalizedLogin = login?.toLowerCase() ?? null;
       const needsMyReview =
-        login !== null &&
-        j.requestedReviewers.includes(login) &&
-        !j.approvals.includes(login) &&
-        !j.changesRequested.includes(login);
+        normalizedLogin !== null &&
+        teammateLogins.has(pr.author.toLowerCase()) &&
+        pr.author.toLowerCase() !== normalizedLogin &&
+        !pr.approvals.some((reviewer) => reviewer.toLowerCase() === normalizedLogin) &&
+        !pr.changesRequested.some(
+          (reviewer) => reviewer.toLowerCase() === normalizedLogin,
+        );
 
       rows.push({
-        ...j,
-        repoFullName: repository ? fullName(repository) : j.repoId,
+        ...pr,
+        prId: pr.id,
+        judgmentId: judgment?.id ?? null,
+        aiState:
+          job?.state ??
+          (judgment?.status === "completed"
+            ? "completed"
+            : judgment?.status === "skipped"
+              ? "skipped"
+              : judgment?.status === "pending"
+                ? "queued"
+                : judgment
+                  ? "failed"
+                  : "not_requested"),
+        verdict: judgment?.verdict ?? null,
+        status: judgment?.status ?? "not_requested",
+        impact: judgment?.impact ?? null,
+        score: judgment?.score ?? null,
+        repoFullName: repository ? fullName(repository) : pr.repoId,
         changedLines,
         sizeLabel: sizeLabel(changedLines),
         waitingDays,
         needsMyReview,
-        isBlocked: j.verdict === "blocked" || j.changesRequested.length > 0,
+        isBlocked:
+          judgment?.verdict === "blocked" || pr.changesRequested.length > 0,
         isStale: waitingDays >= STALE_DAYS,
-        topFindings: (findingsFor.get(j.id) ?? [])
+        topFindings: (judgment ? findingsFor.get(judgment.id) ?? [] : [])
           .filter((f) => f.status === "open")
           .sort((a, b) => bySeverity[a.severity] - bySeverity[b.severity])
           .slice(0, 3),
@@ -196,7 +234,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
     // Longest wait first: the queue's job is to surface what is going stale,
     // not what landed most recently.
     return filtered.sort((a, b) => a.updatedAt - b.updatedAt);
-  }, [judgments, findings, repoIndex, login, now, lens, search, author, repo]);
+  }, [pullRequests, aiReviewJobs, judgments, findings, members, repoIndex, login, now, lens, search, author, repo]);
 }
 
 /** Row counts behind each lens, so the tabs can carry a badge. */
@@ -268,7 +306,7 @@ export function matchesComparison(value: number, expr: string): boolean {
 }
 
 export function useAuthors(): string[] {
-  const prs = useSnapshot().judgments;
+  const prs = useSnapshot().pullRequests;
   return useMemo(
     () => [...new Set(prs.map((p) => p.author))].sort(),
     [prs],

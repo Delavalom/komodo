@@ -34,6 +34,37 @@ export type MemberRole = "admin" | "member";
 /** Where a pull request sits in its own lifecycle. Never Komodo's opinion. */
 export type PullRequestState = "open" | "merged" | "closed";
 
+/** Why the current pull-request head entered Komodo's AI work queue. */
+export type ReviewTrigger =
+  | "new_pull_request"
+  | "new_commit"
+  | "ready_for_review"
+  | "manual"
+  | "interactive";
+
+export type AIReviewJobState =
+  | "queued"
+  | "running"
+  | "completed"
+  | "skipped"
+  | "failed"
+  | "cancelled";
+
+/** Durable intent to review one immutable pull-request head. */
+export interface AIReviewJob {
+  id: string;
+  prId: string;
+  headSha: string;
+  trigger: ReviewTrigger;
+  state: AIReviewJobState;
+  requestedBy: string | null;
+  requestedAt: number;
+  updatedAt: number;
+  workerId: string | null;
+  leaseExpiresAt: number | null;
+  lastError: string | null;
+}
+
 export interface Organization {
   slug: string;
   name: string;
@@ -210,6 +241,8 @@ export type SummarySectionKey =
  * means a field added tomorrow needs no migration and an old row stays valid.
  */
 export interface OrgSettings {
+  /** Review PRs first observed after a repository's inventory baseline. */
+  autoReviewNewPullRequests: boolean;
   /** Re-review when a pull request's head moves. Off leaves the first verdict. */
   autoReviewNewCommits: boolean;
   reviewDraftPrs: boolean;

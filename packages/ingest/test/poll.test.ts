@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { DEFAULT_ORG_SETTINGS } from "@komodo/store";
 import { SqliteStore } from "@komodo/store/sqlite";
 import type { GitHubClient } from "@komodo/core";
 
@@ -87,6 +88,63 @@ describe("pollRepositories", () => {
     expect(calls.list).toBe(2);
     expect(calls.size).toBe(1);
     expect(calls.reviews).toBe(1);
+  });
+
+  it("refreshes same-head queue facts when GitHub reports new activity", async () => {
+    const first = fakeGitHub({ "acme/api": [listed()] });
+    await pollRepositories(first.client, store);
+
+    const second = fakeGitHub({
+      "acme/api": [
+        listed({
+          title: "Ready for review",
+          isDraft: false,
+          requestedReviewers: ["dev", "sam"],
+          updatedAt: T0 + 1,
+        }),
+      ],
+    });
+    await pollRepositories(second.client, store);
+
+    expect(second.calls.size).toBe(0);
+    expect(second.calls.reviews).toBe(1);
+    const [row] = await store.listPullRequests();
+    expect(row.title).toBe("Ready for review");
+    expect(row.requestedReviewers).toEqual(["dev", "sam"]);
+  });
+
+  it("imports the first repository inventory without creating an AI backlog", async () => {
+    const first = fakeGitHub({
+      "acme/api": [listed(), listed({ number: 2, headSha: "bbb222" })],
+    });
+    await pollRepositories(first.client, store, {
+      settings: DEFAULT_ORG_SETTINGS,
+    });
+
+    expect(await store.listPullRequests()).toHaveLength(2);
+    expect(await store.listAIReviewJobs()).toEqual([]);
+  });
+
+  it("queues a pull request first observed after the repository baseline", async () => {
+    const first = fakeGitHub({ "acme/api": [listed()] });
+    await pollRepositories(first.client, store, {
+      settings: DEFAULT_ORG_SETTINGS,
+    });
+
+    const second = fakeGitHub({
+      "acme/api": [listed(), listed({ number: 2, headSha: "bbb222" })],
+    });
+    await pollRepositories(second.client, store, {
+      settings: DEFAULT_ORG_SETTINGS,
+    });
+
+    expect(await store.listAIReviewJobs()).toEqual([
+      expect.objectContaining({
+        id: "acme/api#2@bbb222",
+        trigger: "new_pull_request",
+        state: "queued",
+      }),
+    ]);
   });
 
   it("re-fetches and re-queues a pull request after a new push", async () => {

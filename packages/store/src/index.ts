@@ -9,6 +9,8 @@
  */
 export type {
   Answer,
+  AIReviewJob,
+  AIReviewJobState,
   ApiKey,
   Bucket,
   Finding,
@@ -41,6 +43,7 @@ export type {
   ReviewFile,
   ReviewJudgement,
   ReviewStatus,
+  ReviewTrigger,
   Severity,
   SummarySectionConfig,
   SummarySectionKey,

@@ -14,6 +14,8 @@ export const useSetRepoEnabled = () => actions.setRepoEnabled;
 
 export const useRetriggerReviews = () => actions.retriggerReviews;
 
+export const useRequestAIReview = () => actions.requestAIReview;
+
 export const useRescanRepositories = () => actions.rescanRepositories;
 
 export const useCreateMemoryRule = () => actions.createMemoryRule;

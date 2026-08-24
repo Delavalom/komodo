@@ -25,6 +25,7 @@ const folded = (): SummarySectionConfig => ({
 });
 
 export const DEFAULT_ORG_SETTINGS: OrgSettings = {
+  autoReviewNewPullRequests: true,
   autoReviewNewCommits: true,
   reviewDraftPrs: false,
   fileChangeLimit: 100,

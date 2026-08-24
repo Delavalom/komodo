@@ -38,6 +38,19 @@ const ModuleToggleSchema = z.object({
 export const KomodoConfigSchema = z.object({
   provider: z.enum(["auto", "claude", "codex", "openrouter"]).default("auto"),
   model: z.string().optional(),
+  /**
+   * How Komodo reaches Claude Code on a managed machine.
+   *
+   * Some companies expose Claude through an approved proxy launcher rather
+   * than the `claude` found on PATH. The Agent SDK must spawn that exact
+   * executable or it bypasses the managed environment and is terminated.
+   */
+  claude: z
+    .object({
+      /** Absolute path to the enterprise-approved Claude Code executable. */
+      executable: z.string().min(1).optional(),
+    })
+    .prefault({}),
   profile: z.enum(["chill", "assertive"]).default("chill"),
   min_severity: z.enum(SEVERITIES).default("minor"),
   path_filters: z.array(z.string()).default([]),

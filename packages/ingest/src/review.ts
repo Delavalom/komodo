@@ -40,6 +40,8 @@ export interface ReviewRunnerOptions {
    * `komodo serve` passes one by default.
    */
   checkout?: RepoCheckout;
+  /** Stable for one worker process; used to own durable leases. */
+  workerId?: string;
   onProgress?: (msg: string) => void;
 }
 
@@ -108,24 +110,45 @@ export function shouldReview(
   return { skip: false };
 }
 
-/** Reviews everything currently outstanding. Returns once the list is empty. */
+/** Claims and reviews explicitly requested jobs. Returns once the queue is empty. */
 export async function reviewPending(
   options: ReviewRunnerOptions,
 ): Promise<ReviewPassResult> {
   const { store, onProgress } = options;
-  const pending = await store.listPullRequestsNeedingReview({
-    reReview: options.config.auto_review.on_new_commits,
-  });
   const { repositories } = await store.snapshot();
   const repoIndex = new Map(repositories.map((r) => [r.id, r]));
+  const workerId = options.workerId ?? `local-${process.pid}`;
+  const pausedUntil = Number(await store.getMeta("review.providerPausedUntil"));
+  if (Number.isFinite(pausedUntil) && pausedUntil > Date.now()) {
+    onProgress?.(
+      `Review provider paused until ${new Date(pausedUntil).toISOString()}; inventory polling continues.`,
+    );
+    return { reviewed: 0, failed: 0, skipped: 0 };
+  }
 
   let reviewed = 0;
   let failed = 0;
   let skipped = 0;
 
-  for (const pr of pending) {
+  while (true) {
+    const claim = await store.claimNextAIReview({
+      workerId,
+      now: Date.now(),
+      leaseMs: 15 * 60_000,
+    });
+    if (!claim) break;
+    const { job, pr } = claim;
     const repo = repoIndex.get(pr.repoId);
-    if (!repo) continue;
+    if (!repo || pr.headSha !== job.headSha || pr.state !== "open") {
+      await store.finishAIReviewJob({
+        jobId: job.id,
+        workerId,
+        state: "cancelled",
+        finishedAt: Date.now(),
+        error: "Pull request head or state changed before the review started.",
+      });
+      continue;
+    }
 
     const verdict = shouldReview(pr, options.config);
     if (verdict.skip) {
@@ -137,13 +160,37 @@ export async function reviewPending(
       );
       await store.upsertJudgment(toSkippedJudgment(pr.id, pr.headSha));
       await postStatusComment(options, repo, pr, `Skipped — ${verdict.reason}.`);
+      await store.finishAIReviewJob({
+        jobId: job.id,
+        workerId,
+        state: "skipped",
+        finishedAt: Date.now(),
+        error: verdict.reason,
+      });
       skipped++;
       continue;
     }
 
-    const ok = await reviewOne(options, pr, repo);
-    if (ok) reviewed++;
-    else failed++;
+    const outcome = await reviewOne(options, pr, repo);
+    await store.finishAIReviewJob({
+      jobId: job.id,
+      workerId,
+      state: outcome.ok ? "completed" : "failed",
+      finishedAt: Date.now(),
+      error: outcome.ok ? null : outcome.error,
+    });
+    if (outcome.ok) reviewed++;
+    else {
+      failed++;
+      // A managed launcher being terminated is provider-level, not evidence
+      // that the next PR is bad. Persist the pause so this pass, the next
+      // minute, and a process restart cannot walk the whole backlog.
+      await store.setMeta(
+        "review.providerPausedUntil",
+        String(Date.now() + 15 * 60_000),
+      );
+      break;
+    }
   }
 
   onProgress?.(
@@ -158,7 +205,7 @@ async function reviewOne(
   options: ReviewRunnerOptions,
   pr: PullRequest,
   repo: Repository,
-): Promise<boolean> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const { store, github, provider, config, onProgress } = options;
   const ref = { owner: repo.owner, repo: repo.name, number: pr.number };
 
@@ -205,11 +252,11 @@ async function reviewOne(
       judgmentId,
       toFindings(result, reviewId, outcome.droppedJudgements),
     );
-    return true;
+    return { ok: true };
   } catch (err) {
-    // A failed review is recorded rather than swallowed: the row shows why it
-    // has no verdict, and the pull request stays in the work list so the next
-    // pass retries it.
+    // A failed review is recorded rather than swallowed. The durable job is
+    // settled as failed by the caller and requires an explicit retry; blindly
+    // moving to the next PR is how one broken provider spends a whole queue.
     const message = err instanceof Error ? err.message : String(err);
     onProgress?.(`  failed: ${message}`);
     await store.upsertJudgment(
@@ -219,9 +266,9 @@ async function reviewOne(
       options,
       repo,
       pr,
-      `The review did not finish — ${firstLine(message)}. Komodo will try again.`,
+      `The review did not finish — ${firstLine(message)}. Open Komodo to retry it.`,
     );
-    return false;
+    return { ok: false, error: message };
   }
 }
 
