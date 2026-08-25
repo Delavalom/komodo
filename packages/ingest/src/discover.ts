@@ -28,7 +28,10 @@
  *     deployment into a directory of all fifty.
  */
 import type { GitHubClient } from "@komodo/core";
-import { META_LAST_DISCOVERY_AT } from "@komodo/store";
+import {
+  META_LAST_DISCOVERY_AT,
+  META_LAST_DISCOVERY_ERROR,
+} from "@komodo/store";
 import type { KomodoStore } from "@komodo/store";
 
 export interface DiscoverOptions {
@@ -48,6 +51,8 @@ export interface DiscoverResult {
   owners: number;
   /** Repositories written for the first time. */
   added: number;
+  /** Owners the token could not read. The pass still counts as done. */
+  failed: string[];
 }
 
 /**
@@ -67,12 +72,26 @@ export async function discoverRepositories(
   const interval = options.intervalMs ?? DEFAULT_INTERVAL_MS;
 
   const last = Number((await store.getMeta(META_LAST_DISCOVERY_AT)) ?? 0);
-  if (!force && Date.now() - last < interval) return { owners: 0, added: 0 };
+  if (!force && Date.now() - last < interval)
+    return { owners: 0, added: 0, failed: [] };
+
+  // Stamped from before the listings rather than after them.
+  //
+  // `discoverIfAsked` decides a Rescan is outstanding by comparing its request
+  // against this timestamp, so a pass that stamped its own *completion* would
+  // swallow every request pressed while it was running: such a request is
+  // newer than the pass that began before it and older than the timestamp that
+  // pass writes when it ends, and the next pass reads it as already served.
+  // Watermarking from the start costs the interval guard one pass-duration of
+  // earliness and keeps the button honest, which is the better trade for a
+  // listing that runs four times an hour.
+  const startedAt = Date.now();
 
   const { repositories } = await store.snapshot();
   const known = new Set(repositories.map((r) => r.id));
   const owners = [...new Set(repositories.map((r) => r.owner))];
 
+  const failed: string[] = [];
   let added = 0;
   for (const owner of owners) {
     let listed;
@@ -82,6 +101,7 @@ export async function discoverRepositories(
       // One owner the token has lost access to must not cost the pass its
       // other owners, nor the poll that follows it.
       const detail = err instanceof Error ? err.message : String(err);
+      failed.push(`${owner} (${detail})`);
       onProgress?.(`Could not list ${owner}'s repositories: ${detail}`);
       continue;
     }
@@ -104,9 +124,12 @@ export async function discoverRepositories(
     }
   }
 
-  // Written after the listings, so a pass that died halfway is retried rather
-  // than counted as done.
-  await store.setMeta(META_LAST_DISCOVERY_AT, String(Date.now()));
+  // Both written after the listings, so a pass that threw is retried rather
+  // than counted as done. An owner that merely 404'd is not that: the pass
+  // finished, the request it served is spent, and what it could not see is on
+  // the record instead of only in the ingester's log.
+  await store.setMeta(META_LAST_DISCOVERY_AT, String(startedAt));
+  await store.setMeta(META_LAST_DISCOVERY_ERROR, failed.join(", "));
 
   if (added) {
     onProgress?.(
@@ -114,5 +137,5 @@ export async function discoverRepositories(
         (autoEnable ? ", enabled." : " — enable them under Manage Repositories."),
     );
   }
-  return { owners: owners.length, added };
+  return { owners: owners.length, added, failed };
 }

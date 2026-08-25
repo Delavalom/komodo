@@ -109,6 +109,10 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
  *     is stale, and made of two timestamps rather than a flag so a request that
  *     is served is self-clearing — no second write, and no rescan replayed by
  *     a restart.
+ *
+ * The comparison below is only as good as what discovery stamps, which is why
+ * it stamps the moment its listings *began*: a request pressed during a pass
+ * has to outlive that pass, or the button does nothing and says nothing.
  */
 async function discoverIfAsked(
   options: IngestOptions,

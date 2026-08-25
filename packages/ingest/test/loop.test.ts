@@ -32,6 +32,9 @@ function fakeGitHub() {
   return { client, calls };
 }
 
+/** Enough milliseconds for `Date.now()` to move on. */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
 describe("ingestOnce discovery", () => {
   let store: SqliteStore;
 
@@ -68,6 +71,37 @@ describe("ingestOnce discovery", () => {
     // replayed itself every minute would be the behaviour this replaced.
     await pass(client);
     expect(calls.owners).toBe(1);
+  });
+
+  it("keeps a Rescan pressed while a pass was already listing", async () => {
+    // The request is newer than the pass that began before it. If discovery
+    // stamped its own completion instead of its start, the next pass would read
+    // that request as already served and the button would do nothing.
+    const calls = { owners: 0 };
+    const client = {
+      async listOwnerRepos(owner: string) {
+        calls.owners++;
+        // The press lands strictly inside the pass: after it began, before it
+        // ended. Without the waits all three timestamps share a millisecond
+        // and the race the test exists for cannot be staged at all.
+        await tick();
+        await store.setMeta(META_DISCOVERY_REQUESTED_AT, String(Date.now()));
+        await tick();
+        return [{ owner, name: "api", archived: false, isPrivate: false }];
+      },
+      async listOpenPRs() {
+        return [];
+      },
+    } as unknown as GitHubClient;
+
+    await store.saveSettings({ autoEnableNewRepos: true });
+    await pass(client);
+    expect(calls.owners).toBe(1);
+
+    // The rescan pressed mid-pass is still outstanding, so the next pass lists.
+    await store.saveSettings({ autoEnableNewRepos: false });
+    await pass(client);
+    expect(calls.owners).toBe(2);
   });
 
   it("keeps looking for a team that wants new repositories enabled", async () => {

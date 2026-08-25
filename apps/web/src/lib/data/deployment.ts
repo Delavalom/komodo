@@ -16,6 +16,7 @@ import "server-only";
 import { GitHubClient, resolveGithubToken } from "@komodo/core";
 import {
   META_LAST_DISCOVERY_AT,
+  META_LAST_DISCOVERY_ERROR,
   META_LAST_POLL_AT,
   META_LAST_POLL_ERROR,
 } from "@komodo/store";
@@ -47,6 +48,8 @@ export interface DeploymentStatus {
   lastPollAt: number | null;
   lastPollError: string | null;
   lastDiscoveryAt: number | null;
+  /** Owners the last listing could not read, if it could not read them all. */
+  lastDiscoveryError: string | null;
 }
 
 function tokenSource(): GithubStatus["source"] {
@@ -57,12 +60,14 @@ function tokenSource(): GithubStatus["source"] {
 
 export async function loadDeploymentStatus(): Promise<DeploymentStatus> {
   const store = await getStore();
-  const [{ repositories }, pollAt, pollError, discoveryAt] = await Promise.all([
-    store.snapshot(),
-    store.getMeta(META_LAST_POLL_AT),
-    store.getMeta(META_LAST_POLL_ERROR),
-    store.getMeta(META_LAST_DISCOVERY_AT),
-  ]);
+  const [{ repositories }, pollAt, pollError, discoveryAt, discoveryError] =
+    await Promise.all([
+      store.snapshot(),
+      store.getMeta(META_LAST_POLL_AT),
+      store.getMeta(META_LAST_POLL_ERROR),
+      store.getMeta(META_LAST_DISCOVERY_AT),
+      store.getMeta(META_LAST_DISCOVERY_ERROR),
+    ]);
 
   const byOwner = new Map<string, OwnerStatus>();
   for (const repo of repositories) {
@@ -78,6 +83,7 @@ export async function loadDeploymentStatus(): Promise<DeploymentStatus> {
     lastPollAt: pollAt ? Number(pollAt) : null,
     lastPollError: pollError || null,
     lastDiscoveryAt: discoveryAt ? Number(discoveryAt) : null,
+    lastDiscoveryError: discoveryError || null,
   };
 }
 
