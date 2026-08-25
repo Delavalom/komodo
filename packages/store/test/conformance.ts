@@ -5,7 +5,7 @@
  * the port, and the only thing standing between `komodo dev` and `komodo
  * serve` behaving differently. The Postgres driver runs this same suite.
  */
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 import type { KomodoStore, PullRequestInput, ReviewInput } from "../src/port.js";
 
@@ -67,6 +67,7 @@ function review(over: Partial<ReviewInput> = {}): ReviewInput {
         endLine: null,
         severity: "major",
         kind: "Risk",
+        focus: "architecture",
         tag: "changes how logging out works",
         title: "Sessions outlive logout by up to fifteen minutes.",
         lede: "The token is revoked in the store but the edge cache keeps serving it.",
@@ -91,6 +92,7 @@ function review(over: Partial<ReviewInput> = {}): ReviewInput {
         endLine: 9,
         severity: "minor",
         kind: "Unsure",
+        focus: "tests",
         tag: "reaches outside this change",
         title: "The cache TTL is set outside the diff.",
         lede: "Nothing here shows what the TTL actually is.",
@@ -112,7 +114,24 @@ function review(over: Partial<ReviewInput> = {}): ReviewInput {
         postable: false,
       },
     ],
+    verificationRequirements: [
+      {
+        title: "A signed-in user can log out in the preview.",
+        instruction: "Open the preview, sign in, then use Log out.",
+        expectedResult: "The session ends and a protected page redirects to sign-in.",
+        evidenceKinds: ["preview", "video"],
+        required: true,
+      },
+      {
+        title: "The session revocation test passes against the real store.",
+        instruction: "Run the session integration test with the configured store.",
+        expectedResult: "The test exits successfully without retries.",
+        evidenceKinds: ["test_run", "command_output"],
+        required: false,
+      },
+    ],
     ...over,
+    version: 3,
   };
 }
 
@@ -475,6 +494,136 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(j.title).toBe("Add rate limiting");
       expect(j.author).toBe("renata");
       expect(j.requestedReviewers).toEqual(["dev"]);
+    });
+
+    it("keeps verification evidence append-only and derives the queue summary", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const detail = await store.loadReview(reviewId);
+      expect(detail?.review.version).toBe(3);
+      expect(detail?.verificationRequirements).toHaveLength(2);
+
+      const requirementId = detail!.verificationRequirements[0].id;
+      await store.recordVerification({
+        requirementId,
+        actorLogin: "renata",
+        result: "failed",
+        evidenceKind: "preview",
+        evidenceUrl: "https://preview.example.test/pr/1",
+        note: "The protected page stayed open.",
+      });
+      await store.recordVerification({
+        requirementId,
+        actorLogin: "renata",
+        result: "verified",
+        evidenceKind: "video",
+        evidenceUrl: "https://evidence.example.test/logout.mp4",
+        note: "Retested after the fix.",
+      });
+
+      expect(await store.listVerificationEntries(reviewId)).toHaveLength(2);
+      expect((await store.loadReview(reviewId))?.verifications).toMatchObject([
+        { requirementId, result: "verified", actorLogin: "renata" },
+      ]);
+      expect((await store.snapshot()).verificationSummaries).toMatchObject([
+        {
+          reviewId,
+          total: 2,
+          required: 1,
+          verified: 1,
+          requiredVerified: 1,
+          failed: 0,
+          blocked: 0,
+        },
+      ]);
+    });
+
+    it("orders same-millisecond evidence by the database append sequence", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const requirementId = (await store.loadReview(reviewId))!
+        .verificationRequirements[0].id;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(T0);
+
+      try {
+        for (let i = 0; i < 11; i += 1) {
+          await store.recordVerification({
+            requirementId,
+            actorLogin: `reviewer-${i}`,
+            result: i === 10 ? "verified" : "failed",
+            evidenceKind: "manual_observation",
+          });
+        }
+      } finally {
+        clock.mockRestore();
+      }
+
+      const entries = await store.listVerificationEntries(reviewId);
+      expect(entries.map((entry) => entry.actorLogin)).toEqual(
+        Array.from({ length: 11 }, (_, i) => `reviewer-${i}`),
+      );
+      expect((await store.loadReview(reviewId))?.verifications).toMatchObject([
+        { requirementId, result: "verified", actorLogin: "reviewer-10" },
+      ]);
+    });
+
+    it("accepts concurrent evidence submissions without id collisions", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const requirementId = (await store.loadReview(reviewId))!
+        .verificationRequirements[0].id;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(T0);
+
+      try {
+        await Promise.all(
+          Array.from({ length: 12 }, (_, i) =>
+            store.recordVerification({
+              requirementId,
+              actorLogin: `reviewer-${i}`,
+              result: "verified",
+              evidenceKind: "manual_observation",
+            }),
+          ),
+        );
+      } finally {
+        clock.mockRestore();
+      }
+
+      const entries = await store.listVerificationEntries(reviewId);
+      expect(entries).toHaveLength(12);
+      expect(new Set(entries.map((entry) => entry.id)).size).toBe(12);
+    });
+
+    it("does not reassign evidence when a same-head review changes its plan", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const first = (await store.loadReview(reviewId))!.verificationRequirements[0];
+      await store.recordVerification({
+        requirementId: first.id,
+        actorLogin: "renata",
+        result: "verified",
+        evidenceKind: "manual_observation",
+      });
+
+      await store.saveReview(
+        review({
+          prId,
+          verificationRequirements: [
+            {
+              title: "A different result is visible.",
+              instruction: "Open the changed screen.",
+              expectedResult: "The new result appears.",
+              evidenceKinds: ["manual_observation"],
+              required: true,
+            },
+          ],
+        }),
+      );
+
+      const current = await store.loadReview(reviewId);
+      expect(current?.verificationRequirements[0].id).not.toBe(first.id);
+      expect(current?.verifications).toEqual([]);
+      expect(await store.listVerificationEntries(reviewId)).toHaveLength(1);
     });
 
     describe("the ingester work list", () => {

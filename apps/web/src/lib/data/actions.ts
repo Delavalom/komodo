@@ -26,6 +26,10 @@ import {
 import { BUCKET_ORDER } from "@/components/review/labels";
 import { ACTOR_COOKIE, resolveActorLogin } from "@/lib/data/actor";
 import { getStore } from "@/lib/data/server";
+import {
+  recordVerificationForActor,
+  type VerificationSubmission,
+} from "@/lib/data/verification";
 import type {
   Answer,
   Bucket,
@@ -215,6 +219,19 @@ export async function answerJudgement(input: {
     // people rather than one.
     actorLogin: await resolveActorLogin(members),
   });
+  revalidatePath("/", "layout");
+}
+
+/** Records what a person observed, never an approval or credential check. */
+export async function recordVerification(
+  input: VerificationSubmission,
+): Promise<void> {
+  const store = await getStore();
+  const snapshot = await store.snapshot();
+  await recordVerificationForActor(
+    input,
+    await resolveActorLogin(snapshot.members),
+  );
   revalidatePath("/", "layout");
 }
 
@@ -413,6 +430,7 @@ export async function postReceipt(reviewId: string): Promise<string> {
         note: answer.note,
       })),
       unanswered: detail.judgements.length - decided.length,
+      verification: verificationOutcome(detail),
     },
     reviewPermalink(ref, detail.review.headSha),
   );
@@ -427,6 +445,24 @@ export async function postReceipt(reviewId: string): Promise<string> {
   await store.markReceiptPosted(reviewId, comment.html_url);
   revalidatePath("/", "layout");
   return comment.html_url;
+}
+
+function verificationOutcome(detail: {
+  verificationRequirements: import("@/lib/types").VerificationRequirement[];
+  verifications: import("@/lib/types").VerificationEntry[];
+}) {
+  const latest = new Map(
+    detail.verifications.map((entry) => [entry.requirementId, entry]),
+  );
+  const required = detail.verificationRequirements.filter((check) => check.required);
+  return {
+    required: required.length,
+    verified: required.filter((check) => latest.get(check.id)?.result === "verified")
+      .length,
+    failed: required.filter((check) => latest.get(check.id)?.result === "failed").length,
+    blocked: required.filter((check) => latest.get(check.id)?.result === "blocked")
+      .length,
+  };
 }
 
 function parseReviewId(reviewId: string): PRRef {

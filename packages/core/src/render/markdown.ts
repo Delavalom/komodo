@@ -1,6 +1,7 @@
 import type { KomodoConfig } from "../config.js";
 import {
   KIND_LABEL,
+  FOCUS_LABEL,
   SEVERITY_LABEL,
   SEVERITY_RANK,
   type Judgement,
@@ -33,7 +34,7 @@ export function renderWalkthroughComment(pr: PRMeta, result: ReviewResult, confi
           .join(" · ")
       : "Nothing to judge";
     parts.push(
-      `${confidenceBadge(result.confidence)} — ${result.verdict}\n\n` +
+      `**Review coverage:** ${confidenceBadge(result.confidence)} · ${result.verdict}\n\n` +
         `**Review effort:** ${result.effort}/5 · **Judgements:** ${judgementsLine}`,
     );
   }
@@ -76,6 +77,7 @@ export function renderReceipt(
   reviewUrl: string,
 ): string {
   const n = result.judgements.length;
+  const requiredChecks = result.verificationChecks.filter((check) => check.required).length;
   const counts = countBySeverity(result.judgements);
   const breakdown = Object.entries(counts)
     .map(([sev, count]) => `${SEVERITY_LABEL[sev as Severity]}: ${count}`)
@@ -83,13 +85,16 @@ export function renderReceipt(
 
   return [
     WALKTHROUGH_MARKER,
-    `### 🦎 Komodo reviewed this`,
-    `${confidenceBadge(result.confidence)} — ${result.verdict}`,
+    `### 🦎 Komodo prepared the human review`,
+    `**Review coverage:** ${confidenceBadge(result.confidence)} · ${result.verdict}`,
+    requiredChecks
+      ? `**${requiredChecks} required result check${requiredChecks === 1 ? "" : "s"}** waiting for human evidence.`
+      : "AI preflight is ready. Human review is still required.",
     n
-      ? `**${n} judgement${n > 1 ? "s" : ""}** waiting on a human — ${breakdown}\n\n` +
+      ? `**${n} judgement${n > 1 ? "s" : ""}** waiting on a human · ${breakdown}\n\n` +
         `Each one is a question with four ways to answer it.\n\n` +
-        `**[Answer them in Komodo →](${reviewUrl})**`
-      : `Nothing here needed a decision. [See the review →](${reviewUrl})`,
+        `**[Open the human review →](${reviewUrl})**`
+      : `The source review raised no decisions. [Verify the result →](${reviewUrl})`,
     `<sub>Reviewed on your own subscription · head <code>${pr.headSha.slice(0, 7)}</code></sub>`,
   ].join("\n\n");
 }
@@ -115,6 +120,12 @@ export interface Outcome {
   /** The items worth naming: what blocks, and what was asked. */
   decisions: { bucket: string; title: string; note: string | null }[];
   unanswered: number;
+  verification?: {
+    required: number;
+    verified: number;
+    failed: number;
+    blocked: number;
+  };
 }
 
 export function renderOutcome(outcome: Outcome, reviewUrl: string): string {
@@ -125,9 +136,23 @@ export function renderOutcome(outcome: Outcome, reviewUrl: string): string {
 
   const parts: string[] = [
     WALKTHROUGH_MARKER,
-    `### 🦎 Komodo review answered`,
-    `${confidenceBadge(outcome.confidence)} — ${outcome.verdictLine}`,
+    `### 🦎 Komodo human review record`,
+    `**AI review coverage:** ${confidenceBadge(outcome.confidence)} · ${outcome.verdictLine}`,
   ];
+
+  if (outcome.verification) {
+    const verification = outcome.verification;
+    const waiting = Math.max(0, verification.required - verification.verified);
+    parts.push(
+      verification.required === 0
+        ? "**Result verification:** no required runtime checks were planned. Human approval remains separate."
+        : verification.failed || verification.blocked
+        ? `**Result verification needs action:** ${verification.failed} failed · ${verification.blocked} blocked.`
+        : waiting
+          ? `**Result verification:** ${verification.verified}/${verification.required} required checks verified.`
+          : `**Result verification:** all ${verification.required} required checks verified.`,
+    );
+  }
 
   parts.push(
     answered
@@ -179,7 +204,7 @@ export function renderJudgementComment(
   includeFixPrompt = true,
 ): string {
   const parts: string[] = [
-    `**${SEVERITY_LABEL[j.severity]} · ${KIND_LABEL[j.kind]}** — ${j.tag}`,
+    `**${SEVERITY_LABEL[j.severity]} · ${FOCUS_LABEL[j.focus]} · ${KIND_LABEL[j.kind]}** · ${j.tag}`,
     `**${j.title}**`,
     j.lede,
     j.detail,
@@ -199,14 +224,14 @@ export function renderJudgementComment(
 
 export function renderReviewBody(result: ReviewResult): string {
   if (!result.judgements.length) {
-    return `🦎 **Komodo** found nothing worth judging. ${result.verdict}`;
+    return `🦎 **Komodo AI preflight** found no source concerns. Human verification and approval are still required. ${result.verdict}`;
   }
   const counts = countBySeverity(result.judgements);
   const summary = Object.entries(counts)
     .map(([sev, n]) => `${n} ${sev}`)
     .join(", ");
   const n = result.judgements.length;
-  return `🦎 **Komodo** raised ${n} judgement${n > 1 ? "s" : ""} (${summary}). Each inline comment states what was decided and the question it puts to you.`;
+  return `🦎 **Komodo AI preflight** raised ${n} concern${n > 1 ? "s" : ""} (${summary}). This is preparation for human review, not an approval.`;
 }
 
 export function renderDescriptionBlock(result: ReviewResult): string {

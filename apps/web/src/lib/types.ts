@@ -18,6 +18,7 @@ export type {
   Bucket,
   Finding,
   FindingStatus,
+  EvidenceKind,
   ImpactLevel,
   Integration,
   IntegrationProvider,
@@ -44,6 +45,7 @@ export type {
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,
+  ReviewFocus,
   ReviewStatus,
   ReviewTrigger,
   Severity,
@@ -52,6 +54,10 @@ export type {
   Team,
   Verdict,
   WalkthroughEntry,
+  VerificationEntry,
+  VerificationRequirement,
+  VerificationResult,
+  VerificationSummary,
 } from "@komodo/store";
 
 /* Re-exporting does not bind the names locally, and the query shapes below
@@ -123,6 +129,21 @@ export interface QueueRow extends PullRequest {
   status: ReviewStatus | "not_requested";
   impact: ImpactLevel | null;
   score: number | null;
+  aiConcernCount: number;
+  verificationState:
+    | "not_planned"
+    | "not_required"
+    | "needs_evidence"
+    | "verified"
+    | "failed"
+    | "blocked";
+  verificationSummary: import("@komodo/store").VerificationSummary | null;
+  humanReviewState:
+    | "changes_requested"
+    | "approved"
+    | "awaiting_review"
+    | "unassigned";
+  humanApprovals: string[];
   repoFullName: string;
   /** additions + deletions, and the bucket it falls in. */
   changedLines: number;

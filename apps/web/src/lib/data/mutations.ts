@@ -53,6 +53,8 @@ export const useClearJudgmentFilters = () => useDataStore((s) => s.clearJudgment
 
 export const useAnswerJudgement = () => actions.answerJudgement;
 
+export const useRecordVerification = () => actions.recordVerification;
+
 export const useVoteJudgement = () => actions.voteJudgement;
 
 /**

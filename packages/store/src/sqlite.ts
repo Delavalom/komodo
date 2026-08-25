@@ -26,7 +26,9 @@ import type {
   PullRequestInput,
   QueueSnapshot,
   ReviewInput,
+  VerificationInput,
 } from "./port.js";
+import { verificationRequirementId } from "./verification.js";
 import type {
   Answer,
   AIReviewJob,
@@ -49,6 +51,9 @@ import type {
   ReviewFile,
   ReviewJudgement,
   Team,
+  VerificationEntry,
+  VerificationRequirement,
+  VerificationSummary,
 } from "./types.js";
 
 const SCHEMA = `
@@ -172,6 +177,7 @@ CREATE INDEX IF NOT EXISTS findings_judgement ON findings (judgementId);
 
 CREATE TABLE IF NOT EXISTS reviews (
   id          TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL DEFAULT 2,
   prId        TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
   headSha     TEXT NOT NULL,
   -- Insertion order. Two runs can land in the same millisecond, so createdAt
@@ -214,6 +220,7 @@ CREATE TABLE IF NOT EXISTS review_judgements (
   endLine    INTEGER,
   severity   TEXT NOT NULL,
   kind       TEXT NOT NULL,
+  focus      TEXT NOT NULL DEFAULT 'code',
   tag        TEXT NOT NULL,
   title      TEXT NOT NULL,
   lede       TEXT NOT NULL,
@@ -248,6 +255,39 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 CREATE INDEX IF NOT EXISTS answers_review ON answers (reviewId, createdAt);
 CREATE INDEX IF NOT EXISTS answers_judgement ON answers (judgementId, createdAt);
+
+CREATE TABLE IF NOT EXISTS verification_requirements (
+  id             TEXT PRIMARY KEY,
+  reviewId       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  ordinal        INTEGER NOT NULL,
+  title          TEXT NOT NULL,
+  instruction    TEXT NOT NULL,
+  expectedResult TEXT NOT NULL,
+  evidenceKinds  TEXT NOT NULL DEFAULT '[]',
+  required       INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS verification_requirements_review
+  ON verification_requirements (reviewId, ordinal);
+
+-- Append-only and deliberately not tied to a requirement by a foreign key.
+-- A same-head re-review can replace its plan; observations against the old
+-- plan remain history and cannot attach to a new check with different text.
+CREATE TABLE IF NOT EXISTS verification_entries (
+  id             TEXT PRIMARY KEY,
+  seq            INTEGER NOT NULL UNIQUE,
+  requirementId  TEXT NOT NULL,
+  reviewId       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  actorLogin     TEXT NOT NULL,
+  result         TEXT NOT NULL,
+  evidenceKind   TEXT NOT NULL,
+  evidenceUrl    TEXT,
+  note           TEXT,
+  createdAt      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verification_entries_review
+  ON verification_entries (reviewId, createdAt);
+CREATE INDEX IF NOT EXISTS verification_entries_requirement
+  ON verification_entries (requirementId, createdAt);
 
 -- Trackers Komodo can read an issue out of. One row per provider: a
 -- deployment talks to one Linear workspace and one Jira site, and a second
@@ -405,6 +445,7 @@ export class SqliteStore implements KomodoStore {
       repoClusters: await this.listRepoClusters(),
       apiKeys: await this.listApiKeys(),
       integrations: await this.listIntegrations(),
+      verificationSummaries: this.readVerificationSummaries(),
     };
   }
 
@@ -493,6 +534,15 @@ export class SqliteStore implements KomodoStore {
       )
       .all(reviewId) as Row[];
     return rows.map(toAnswer);
+  }
+
+  async listVerificationEntries(reviewId: string): Promise<VerificationEntry[]> {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM verification_entries WHERE reviewId = ? ORDER BY seq",
+      )
+      .all(reviewId) as Row[];
+    return rows.map(toVerificationEntry);
   }
 
   /* ── Deployment facts ───────────────────────────────────────────────── */
@@ -894,7 +944,60 @@ export class SqliteStore implements KomodoStore {
       createdAt: num(r.createdAt),
     }));
 
-    return { review, judgements, answers: [...newest.values()], votes };
+    const verificationRequirements = (
+      this.db
+        .prepare(
+          "SELECT * FROM verification_requirements WHERE reviewId = ? ORDER BY ordinal",
+        )
+        .all(review.id) as Row[]
+    ).map(toVerificationRequirement);
+    const currentIds = new Set(verificationRequirements.map((check) => check.id));
+    const newestVerification = new Map<string, VerificationEntry>();
+    for (const row of this.db
+      .prepare(
+        "SELECT * FROM verification_entries WHERE reviewId = ? ORDER BY seq",
+      )
+      .all(review.id) as Row[]) {
+      const entry = toVerificationEntry(row);
+      if (currentIds.has(entry.requirementId)) {
+        newestVerification.set(entry.requirementId, entry);
+      }
+    }
+
+    return {
+      review,
+      judgements,
+      answers: [...newest.values()],
+      votes,
+      verificationRequirements,
+      verifications: [...newestVerification.values()],
+    };
+  }
+
+  private readVerificationSummaries(): VerificationSummary[] {
+    const rows = this.db
+      .prepare(
+        `WITH latest AS (
+           SELECT requirementId, result,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY requirementId ORDER BY seq DESC
+                  ) AS rn
+           FROM verification_entries
+         )
+         SELECT r.reviewId,
+                COUNT(*) AS total,
+                SUM(CASE WHEN r.required = 1 THEN 1 ELSE 0 END) AS required,
+                SUM(CASE WHEN l.result = 'verified' THEN 1 ELSE 0 END) AS verified,
+                SUM(CASE WHEN r.required = 1 AND l.result = 'verified' THEN 1 ELSE 0 END) AS requiredVerified,
+                SUM(CASE WHEN r.required = 1 AND l.result = 'failed' THEN 1 ELSE 0 END) AS failed,
+                SUM(CASE WHEN r.required = 1 AND l.result = 'blocked' THEN 1 ELSE 0 END) AS blocked
+         FROM verification_requirements r
+         LEFT JOIN latest l ON l.requirementId = r.id AND l.rn = 1
+         GROUP BY r.reviewId
+         ORDER BY r.reviewId`,
+      )
+      .all() as Row[];
+    return rows.map(toVerificationSummary);
   }
 
   private readOrganization(): Organization {
@@ -1289,11 +1392,12 @@ export class SqliteStore implements KomodoStore {
           // `seq` is not in the DO UPDATE list: a re-run of the same head
           // keeps the position it already had in the history.
           `INSERT INTO reviews
-             (id, prId, headSha, seq, provider, model, summary, walkthrough,
+             (id, version, prId, headSha, seq, provider, model, summary, walkthrough,
               confidence, effort, verdictLine, diagram, recordId, createdAt)
-           VALUES (?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
+           VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id) DO UPDATE SET
+             version = excluded.version,
              provider = excluded.provider, model = excluded.model,
              summary = excluded.summary, walkthrough = excluded.walkthrough,
              confidence = excluded.confidence, effort = excluded.effort,
@@ -1301,7 +1405,7 @@ export class SqliteStore implements KomodoStore {
              recordId = excluded.recordId`,
         )
         .run(
-          id, input.prId, input.headSha, input.provider, input.model ?? null,
+          id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
           input.diagram ?? null, input.recordId, now,
@@ -1325,18 +1429,38 @@ export class SqliteStore implements KomodoStore {
       this.db.prepare("DELETE FROM review_judgements WHERE reviewId = ?").run(id);
       const judgement = this.db.prepare(
         `INSERT INTO review_judgements
-           (id, reviewId, ordinal, path, line, endLine, severity, kind, tag,
+           (id, reviewId, ordinal, path, line, endLine, severity, kind, focus, tag,
             title, lede, detail, ask, sources, sourceNote, code, options,
             suggestion, fixPrompt, postable)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       input.judgements.forEach((j, ordinal) => {
         judgement.run(
           `${id}:${ordinal}`, id, ordinal, j.path, j.line, j.endLine ?? null,
-          j.severity, j.kind, j.tag, j.title, j.lede, j.detail, j.ask,
+          j.severity, j.kind, j.focus, j.tag, j.title, j.lede, j.detail, j.ask,
           JSON.stringify(j.sources), j.sourceNote, j.code,
           JSON.stringify(j.options), j.suggestion ?? null, j.fixPrompt,
           flag(j.postable),
+        );
+      });
+
+      // Requirements belong to the current generated brief. Evidence does
+      // not: its content-derived requirement id keeps old observations from
+      // being reassigned when a same-head review produces a different plan.
+      this.db
+        .prepare("DELETE FROM verification_requirements WHERE reviewId = ?")
+        .run(id);
+      const requirement = this.db.prepare(
+        `INSERT INTO verification_requirements
+           (id, reviewId, ordinal, title, instruction, expectedResult,
+            evidenceKinds, required)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      input.verificationRequirements.forEach((check, ordinal) => {
+        requirement.run(
+          verificationRequirementId(id, check), id, ordinal, check.title,
+          check.instruction, check.expectedResult,
+          JSON.stringify(check.evidenceKinds), flag(check.required),
         );
       });
       this.db.exec("COMMIT");
@@ -1370,6 +1494,34 @@ export class SqliteStore implements KomodoStore {
         input.judgementId, reviewId, input.actorLogin, input.bucket ?? null,
         input.optionLabel ?? null, input.note ?? null,
         flag(Boolean(input.blocking)), now,
+      );
+  }
+
+  async recordVerification(input: VerificationInput): Promise<void> {
+    const requirement = this.db
+      .prepare("SELECT reviewId FROM verification_requirements WHERE id = ?")
+      .get(input.requirementId) as Row | undefined;
+    if (!requirement) throw new Error("That verification check no longer exists.");
+
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO verification_entries
+           (id, seq, requirementId, reviewId, actorLogin, result, evidenceKind,
+            evidenceUrl, note, createdAt)
+         VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM verification_entries),
+                 ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        newId("verification"),
+        input.requirementId,
+        str(requirement.reviewId),
+        input.actorLogin,
+        input.result,
+        input.evidenceKind,
+        input.evidenceUrl ?? null,
+        input.note ?? null,
+        now,
       );
   }
 
@@ -1517,6 +1669,7 @@ function toAIReviewJob(r: Row): AIReviewJob {
 
 function toReview(r: Row): Review {
   return {
+    version: num(r.version) === 3 ? 3 : 2,
     id: str(r.id),
     prId: str(r.prId),
     headSha: str(r.headSha),
@@ -1556,6 +1709,7 @@ function toReviewJudgement(r: Row): ReviewJudgement {
     endLine: r.endLine === null ? null : num(r.endLine),
     severity: str(r.severity) as ReviewJudgement["severity"],
     kind: str(r.kind) as ReviewJudgement["kind"],
+    focus: (r.focus == null ? "code" : str(r.focus)) as ReviewJudgement["focus"],
     tag: str(r.tag),
     title: str(r.title),
     lede: str(r.lede),
@@ -1568,6 +1722,45 @@ function toReviewJudgement(r: Row): ReviewJudgement {
     suggestion: r.suggestion === null ? null : str(r.suggestion),
     fixPrompt: str(r.fixPrompt),
     postable: bool(r.postable),
+  };
+}
+
+function toVerificationRequirement(r: Row): VerificationRequirement {
+  return {
+    id: str(r.id),
+    reviewId: str(r.reviewId),
+    ordinal: num(r.ordinal),
+    title: str(r.title),
+    instruction: str(r.instruction),
+    expectedResult: str(r.expectedResult),
+    evidenceKinds: list(r.evidenceKinds) as VerificationRequirement["evidenceKinds"],
+    required: bool(r.required),
+  };
+}
+
+function toVerificationEntry(r: Row): VerificationEntry {
+  return {
+    id: str(r.id),
+    requirementId: str(r.requirementId),
+    reviewId: str(r.reviewId),
+    actorLogin: str(r.actorLogin),
+    result: str(r.result) as VerificationEntry["result"],
+    evidenceKind: str(r.evidenceKind) as VerificationEntry["evidenceKind"],
+    evidenceUrl: r.evidenceUrl == null ? null : str(r.evidenceUrl),
+    note: r.note == null ? null : str(r.note),
+    createdAt: num(r.createdAt),
+  };
+}
+
+function toVerificationSummary(r: Row): VerificationSummary {
+  return {
+    reviewId: str(r.reviewId),
+    total: num(r.total),
+    required: num(r.required),
+    verified: num(r.verified),
+    requiredVerified: num(r.requiredVerified),
+    failed: num(r.failed),
+    blocked: num(r.blocked),
   };
 }
 

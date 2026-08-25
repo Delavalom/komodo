@@ -124,7 +124,6 @@ export const KomodoConfigSchema = z.object({
        */
       mode: z.enum(["receipt", "full", "none"]).default("receipt"),
       update_description: z.boolean().default(false),
-      request_changes: z.boolean().default(true),
       status_check: z.boolean().default(false),
       /** Prepended to whatever Komodo posts. Empty means nothing is added. */
       header: z.string().default(""),
@@ -144,32 +143,6 @@ export const KomodoConfigSchema = z.object({
        * next step is a person.
        */
       include_fix_prompts: z.boolean().default(true),
-      /**
-       * The commit status passes at or above this confidence.
-       *
-       * Was hardcoded at 3. A team that wants the check to be advisory sets 0;
-       * one that wants it to be a gate sets 4.
-       */
-      status_min_confidence: z.number().int().min(0).max(5).default(3),
-      /**
-       * Approve outright when the review found nothing worse than `max_risk`.
-       *
-       * Off by default and deliberately so: an approval is a claim a human
-       * made, and handing it to a model by default is the one thing a review
-       * tool should not do quietly.
-       */
-      auto_approve: z
-        .object({
-          enabled: z.boolean().default(false),
-          /**
-           * The worst severity an approval tolerates. Stated in core's own
-           * severity vocabulary rather than the queue's impact levels — the
-           * translation between the two belongs in ingest, next to the rest
-           * of it.
-           */
-          max_severity: z.enum(SEVERITIES).default("trivial"),
-        })
-        .prefault({}),
     })
     .prefault({}),
   /**
@@ -222,10 +195,27 @@ export function loadConfig(dir: string = process.cwd()): { config: KomodoConfig;
     const p = join(/*turbopackIgnore: true*/ dir, name);
     if (existsSync(/*turbopackIgnore: true*/ p)) {
       const raw = parse(readFileSync(/*turbopackIgnore: true*/ p, "utf8")) ?? {};
+      warnDeprecatedApprovalConfig(raw, p);
       return { config: KomodoConfigSchema.parse(raw), path: p };
     }
   }
   return { config: KomodoConfigSchema.parse({}) };
+}
+
+/** The config file is an external boundary, so stale merge-authority fields speak up here. */
+function warnDeprecatedApprovalConfig(raw: unknown, path: string): void {
+  if (!raw || typeof raw !== "object") return;
+  const post = (raw as Record<string, unknown>).post;
+  if (!post || typeof post !== "object") return;
+  const fields = post as Record<string, unknown>;
+  const stale = ["auto_approve", "request_changes", "status_min_confidence"].filter(
+    (key) => key in fields,
+  );
+  if (!stale.length) return;
+  console.warn(
+    `Komodo ignores ${stale.map((key) => `post.${key}`).join(", ")} in ${path}. ` +
+      "AI prepares a review but cannot approve or request changes for a human.",
+  );
 }
 
 export function effectivePathFilters(config: KomodoConfig): string[] {

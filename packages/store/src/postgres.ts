@@ -19,8 +19,10 @@ import type {
   PullRequestInput,
   QueueSnapshot,
   ReviewInput,
+  VerificationInput,
 } from "./port.js";
 import { newId } from "./ids.js";
+import { verificationRequirementId } from "./verification.js";
 import { runPostgresMigrations } from "./migrate.js";
 import { mergeSettings } from "./settings.js";
 import { fromPgPool, type SqlClient } from "./sql-client.js";
@@ -46,6 +48,9 @@ import type {
   ReviewFile,
   ReviewJudgement,
   Team,
+  VerificationEntry,
+  VerificationRequirement,
+  VerificationSummary,
 } from "./types.js";
 
 const SCHEMA = `
@@ -168,6 +173,7 @@ CREATE INDEX IF NOT EXISTS findings_judgement ON findings ("judgementId");
 
 CREATE TABLE IF NOT EXISTS reviews (
   id            TEXT PRIMARY KEY,
+  version       INTEGER NOT NULL DEFAULT 2,
   "prId"        TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
   "headSha"     TEXT NOT NULL,
   -- Insertion order. Two runs can land in the same millisecond, so createdAt
@@ -217,6 +223,7 @@ CREATE TABLE IF NOT EXISTS review_judgements (
   "endLine"    INTEGER,
   severity     TEXT NOT NULL,
   kind         TEXT NOT NULL,
+  focus        TEXT NOT NULL DEFAULT 'code',
   tag          TEXT NOT NULL,
   title        TEXT NOT NULL,
   lede         TEXT NOT NULL,
@@ -251,6 +258,37 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 CREATE INDEX IF NOT EXISTS answers_review ON answers ("reviewId", "createdAt");
 CREATE INDEX IF NOT EXISTS answers_judgement ON answers ("judgementId", "createdAt");
+
+CREATE TABLE IF NOT EXISTS verification_requirements (
+  id               TEXT PRIMARY KEY,
+  "reviewId"       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  ordinal          INTEGER NOT NULL,
+  title            TEXT NOT NULL,
+  instruction      TEXT NOT NULL,
+  "expectedResult" TEXT NOT NULL,
+  "evidenceKinds"  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  required         BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS verification_requirements_review
+  ON verification_requirements ("reviewId", ordinal);
+
+CREATE SEQUENCE IF NOT EXISTS verification_entries_order_seq;
+CREATE TABLE IF NOT EXISTS verification_entries (
+  id              TEXT PRIMARY KEY,
+  seq             BIGINT NOT NULL UNIQUE DEFAULT nextval('verification_entries_order_seq'),
+  "requirementId" TEXT NOT NULL,
+  "reviewId"      TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  "actorLogin"    TEXT NOT NULL,
+  result          TEXT NOT NULL,
+  "evidenceKind"  TEXT NOT NULL,
+  "evidenceUrl"   TEXT,
+  note            TEXT,
+  "createdAt"     BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verification_entries_review
+  ON verification_entries ("reviewId", "createdAt");
+CREATE INDEX IF NOT EXISTS verification_entries_requirement
+  ON verification_entries ("requirementId", "createdAt");
 
 -- Trackers Komodo can read an issue out of. One row per provider: a
 -- deployment talks to one Linear workspace and one Jira site, and a second
@@ -457,6 +495,7 @@ export class PostgresStore implements KomodoStore {
       repoClusters,
       apiKeys,
       integrations,
+      verificationSummaries,
     ] = await Promise.all([
       this.readOrganization(),
       this.loadSettings(),
@@ -471,6 +510,7 @@ export class PostgresStore implements KomodoStore {
       this.listRepoClusters(),
       this.listApiKeys(),
       this.listIntegrations(),
+      this.readVerificationSummaries(),
     ]);
     return {
       organization,
@@ -486,6 +526,7 @@ export class PostgresStore implements KomodoStore {
       repoClusters,
       apiKeys,
       integrations,
+      verificationSummaries,
     };
   }
 
@@ -571,6 +612,15 @@ export class PostgresStore implements KomodoStore {
       [reviewId],
     );
     return rows.map(toAnswer);
+  }
+
+  async listVerificationEntries(reviewId: string): Promise<VerificationEntry[]> {
+    const { rows } = await this.sql.query<Row>(
+      `SELECT * FROM verification_entries
+       WHERE "reviewId" = $1 ORDER BY seq`,
+      [reviewId],
+    );
+    return rows.map(toVerificationEntry);
   }
 
   /* ── Deployment facts ───────────────────────────────────────────────── */
@@ -932,7 +982,7 @@ export class PostgresStore implements KomodoStore {
   }
 
   private async detailFor(review: Review): Promise<ReviewDetail> {
-    const [judgements, answers, votes] = await Promise.all([
+    const [judgements, answers, votes, requirements, verificationEntries] = await Promise.all([
       this.sql.query<Row>(
         `SELECT * FROM review_judgements WHERE "reviewId" = $1 ORDER BY ordinal`,
         [review.id],
@@ -948,6 +998,16 @@ export class PostgresStore implements KomodoStore {
          ORDER BY v."createdAt"`,
         [review.id],
       ),
+      this.sql.query<Row>(
+        `SELECT * FROM verification_requirements
+         WHERE "reviewId" = $1 ORDER BY ordinal`,
+        [review.id],
+      ),
+      this.sql.query<Row>(
+        `SELECT * FROM verification_entries
+         WHERE "reviewId" = $1 ORDER BY seq`,
+        [review.id],
+      ),
     ]);
 
     // The ledger is append-only, so "the answer" is the newest row per
@@ -957,6 +1017,16 @@ export class PostgresStore implements KomodoStore {
     for (const row of answers.rows) {
       const answer = toAnswer(row);
       newest.set(answer.judgementId, answer);
+    }
+
+    const verificationRequirements = requirements.rows.map(toVerificationRequirement);
+    const currentIds = new Set(verificationRequirements.map((check) => check.id));
+    const newestVerification = new Map<string, VerificationEntry>();
+    for (const row of verificationEntries.rows) {
+      const entry = toVerificationEntry(row);
+      if (currentIds.has(entry.requirementId)) {
+        newestVerification.set(entry.requirementId, entry);
+      }
     }
 
     return {
@@ -969,7 +1039,33 @@ export class PostgresStore implements KomodoStore {
         value: (num(r.value) > 0 ? 1 : -1) as 1 | -1,
         createdAt: num(r.createdAt),
       })),
+      verificationRequirements,
+      verifications: [...newestVerification.values()],
     };
+  }
+
+  private async readVerificationSummaries(): Promise<VerificationSummary[]> {
+    const { rows } = await this.sql.query<Row>(
+      `WITH latest AS (
+         SELECT "requirementId", result,
+                ROW_NUMBER() OVER (
+                  PARTITION BY "requirementId" ORDER BY seq DESC
+                ) AS rn
+         FROM verification_entries
+       )
+       SELECT r."reviewId",
+              COUNT(*) AS total,
+              SUM(CASE WHEN r.required THEN 1 ELSE 0 END) AS required,
+              SUM(CASE WHEN l.result = 'verified' THEN 1 ELSE 0 END) AS verified,
+              SUM(CASE WHEN r.required AND l.result = 'verified' THEN 1 ELSE 0 END) AS "requiredVerified",
+              SUM(CASE WHEN r.required AND l.result = 'failed' THEN 1 ELSE 0 END) AS failed,
+              SUM(CASE WHEN r.required AND l.result = 'blocked' THEN 1 ELSE 0 END) AS blocked
+       FROM verification_requirements r
+       LEFT JOIN latest l ON l."requirementId" = r.id AND l.rn = 1
+       GROUP BY r."reviewId"
+       ORDER BY r."reviewId"`,
+    );
+    return rows.map(toVerificationSummary);
   }
 
   private async readOrganization(): Promise<Organization> {
@@ -1346,18 +1442,19 @@ export class PostgresStore implements KomodoStore {
         // `seq` is not in the DO UPDATE list: a re-run of the same head keeps
         // the position it already had in the history.
         `INSERT INTO reviews
-           (id, "prId", "headSha", seq, provider, model, summary, walkthrough,
+           (id, version, "prId", "headSha", seq, provider, model, summary, walkthrough,
             confidence, effort, "verdictLine", diagram, "recordId", "createdAt")
-         VALUES ($1,$2,$3,(SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                 $4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
+                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          ON CONFLICT (id) DO UPDATE SET
+           version = EXCLUDED.version,
            provider = EXCLUDED.provider, model = EXCLUDED.model,
            summary = EXCLUDED.summary, walkthrough = EXCLUDED.walkthrough,
            confidence = EXCLUDED.confidence, effort = EXCLUDED.effort,
            "verdictLine" = EXCLUDED."verdictLine", diagram = EXCLUDED.diagram,
            "recordId" = EXCLUDED."recordId"`,
         [
-          id, input.prId, input.headSha, input.provider, input.model ?? null,
+          id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
           input.diagram ?? null, input.recordId, now,
@@ -1384,16 +1481,34 @@ export class PostgresStore implements KomodoStore {
       for (const [ordinal, j] of input.judgements.entries()) {
         await this.sql.query(
           `INSERT INTO review_judgements
-             (id, "reviewId", ordinal, path, line, "endLine", severity, kind,
+             (id, "reviewId", ordinal, path, line, "endLine", severity, kind, focus,
               tag, title, lede, detail, ask, sources, "sourceNote", code,
               options, suggestion, "fixPrompt", postable)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
           [
             `${id}:${ordinal}`, id, ordinal, j.path, j.line, j.endLine ?? null,
-            j.severity, j.kind, j.tag, j.title, j.lede, j.detail, j.ask,
+            j.severity, j.kind, j.focus, j.tag, j.title, j.lede, j.detail, j.ask,
             JSON.stringify(j.sources), j.sourceNote, j.code,
             JSON.stringify(j.options), j.suggestion ?? null, j.fixPrompt,
             j.postable,
+          ],
+        );
+      }
+
+      await this.sql.query(
+        `DELETE FROM verification_requirements WHERE "reviewId" = $1`,
+        [id],
+      );
+      for (const [ordinal, check] of input.verificationRequirements.entries()) {
+        await this.sql.query(
+          `INSERT INTO verification_requirements
+             (id, "reviewId", ordinal, title, instruction, "expectedResult",
+              "evidenceKinds", required)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            verificationRequirementId(id, check), id, ordinal, check.title,
+            check.instruction, check.expectedResult,
+            JSON.stringify(check.evidenceKinds), check.required,
           ],
         );
       }
@@ -1427,6 +1542,35 @@ export class PostgresStore implements KomodoStore {
         input.judgementId, reviewId, input.actorLogin, input.bucket ?? null,
         input.optionLabel ?? null, input.note ?? null,
         Boolean(input.blocking), now,
+      ],
+    );
+  }
+
+  async recordVerification(input: VerificationInput): Promise<void> {
+    const { rows: requirementRows } = await this.sql.query<Row>(
+      `SELECT "reviewId" FROM verification_requirements WHERE id = $1`,
+      [input.requirementId],
+    );
+    if (!requirementRows[0]) {
+      throw new Error("That verification check no longer exists.");
+    }
+
+    const now = Date.now();
+    await this.sql.query(
+      `INSERT INTO verification_entries
+         (id, "requirementId", "reviewId", "actorLogin", result,
+          "evidenceKind", "evidenceUrl", note, "createdAt")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        newId("verification"),
+        input.requirementId,
+        str(requirementRows[0].reviewId),
+        input.actorLogin,
+        input.result,
+        input.evidenceKind,
+        input.evidenceUrl ?? null,
+        input.note ?? null,
+        now,
       ],
     );
   }
@@ -1535,6 +1679,7 @@ const json = <T,>(v: unknown, fallback: T): T =>
 
 function toReview(r: Row): Review {
   return {
+    version: num(r.version) === 3 ? 3 : 2,
     id: str(r.id),
     prId: str(r.prId),
     headSha: str(r.headSha),
@@ -1574,6 +1719,7 @@ function toReviewJudgement(r: Row): ReviewJudgement {
     endLine: r.endLine === null ? null : num(r.endLine),
     severity: str(r.severity) as ReviewJudgement["severity"],
     kind: str(r.kind) as ReviewJudgement["kind"],
+    focus: (r.focus == null ? "code" : str(r.focus)) as ReviewJudgement["focus"],
     tag: str(r.tag),
     title: str(r.title),
     lede: str(r.lede),
@@ -1586,6 +1732,45 @@ function toReviewJudgement(r: Row): ReviewJudgement {
     suggestion: r.suggestion === null ? null : str(r.suggestion),
     fixPrompt: str(r.fixPrompt),
     postable: bool(r.postable),
+  };
+}
+
+function toVerificationRequirement(r: Row): VerificationRequirement {
+  return {
+    id: str(r.id),
+    reviewId: str(r.reviewId),
+    ordinal: num(r.ordinal),
+    title: str(r.title),
+    instruction: str(r.instruction),
+    expectedResult: str(r.expectedResult),
+    evidenceKinds: json<VerificationRequirement["evidenceKinds"]>(r.evidenceKinds, []),
+    required: bool(r.required),
+  };
+}
+
+function toVerificationEntry(r: Row): VerificationEntry {
+  return {
+    id: str(r.id),
+    requirementId: str(r.requirementId),
+    reviewId: str(r.reviewId),
+    actorLogin: str(r.actorLogin),
+    result: str(r.result) as VerificationEntry["result"],
+    evidenceKind: str(r.evidenceKind) as VerificationEntry["evidenceKind"],
+    evidenceUrl: r.evidenceUrl == null ? null : str(r.evidenceUrl),
+    note: r.note == null ? null : str(r.note),
+    createdAt: num(r.createdAt),
+  };
+}
+
+function toVerificationSummary(r: Row): VerificationSummary {
+  return {
+    reviewId: str(r.reviewId),
+    total: num(r.total),
+    required: num(r.required),
+    verified: num(r.verified),
+    requiredVerified: num(r.requiredVerified),
+    failed: num(r.failed),
+    blocked: num(r.blocked),
   };
 }
 

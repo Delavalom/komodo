@@ -25,11 +25,10 @@ import {
   Toggle,
 } from "@/components/ui/controls";
 import { Textarea } from "@/components/ui/input";
-import { Badge } from "@/components/ui/display";
 import { InfoHint } from "@/components/analytics/panels";
 import { useOrgSettings, useOrganization } from "@/lib/data/queries";
 import { useUpdateOrgSettings } from "@/lib/data/mutations";
-import type { ImpactLevel, SummarySectionKey } from "@/lib/types";
+import type { SummarySectionKey } from "@/lib/types";
 
 /**
  * Strictness is a floor on severity — see MIN_SEVERITY in
@@ -41,13 +40,6 @@ const STRICTNESS_HINT = {
   medium: "Critical and major findings. Minor ones are dropped.",
   high: "Everything down to minor findings.",
 } as const;
-
-const RISK_HINT: Record<ImpactLevel, string> = {
-  low: "Approves only when nothing worse than a trivial note was found.",
-  medium: "Approves when nothing worse than a minor finding was found.",
-  high: "Approves when nothing critical was found.",
-  critical: "Approves regardless of what was found — effectively always.",
-};
 
 /**
  * The blocks a posted review can carry.
@@ -75,10 +67,10 @@ const SUMMARY_ROWS: {
   },
   {
     key: "confidence",
-    title: "Confidence Score",
-    description: "The merge-confidence rating and the verdict line",
+    title: "Review coverage",
+    description: "How much context the AI brief had, never a merge recommendation",
     icon: <BarChart3 className="h-5 w-5 text-muted-foreground" />,
-    hint: "How sure Komodo is that the change is safe to merge, from 0 to 5.",
+    hint: "How well grounded the AI review brief is, from 0 to 5.",
   },
   {
     key: "walkthrough",
@@ -452,41 +444,21 @@ export function ReviewSettingsView() {
       <section className="space-y-4">
         <SectionHeading
           id="status-checks"
-          title="Status Checks"
-          subtitle="The commit status Komodo posts, and when it fails"
+          title="Verification status"
+          subtitle="A pending commit status that says human verification is still required"
         />
         <Card className="p-5">
           <div className="flex items-start justify-between gap-6">
             <div>
-              <div className="text-base font-medium">Use Status Checks</div>
+              <div className="text-base font-medium">Use verification status</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                Post a commit status carrying the review&rsquo;s confidence
+                Post a pending status after AI preflight. A human approval remains separate in GitHub.
               </div>
             </div>
             <Toggle
               checked={settings.useStatusChecks}
               onChange={(useStatusChecks) => update({ useStatusChecks })}
-              label="Use Status Checks"
-            />
-          </div>
-          <div className="mt-6 flex items-start justify-between gap-6">
-            <div>
-              <div className="text-base font-medium">
-                Required confidence to pass
-              </div>
-              <HintChip>
-                {settings.requiredConfidence === 0
-                  ? "The check never fails on confidence."
-                  : `The check fails below ${settings.requiredConfidence}/5.`}
-              </HintChip>
-            </div>
-            <Segmented
-              value={settings.requiredConfidence}
-              onChange={(requiredConfidence) => update({ requiredConfidence })}
-              options={[0, 1, 2, 3, 4, 5].map((value) => ({
-                value,
-                label: String(value),
-              }))}
+              label="Use verification status"
             />
           </div>
         </Card>
@@ -501,45 +473,6 @@ export function ReviewSettingsView() {
             />
           }
         />
-      </section>
-
-      {/* ── Auto-approve PRs ──────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <SectionHeading
-          id="auto-approve"
-          title="Auto-approve PRs"
-          badge={<Badge>Beta</Badge>}
-          subtitle="Let Komodo approve a pull request outright"
-        />
-        <SettingRow
-          title="Auto-approve pull requests"
-          description="Only applies when posting is set to full — a receipt cannot carry an approval."
-          control={
-            <Toggle
-              checked={settings.autoApprovePrs}
-              onChange={(autoApprovePrs) => update({ autoApprovePrs })}
-              label="Auto-approve pull requests"
-            />
-          }
-        />
-        <SettingRow
-          title="Maximum risk to auto-approve"
-          description="The worst finding an approval will tolerate."
-          control={
-            <Segmented
-              value={settings.maxAutoApproveRisk}
-              onChange={(maxAutoApproveRisk) => update({ maxAutoApproveRisk })}
-              options={[
-                { value: "low" as const, label: "Low" },
-                { value: "medium" as const, label: "Medium" },
-                { value: "high" as const, label: "High" },
-                { value: "critical" as const, label: "Critical" },
-              ]}
-            />
-          }
-        >
-          <HintChip>{RISK_HINT[settings.maxAutoApproveRisk]}</HintChip>
-        </SettingRow>
       </section>
 
       <p className="sr-only">Organization: {org.name}</p>

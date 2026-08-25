@@ -32,10 +32,12 @@ import type {
   JudgementVote,
   Review,
   ReviewJudgement,
+  VerificationEntry,
+  VerificationRequirement,
 } from "@/lib/types";
 
 import { ClosingScreen } from "./closing";
-import { BUCKET_TONE, KIND_LABEL, SEVERITY_TONE } from "./labels";
+import { BUCKET_TONE, FOCUS_LABEL, KIND_LABEL, SEVERITY_TONE } from "./labels";
 
 export function DecisionQueue({
   review,
@@ -43,12 +45,16 @@ export function DecisionQueue({
   answers,
   votes,
   prUrl,
+  verificationRequirements,
+  verifications,
 }: {
   review: Review;
   judgements: ReviewJudgement[];
   answers: Answer[];
   votes: JudgementVote[];
   prUrl: string;
+  verificationRequirements: VerificationRequirement[];
+  verifications: VerificationEntry[];
 }) {
   const { get, set } = useUrlState();
   const router = useRouter();
@@ -57,7 +63,7 @@ export function DecisionQueue({
   const showFixPrompts = usePersonalSettings().showAiFixPrompts;
 
   // The URL names the judgement on screen, so a link into a review opens on
-  // the one being discussed. AGENTS.md rule 7.
+  // the one being discussed. AGENTS.md rule 8.
   //
   // The range runs one past the end: `j === judgements.length` is the closing
   // screen, which makes finishing a review a place you can link to and reload
@@ -193,6 +199,8 @@ export function DecisionQueue({
           review={review}
           judgements={judgements}
           answers={answers}
+          verificationRequirements={verificationRequirements}
+          verifications={verifications}
           onBack={() => go(last - 1)}
         />
       ) : (
@@ -209,6 +217,10 @@ export function DecisionQueue({
             </span>
             <span className="text-xs text-muted-foreground">
               {KIND_LABEL[current.kind]}
+            </span>
+            <span className="text-xs text-muted-foreground">·</span>
+            <span className="text-xs text-muted-foreground">
+              {FOCUS_LABEL[current.focus]}
             </span>
             <span className="text-xs text-muted-foreground">·</span>
             <span className="text-xs text-muted-foreground">{current.tag}</span>

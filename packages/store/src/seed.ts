@@ -10,7 +10,6 @@
  * byte-identical rows and two runs stay comparable.
  */
 import { DAY_MS, pick, rng } from "./rand.js";
-import { verdictFor } from "./verdict.js";
 import type { FindingInput, KomodoStore, ReviewInput } from "./port.js";
 import type {
   Bucket,
@@ -163,7 +162,7 @@ function weightedImpact(r: number): ImpactLevel {
 const JUDGEMENT_SHAPES = [
   {
     title: "Unvalidated user input reaches the SQL builder",
-    kind: "Risk", tag: "changes how queries are built",
+    kind: "Risk", focus: "code", tag: "changes how queries are built",
     lede: "A caller-supplied string is interpolated into the query rather than bound.",
     detail: "Binding it costs nothing here; the builder already takes parameters.",
     ask: "Is this input trusted enough to interpolate?",
@@ -172,7 +171,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Missing null check before dereferencing the session",
-    kind: "Behaviour", tag: "changes what an expired session does",
+    kind: "Behaviour", focus: "code", tag: "changes what an expired session does",
     lede: "An expired session now throws where it used to redirect to sign-in.",
     detail: "The redirect was two lines up before this change moved the read.",
     ask: "Should an expired session throw here?",
@@ -181,7 +180,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Race condition between the two sync workers",
-    kind: "Risk", tag: "changes how the workers coordinate",
+    kind: "Risk", focus: "architecture", tag: "changes how the workers coordinate",
     lede: "Both workers can claim the same row between the read and the write.",
     detail: "A conditional update on the version column would close the window.",
     ask: "Can two workers ever run against this table at once?",
@@ -190,7 +189,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Secret is logged at info level",
-    kind: "Risk", tag: "changes what reaches the logs",
+    kind: "Risk", focus: "scope", tag: "changes what reaches the logs",
     lede: "The token is written to a log line that ships to the aggregator.",
     detail: "Logging its last four characters would keep the line useful.",
     ask: "Should this token reach the log aggregator?",
@@ -199,7 +198,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Off-by-one in the pagination offset",
-    kind: "Choice", tag: "changes which row a page starts on",
+    kind: "Choice", focus: "tests", tag: "changes which row a page starts on",
     lede: "The offset is computed from a one-based page but used as zero-based.",
     detail: "The first row of every page after the first is skipped.",
     ask: "Is the page number one-based here?",
@@ -208,7 +207,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Unbounded retry loop on a 5xx response",
-    kind: "Risk", tag: "changes how failures are retried",
+    kind: "Risk", focus: "architecture", tag: "changes how failures are retried",
     lede: "A persistent 5xx retries forever, holding the connection open.",
     detail: "A ceiling of five with backoff matches the other callers here.",
     ask: "Should this retry without a ceiling?",
@@ -217,7 +216,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Timezone assumed to be UTC in a local-time context",
-    kind: "Domain", tag: "reaches outside this change",
+    kind: "Domain", focus: "architecture", tag: "reaches outside this change",
     lede: "The date is formatted in UTC but read by users in their own zone.",
     detail: "Everything downstream of this formatter inherits the assumption.",
     ask: "Is UTC the right zone for what the reader sees?",
@@ -226,7 +225,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Error swallowed by an empty catch block",
-    kind: "Choice", tag: "changes what happens on failure",
+    kind: "Choice", focus: "scope", tag: "changes what happens on failure",
     lede: "A failure here now leaves no trace: no log, no rethrow, no metric.",
     detail: "The caller cannot tell a failed run from an empty one.",
     ask: "Should this failure stay invisible?",
@@ -235,7 +234,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "N+1 query inside the row renderer",
-    kind: "Choice", tag: "changes how the table loads",
+    kind: "Choice", focus: "architecture", tag: "changes how the table loads",
     lede: "Each rendered row issues its own query for the author.",
     detail: "One query up front and a map would collapse it, at the cost of a join.",
     ask: "Is a query per row acceptable at this table's size?",
@@ -244,7 +243,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Regex is vulnerable to catastrophic backtracking",
-    kind: "Risk", tag: "changes how input is matched",
+    kind: "Risk", focus: "tests", tag: "changes how input is matched",
     lede: "Nested quantifiers make a crafted string take exponential time.",
     detail: "Anchoring the inner group removes the ambiguity outright.",
     ask: "Can untrusted input reach this pattern?",
@@ -253,7 +252,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Response cached without a user-scoped key",
-    kind: "Risk", tag: "changes who sees a cached response",
+    kind: "Risk", focus: "architecture", tag: "changes who sees a cached response",
     lede: "One user's response can be served to another from the shared cache.",
     detail: "Adding the user id to the key costs one string concatenation.",
     ask: "Is this response identical for every user?",
@@ -262,7 +261,7 @@ const JUDGEMENT_SHAPES = [
   },
   {
     title: "Float used for a currency amount",
-    kind: "Choice", tag: "changes how money is stored",
+    kind: "Choice", focus: "architecture", tag: "changes how money is stored",
     lede: "Amounts are held as floats, so totals drift by fractions of a cent.",
     detail: "Integer minor units are what the rest of the billing code uses.",
     ask: "Should money be a float here?",
@@ -431,7 +430,9 @@ export async function seedStore(
     const judgmentId = await store.upsertJudgment({
       prId,
       headSha,
-      verdict: verdictFor(status, score, impact),
+      // Seeded AI preflights do not invent a merge decision. Human review state
+      // comes from the real approval/change-request arrays above.
+      verdict: null,
       status,
       impact,
       score,
@@ -449,6 +450,7 @@ export async function seedStore(
       // After the review: a finding names the judgement it summarises, and
       // that id is `${reviewId}:${ordinal}`.
       await store.replaceFindings(judgmentId, findingsFrom(reviewId, judgements));
+      await seedVerification(store, reviewId, others);
 
       // Engagement used to be five numbers written straight onto the judgment,
       // which is why they were fiction anywhere but here. They are counted at
@@ -457,6 +459,34 @@ export async function seedStore(
       await seedEngagement(store, reviewId, judgements.length, others);
     }
   }
+}
+
+/** Real verification rows, so the dev queue is derived from observations. */
+async function seedVerification(
+  store: KomodoStore,
+  reviewId: string,
+  reviewers: readonly string[],
+): Promise<void> {
+  const next = rng(`verification:${reviewId}`);
+  if (next() >= 0.58) return;
+  const detail = await store.loadReview(reviewId);
+  const requirement = detail?.verificationRequirements[0];
+  if (!requirement) return;
+
+  const roll = next();
+  const result = roll < 0.78 ? "verified" : roll < 0.89 ? "failed" : "blocked";
+  await store.recordVerification({
+    requirementId: requirement.id,
+    actorLogin: pick(next, reviewers),
+    result,
+    evidenceKind: "manual_observation",
+    note:
+      result === "verified"
+        ? "Opened the changed flow against the seeded store and reloaded the result."
+        : result === "failed"
+          ? "The changed action did not produce the expected state."
+          : "The preview was not reachable from this device.",
+  });
 }
 
 /**
@@ -537,6 +567,7 @@ function buildJudgements(judgmentId: string): SeededJudgement[] {
       endLine: null,
       severity,
       kind: shape.kind,
+      focus: shape.focus,
       tag: shape.tag,
       title: `${shape.title}.`,
       lede: shape.lede,
@@ -571,6 +602,7 @@ function buildReview(args: {
   const { prId, headSha, judgements, score, provider } = args;
   const paths = [...new Set(judgements.map((j) => j.path))];
   return {
+    version: 3,
     prId,
     headSha,
     provider,
@@ -601,6 +633,15 @@ function buildReview(args: {
       patch: null,
     })),
     judgements,
+    verificationRequirements: [
+      {
+        title: "The changed pull-request path works against a real store.",
+        instruction: "Open the changed flow and complete its primary action with real seeded data.",
+        expectedResult: "The action completes and the resulting state survives a reload.",
+        evidenceKinds: ["manual_observation", "screenshot"],
+        required: true,
+      },
+    ],
   };
 }
 

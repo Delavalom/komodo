@@ -238,7 +238,7 @@ export function PullRequestsView() {
               Last Updated
             </TH>
             <TH className="w-[172px]">Review Status</TH>
-            <TH className="w-[114px]">Score</TH>
+            <TH className="w-[114px]">AI coverage</TH>
           </tr>
         </THead>
         <tbody>

@@ -59,17 +59,6 @@ describe("applySettings", () => {
     expect(config.instructions).toBe("From the file.");
   });
 
-  it("maps the queue's impact vocabulary onto the reviewer's severities", () => {
-    const config = applySettings(
-      baseConfig(),
-      settings({ autoApprovePrs: true, maxAutoApproveRisk: "medium" }),
-    );
-    expect(config.post.auto_approve).toEqual({
-      enabled: true,
-      max_severity: "minor",
-    });
-  });
-
   it("leaves deployment facts to komodo.yaml", () => {
     // provider, post.mode, the roster and the public URL are not preferences,
     // and the screen has no control for any of them.
@@ -110,11 +99,9 @@ describe("configToSettings", () => {
     expect(adopted.auto_review.max_files).toBe(config.auto_review.max_files);
     expect(adopted.post.update_description).toBe(config.post.update_description);
     expect(adopted.post.status_check).toBe(config.post.status_check);
-    expect(adopted.post.status_min_confidence).toBe(config.post.status_min_confidence);
     expect(adopted.post.status_comments).toBe(config.post.status_comments);
     expect(adopted.auto_review.on_new_commits).toBe(config.auto_review.on_new_commits);
     expect(adopted.post.include_fix_prompts).toBe(config.post.include_fix_prompts);
-    expect(adopted.post.auto_approve).toEqual(config.post.auto_approve);
     expect(adopted.modules).toEqual(config.modules);
   });
 
@@ -122,7 +109,7 @@ describe("configToSettings", () => {
     const config = baseConfig({
       min_severity: "critical",
       auto_review: { drafts: true, max_files: 25 },
-      post: { status_check: true, status_min_confidence: 5, header: "Heads up." },
+      post: { status_check: true, header: "Heads up." },
     });
     const adopted = applySettings(
       config,
@@ -132,7 +119,7 @@ describe("configToSettings", () => {
     expect(adopted.min_severity).toBe("critical");
     expect(adopted.auto_review.drafts).toBe(true);
     expect(adopted.auto_review.max_files).toBe(25);
-    expect(adopted.post.status_min_confidence).toBe(5);
+    expect(adopted.post.status_check).toBe(true);
     expect(adopted.post.header).toBe("Heads up.");
   });
 });

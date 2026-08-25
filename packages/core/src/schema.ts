@@ -9,11 +9,31 @@ export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
  */
 export const JUDGEMENT_KINDS = ["Choice", "Risk", "Behaviour", "Domain", "Unsure"] as const;
 
+/**
+ * The part of human review a judgement belongs to.
+ *
+ * `code` is kept for source-visible preflight findings. The other three are
+ * the decisions a human is still needed for after an agent has read the diff.
+ */
+export const REVIEW_FOCI = ["code", "architecture", "scope", "tests"] as const;
+
+/** What can substantiate an observation about the running change. */
+export const EVIDENCE_KINDS = [
+  "preview",
+  "screenshot",
+  "video",
+  "test_run",
+  "command_output",
+  "manual_observation",
+] as const;
+
 /** Where an answer lands in the posted review. */
 export const BUCKETS = ["Blocks", "Agreed", "Asked", "Passed on"] as const;
 
 export type Severity = (typeof SEVERITIES)[number];
 export type JudgementKind = (typeof JUDGEMENT_KINDS)[number];
+export type ReviewFocus = (typeof REVIEW_FOCI)[number];
+export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 export type Bucket = (typeof BUCKETS)[number];
 
 export const SEVERITY_RANK: Record<Severity, number> = {
@@ -38,6 +58,13 @@ export const KIND_LABEL: Record<JudgementKind, string> = {
   Unsure: "Komodo is unsure",
 };
 
+export const FOCUS_LABEL: Record<ReviewFocus, string> = {
+  code: "AI preflight",
+  architecture: "Architecture",
+  scope: "Change scope",
+  tests: "Test adequacy",
+};
+
 export const JudgementOptionSchema = z.object({
   label: z
     .string()
@@ -46,11 +73,16 @@ export const JudgementOptionSchema = z.object({
 });
 
 export const JudgementSchema = z.object({
-  path: z.string().describe("Repo-relative file path the judgement is about"),
+  path: z
+    .string()
+    .describe(
+      "Repo-relative file path, or an empty string for a cross-cutting architecture, scope, or missing-test concern",
+    ),
   line: z
     .number()
     .int()
-    .describe("Line number in the NEW version of the file (must be a changed/added line shown in the diff)"),
+    .nonnegative()
+    .describe("Line number in the NEW file, or 0 when no single changed line owns the concern"),
   endLine: z
     .number()
     .int()
@@ -58,6 +90,10 @@ export const JudgementSchema = z.object({
     .describe("For multi-line judgements: last line of the range (line is then the first)"),
   severity: z.enum(SEVERITIES),
   kind: z.enum(JUDGEMENT_KINDS),
+  focus: z
+    .enum(REVIEW_FOCI)
+    .default("code")
+    .describe("Whether this is AI preflight, architecture, scope discipline, or test adequacy"),
   tag: z
     .string()
     .describe("Four to six words on what area this touches, e.g. \"changes how logging out works\""),
@@ -107,6 +143,25 @@ export const JudgementSchema = z.object({
     .describe("A self-contained prompt a coding agent (Claude Code, Cursor, Codex) could run to fix this"),
 });
 
+export const VerificationCheckSchema = z.object({
+  title: z
+    .string()
+    .describe("The observable result a human needs to verify, stated without claiming it already works"),
+  instruction: z
+    .string()
+    .describe("A concrete way to exercise the result in a local, staging, or preview environment"),
+  expectedResult: z
+    .string()
+    .describe("What the reviewer should observe if the change works"),
+  evidenceKinds: z
+    .array(z.enum(EVIDENCE_KINDS))
+    .min(1)
+    .describe("The proof that can substantiate the observation"),
+  required: z
+    .boolean()
+    .describe("True when the result must be observed before human review can be complete"),
+});
+
 export const WalkthroughEntrySchema = z.object({
   files: z.array(z.string()).describe("Related files grouped into one row"),
   summary: z.string().describe("Plain-language description of what changed in these files"),
@@ -124,9 +179,17 @@ export const ReviewResultSchema = z.object({
     .int()
     .min(0)
     .max(5)
-    .describe("Merge-confidence 0 (do not merge) to 5 (ready to merge)"),
-  verdict: z.string().describe("One short line justifying the confidence score"),
+    .describe("Review-coverage confidence from 0 (material context missing) to 5 (the review brief is well grounded)"),
+  verdict: z
+    .string()
+    .describe("One short line explaining what the review could and could not establish; never a merge recommendation"),
   effort: z.number().int().min(1).max(5).describe("Estimated human review effort 1-5"),
+  verificationChecks: z
+    .array(VerificationCheckSchema)
+    .default([])
+    .describe(
+      "Checks a human must perform against the running result. Empty only when the change has no observable runtime, generated, or operational result.",
+    ),
   diagram: z
     .string()
     .optional()
@@ -136,12 +199,13 @@ export const ReviewResultSchema = z.object({
 
 export type JudgementOption = z.infer<typeof JudgementOptionSchema>;
 export type Judgement = z.infer<typeof JudgementSchema>;
+export type VerificationCheck = z.infer<typeof VerificationCheckSchema>;
 export type WalkthroughEntry = z.infer<typeof WalkthroughEntrySchema>;
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 
 /** A stored review run: result + the metadata the UI needs to render it. */
 export interface ReviewRecord {
-  version: 2;
+  version: 3;
   id: string;
   createdAt: string;
   provider: string;

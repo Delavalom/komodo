@@ -123,11 +123,18 @@ export function useMe(): Member | null {
  * The team's review queue.
  *
  * Open, non-draft pull requests, each carrying the pre-triage that makes this
- * worth opening instead of GitHub's review tab: Komodo's verdict, how long it
- * has waited, how big it is, and its worst findings.
+ * worth opening instead of GitHub's review tab: separate AI, verification,
+ * and human states, plus how long it has waited and its worst concerns.
  */
 export function useQueue(query: QueueQuery = {}): QueueRow[] {
-  const { pullRequests, aiReviewJobs, judgments, findings, members } = useSnapshot();
+  const {
+    pullRequests,
+    aiReviewJobs,
+    judgments,
+    findings,
+    members,
+    verificationSummaries,
+  } = useSnapshot();
   const repoIndex = useRepoIndex();
   const me = useMe();
   const login = me?.githubLogin ?? null;
@@ -156,6 +163,9 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
     const jobForHead = new Map(
       aiReviewJobs.map((job) => [`${job.prId}@${job.headSha}`, job]),
     );
+    const verificationForReview = new Map(
+      verificationSummaries.map((summary) => [summary.reviewId, summary]),
+    );
 
     const rows: QueueRow[] = [];
     for (const pr of pullRequests) {
@@ -164,6 +174,9 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
       const repository = repoIndex.get(pr.repoId);
       const judgment = judgmentForHead.get(`${pr.id}@${pr.headSha}`) ?? null;
       const job = jobForHead.get(`${pr.id}@${pr.headSha}`) ?? null;
+      const verificationSummary = judgment
+        ? verificationForReview.get(judgment.id) ?? null
+        : null;
       const changedLines = pr.additions + pr.deletions;
       const waitingDays = Math.floor((now - pr.updatedAt) / DAY_MS);
 
@@ -180,6 +193,37 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
         !pr.changesRequested.some(
           (reviewer) => reviewer.toLowerCase() === normalizedLogin,
         );
+      const humanApprovals = pr.approvals.filter(
+        (reviewer) =>
+          teammateLogins.has(reviewer.toLowerCase()) &&
+          reviewer.toLowerCase() !== pr.author.toLowerCase(),
+      );
+      const humanChangesRequested = pr.changesRequested.filter(
+        (reviewer) =>
+          teammateLogins.has(reviewer.toLowerCase()) &&
+          reviewer.toLowerCase() !== pr.author.toLowerCase(),
+      );
+      const humanReviewState: QueueRow["humanReviewState"] =
+        humanChangesRequested.length > 0
+          ? "changes_requested"
+          : humanApprovals.length > 0
+            ? "approved"
+            : pr.requestedReviewers.length > 0
+              ? "awaiting_review"
+              : "unassigned";
+      const verificationState: QueueRow["verificationState"] =
+        !judgment
+          ? "not_planned"
+          : !verificationSummary || verificationSummary.required === 0
+            ? "not_required"
+            : verificationSummary.failed > 0
+              ? "failed"
+              : verificationSummary.blocked > 0
+                ? "blocked"
+                : verificationSummary.requiredVerified >= verificationSummary.required
+                  ? "verified"
+                  : "needs_evidence";
+      const allFindings = judgment ? findingsFor.get(judgment.id) ?? [] : [];
 
       rows.push({
         ...pr,
@@ -200,15 +244,25 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
         status: judgment?.status ?? "not_requested",
         impact: judgment?.impact ?? null,
         score: judgment?.score ?? null,
+        aiConcernCount: allFindings.filter((finding) => finding.status === "open").length,
+        verificationState,
+        verificationSummary,
+        humanReviewState,
+        humanApprovals,
         repoFullName: repository ? fullName(repository) : pr.repoId,
         changedLines,
         sizeLabel: sizeLabel(changedLines),
         waitingDays,
         needsMyReview,
         isBlocked:
-          judgment?.verdict === "blocked" || pr.changesRequested.length > 0,
+          humanChangesRequested.length > 0 ||
+          allFindings.some(
+            (finding) =>
+              finding.status === "open" &&
+              (finding.severity === "P0" || finding.severity === "P1"),
+          ),
         isStale: waitingDays >= STALE_DAYS,
-        topFindings: (judgment ? findingsFor.get(judgment.id) ?? [] : [])
+        topFindings: allFindings
           .filter((f) => f.status === "open")
           .sort((a, b) => bySeverity[a.severity] - bySeverity[b.severity])
           .slice(0, 3),
@@ -234,7 +288,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
     // Longest wait first: the queue's job is to surface what is going stale,
     // not what landed most recently.
     return filtered.sort((a, b) => a.updatedAt - b.updatedAt);
-  }, [pullRequests, aiReviewJobs, judgments, findings, members, repoIndex, login, now, lens, search, author, repo]);
+  }, [pullRequests, aiReviewJobs, judgments, findings, members, verificationSummaries, repoIndex, login, now, lens, search, author, repo]);
 }
 
 /** Row counts behind each lens, so the tabs can carry a badge. */

@@ -84,7 +84,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
 
   const record: ReviewRecord = {
-    version: 2,
+    version: 3,
     id: `${ref.owner}-${ref.repo}-${ref.number}-${Date.now()}`,
     createdAt: new Date().toISOString(),
     provider: provider.name,
@@ -130,14 +130,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     reviewUrl = receipt.html_url;
 
     if (config.post.status_check) {
-      await github.postStatus(
-        ref,
-        pr.headSha,
-        finalResult.confidence >= config.post.status_min_confidence
-          ? "success"
-          : "failure",
-        `Komodo: ${finalResult.confidence}/5 — ${finalResult.verdict}`,
-      );
+      await github.postStatus(ref, pr.headSha, "pending", verificationStatus(finalResult));
     }
     record.posted = true;
     writeFileSync(recordPath, JSON.stringify(record, null, 2));
@@ -149,33 +142,20 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     const comments = finalResult.judgements.map((f) =>
       judgementToComment(f, renderJudgementComment(f, config.post.include_fix_prompts)),
     );
-    const hasBlocking = finalResult.judgements.some((f) => SEVERITY_RANK[f.severity] >= SEVERITY_RANK.major);
-    const event = reviewEvent(config, finalResult, hasBlocking);
     let review: { html_url: string };
-    try {
-      review = await github.postReview(ref, pr.headSha, renderReviewBody(finalResult), event, comments);
-    } catch (err) {
-      // GitHub rejects REQUEST_CHANGES/APPROVE on the token owner's own PR.
-      if (event !== "COMMENT" && err instanceof Error && err.message.includes("own pull request")) {
-        review = await github.postReview(ref, pr.headSha, renderReviewBody(finalResult), "COMMENT", comments);
-      } else {
-        throw err;
-      }
-    }
+    review = await github.postReview(
+      ref,
+      pr.headSha,
+      renderReviewBody(finalResult),
+      comments,
+    );
     reviewUrl = review.html_url;
 
     if (config.post.update_description) {
       await github.updateDescription(ref, pr.body, renderDescriptionBlock(finalResult));
     }
     if (config.post.status_check) {
-      await github.postStatus(
-        ref,
-        pr.headSha,
-        finalResult.confidence >= config.post.status_min_confidence
-          ? "success"
-          : "failure",
-        `Komodo: ${finalResult.confidence}/5 — ${finalResult.verdict}`,
-      );
+      await github.postStatus(ref, pr.headSha, "pending", verificationStatus(finalResult));
     }
     record.posted = true;
     writeFileSync(recordPath, JSON.stringify(record, null, 2));
@@ -199,26 +179,11 @@ function withHeader(config: KomodoConfig, body: string): string {
   return `${WALKTHROUGH_MARKER}\n\n${header}${body.slice(WALKTHROUGH_MARKER.length)}`;
 }
 
-/**
- * Which review event GitHub gets.
- *
- * Approval is opt-in and narrow: it needs `auto_approve.enabled`, and every
- * judgement at or below `max_severity`. An empty judgement list qualifies,
- * which is the case it mostly exists for — the pull request the reviewer had
- * nothing to say about.
- */
-function reviewEvent(
-  config: KomodoConfig,
-  result: ReviewResult,
-  hasBlocking: boolean,
-): "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
-  const { auto_approve } = config.post;
-  if (auto_approve.enabled) {
-    const ceiling = SEVERITY_RANK[auto_approve.max_severity];
-    const clean = result.judgements.every((j) => SEVERITY_RANK[j.severity] <= ceiling);
-    if (clean) return "APPROVE";
-  }
-  return hasBlocking && config.post.request_changes ? "REQUEST_CHANGES" : "COMMENT";
+function verificationStatus(result: ReviewResult): string {
+  const required = result.verificationChecks.filter((check) => check.required).length;
+  return required
+    ? `Human review required; ${required} result check${required === 1 ? "" : "s"} waiting`
+    : "Human review required; AI preflight is ready";
 }
 
 /** Drop judgements below min_severity or anchored to lines GitHub can't comment on. */
@@ -271,7 +236,7 @@ export function buildReviewRecord(opts: {
 }): ReviewRecord {
   const { meta, files, result, provider, model } = opts;
   return {
-    version: 2,
+    version: 3,
     id: `${meta.owner}-${meta.repo}-${meta.number || "local"}-${Date.now()}`,
     createdAt: new Date().toISOString(),
     provider,

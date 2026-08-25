@@ -295,6 +295,114 @@ CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
 CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
   ON ai_review_jobs (state, "leaseExpiresAt", "requestedAt")`,
   },
+  {
+    id: "011-evidence-first-reviews",
+    addColumns: [
+      {
+        table: "reviews",
+        column: "version",
+        sqlite: "INTEGER NOT NULL DEFAULT 2",
+        postgres: "INTEGER NOT NULL DEFAULT 2",
+      },
+      {
+        table: "review_judgements",
+        column: "focus",
+        sqlite: "TEXT NOT NULL DEFAULT 'code'",
+        postgres: "TEXT NOT NULL DEFAULT 'code'",
+      },
+    ],
+    sqlite: `CREATE TABLE IF NOT EXISTS verification_requirements (
+  id             TEXT PRIMARY KEY,
+  reviewId       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  ordinal        INTEGER NOT NULL,
+  title          TEXT NOT NULL,
+  instruction    TEXT NOT NULL,
+  expectedResult TEXT NOT NULL,
+  evidenceKinds  TEXT NOT NULL DEFAULT '[]',
+  required       INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS verification_requirements_review
+  ON verification_requirements (reviewId, ordinal);
+CREATE TABLE IF NOT EXISTS verification_entries (
+  id            TEXT PRIMARY KEY,
+  requirementId TEXT NOT NULL,
+  reviewId      TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  actorLogin    TEXT NOT NULL,
+  result        TEXT NOT NULL,
+  evidenceKind  TEXT NOT NULL,
+  evidenceUrl   TEXT,
+  note          TEXT,
+  createdAt     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verification_entries_review
+  ON verification_entries (reviewId, createdAt);
+CREATE INDEX IF NOT EXISTS verification_entries_requirement
+  ON verification_entries (requirementId, createdAt)`,
+    postgres: `CREATE TABLE IF NOT EXISTS verification_requirements (
+  id               TEXT PRIMARY KEY,
+  "reviewId"       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  ordinal          INTEGER NOT NULL,
+  title            TEXT NOT NULL,
+  instruction      TEXT NOT NULL,
+  "expectedResult" TEXT NOT NULL,
+  "evidenceKinds"  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  required         BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS verification_requirements_review
+  ON verification_requirements ("reviewId", ordinal);
+CREATE TABLE IF NOT EXISTS verification_entries (
+  id              TEXT PRIMARY KEY,
+  "requirementId" TEXT NOT NULL,
+  "reviewId"      TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  "actorLogin"    TEXT NOT NULL,
+  result          TEXT NOT NULL,
+  "evidenceKind"  TEXT NOT NULL,
+  "evidenceUrl"   TEXT,
+  note            TEXT,
+  "createdAt"     BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verification_entries_review
+  ON verification_entries ("reviewId", "createdAt");
+CREATE INDEX IF NOT EXISTS verification_entries_requirement
+  ON verification_entries ("requirementId", "createdAt")`,
+  },
+  {
+    id: "012-verification-entry-order",
+    addColumns: [
+      {
+        table: "verification_entries",
+        column: "seq",
+        sqlite: "INTEGER",
+        postgres: "BIGINT",
+      },
+    ],
+    sqlite: `WITH ranked AS (
+  SELECT id, ROW_NUMBER() OVER (ORDER BY createdAt, id) AS n
+  FROM verification_entries
+)
+UPDATE verification_entries
+SET seq = (SELECT n FROM ranked WHERE ranked.id = verification_entries.id)
+WHERE seq IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS verification_entries_seq_unique
+  ON verification_entries (seq);
+CREATE INDEX IF NOT EXISTS verification_entries_review_seq
+  ON verification_entries (reviewId, seq);
+CREATE INDEX IF NOT EXISTS verification_entries_requirement_seq
+  ON verification_entries (requirementId, seq)`,
+    postgres: `CREATE SEQUENCE IF NOT EXISTS verification_entries_order_seq;
+ALTER TABLE verification_entries
+  ALTER COLUMN seq SET DEFAULT nextval('verification_entries_order_seq');
+UPDATE verification_entries
+SET seq = nextval('verification_entries_order_seq')
+WHERE seq IS NULL;
+ALTER TABLE verification_entries ALTER COLUMN seq SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS verification_entries_seq_unique
+  ON verification_entries (seq);
+CREATE INDEX IF NOT EXISTS verification_entries_review_seq
+  ON verification_entries ("reviewId", seq);
+CREATE INDEX IF NOT EXISTS verification_entries_requirement_seq
+  ON verification_entries ("requirementId", seq)`,
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

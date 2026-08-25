@@ -23,7 +23,7 @@
  */
 import type { KomodoConfig, Severity } from "@komodo/core";
 import { META_SETTINGS_INITIALIZED } from "@komodo/store";
-import type { ImpactLevel, KomodoStore, OrgSettings } from "@komodo/store";
+import type { KomodoStore, OrgSettings } from "@komodo/store";
 
 /**
  * Strictness as a floor on severity.
@@ -44,21 +44,6 @@ const STRICTNESS: Record<Severity, OrgSettings["strictness"]> = {
   // The screen offers three positions and the config four. `trivial` has no
   // position of its own, and "report everything" is the nearest one.
   trivial: "high",
-};
-
-/** The queue talks in impact, the reviewer in severity. One row each way. */
-const SEVERITY_FOR_IMPACT: Record<ImpactLevel, Severity> = {
-  low: "trivial",
-  medium: "minor",
-  high: "major",
-  critical: "critical",
-};
-
-const IMPACT_FOR_SEVERITY: Record<Severity, ImpactLevel> = {
-  trivial: "low",
-  minor: "medium",
-  major: "high",
-  critical: "critical",
 };
 
 /**
@@ -102,14 +87,9 @@ export function applySettings(
       ...config.post,
       update_description: settings.updatePrDescription,
       status_check: settings.useStatusChecks,
-      status_min_confidence: settings.requiredConfidence,
       status_comments: settings.postStatusComments,
       header: settings.commentHeader,
       include_fix_prompts: settings.promptToFixWithAi,
-      auto_approve: {
-        enabled: settings.autoApprovePrs,
-        max_severity: SEVERITY_FOR_IMPACT[settings.maxAutoApproveRisk],
-      },
     },
   };
 }
@@ -138,12 +118,9 @@ export function configToSettings(config: KomodoConfig): Partial<OrgSettings> {
     },
     updatePrDescription: config.post.update_description,
     useStatusChecks: config.post.status_check,
-    requiredConfidence: config.post.status_min_confidence,
     postStatusComments: config.post.status_comments,
     commentHeader: config.post.header,
     promptToFixWithAi: config.post.include_fix_prompts,
-    autoApprovePrs: config.post.auto_approve.enabled,
-    maxAutoApproveRisk: IMPACT_FOR_SEVERITY[config.post.auto_approve.max_severity],
     orgDisplayName: config.team.name,
   };
 }

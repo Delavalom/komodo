@@ -10,6 +10,7 @@ function judgement(over: Partial<ReviewResult["judgements"][number]> = {}) {
     line: 12,
     severity: "major" as const,
     kind: "Risk" as const,
+    focus: "code" as const,
     tag: "changes how queries are built",
     title: "User input reaches the SQL builder unescaped.",
     lede: "The search term is interpolated straight into the query.",
@@ -31,6 +32,7 @@ function result(over: Partial<ReviewResult> = {}): ReviewResult {
     confidence: 3,
     verdict: "Needs a second look",
     effort: 2,
+    verificationChecks: [],
     judgements: [judgement()],
     ...over,
   } as ReviewResult;
@@ -97,19 +99,19 @@ describe("toFindings", () => {
 });
 
 describe("toJudgment", () => {
-  it("never lets the verdict disagree with the score", () => {
+  it("does not turn AI coverage into a merge verdict", () => {
     expect(toJudgment("pr", "sha", result({ confidence: 5, judgements: [] })).verdict)
-      .toBe("ship");
-    expect(toJudgment("pr", "sha", result({ confidence: 1 })).verdict).toBe("blocked");
+      .toBeNull();
+    expect(toJudgment("pr", "sha", result({ confidence: 1 })).verdict).toBeNull();
   });
 
-  it("downgrades a confident review that found something critical", () => {
+  it("keeps concern impact separate from merge authority", () => {
     const j = toJudgment("pr", "sha", result({
       confidence: 4,
       judgements: [judgement({ severity: "critical" })],
     }));
     expect(j.impact).toBe("critical");
-    expect(j.verdict).toBe("needs_work");
+    expect(j.verdict).toBeNull();
   });
 
   it("keys the judgment on the head it reviewed", () => {

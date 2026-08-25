@@ -7,13 +7,15 @@
  *
  * The path names the pull request the way a person would say it, and the query
  * names the rest: `?run=<headSha>` picks an earlier immutable run, `?j=<n>` the
- * judgement on screen, `?view=whole` the full record. AGENTS.md rule 7.
+ * judgement on screen, and `?view=decisions|whole` switches away from result
+ * verification. AGENTS.md rule 8.
  */
 import { notFound } from "next/navigation";
 
 import { ReviewHeader } from "@/components/review/header";
 import { DecisionQueue } from "@/components/review/queue";
 import { WholeReview } from "@/components/review/whole";
+import { VerificationReview } from "@/components/review/verification";
 import {
   loadReview,
   loadReviewFiles,
@@ -55,11 +57,17 @@ export default async function ReviewPage({
     : await loadReview(`${prId}@${pr.headSha}`);
 
   const files = detail ? await loadReviewFiles(detail.review.id) : [];
-  const view = first(query.view) === "whole" ? "whole" : "queue";
+  const requestedView = first(query.view);
+  const view =
+    requestedView === "whole"
+      ? "whole"
+      : requestedView === "decisions"
+        ? "decisions"
+        : "verify";
 
   return (
     // The shell is fixed-height, so this pane owns its own scrolling and the
-    // children below own theirs. AGENTS.md rule 8.
+    // children below own theirs. AGENTS.md rule 9.
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ReviewHeader
         pr={pr}
@@ -74,6 +82,11 @@ export default async function ReviewPage({
         <NoRun status={judgment?.status ?? "not_requested"} />
       ) : view === "whole" ? (
         <WholeReview detail={detail} files={files} />
+      ) : view === "verify" ? (
+        <VerificationReview
+          requirements={detail.verificationRequirements}
+          verifications={detail.verifications}
+        />
       ) : (
         <DecisionQueue
           review={detail.review}
@@ -81,6 +94,8 @@ export default async function ReviewPage({
           answers={detail.answers}
           votes={detail.votes}
           prUrl={pr.url}
+          verificationRequirements={detail.verificationRequirements}
+          verifications={detail.verifications}
         />
       )}
     </div>

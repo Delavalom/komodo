@@ -2,7 +2,7 @@
  * Translating a review into a judgment.
  *
  * @komodo/core speaks in judgements — one question per finding, with a
- * severity and a place in the diff. The queue speaks in a verdict, an impact
+ * severity and a place in the diff. The queue speaks in an impact
  * and a handful of findings. This is the only place the two vocabularies
  * meet, which keeps the mapping testable without a network or a model.
  */
@@ -13,7 +13,6 @@ import type {
   Severity as CoreSeverity,
 } from "@komodo/core";
 import { SEVERITY_RANK } from "@komodo/core";
-import { verdictFor } from "@komodo/store";
 import type {
   FindingInput,
   ImpactLevel,
@@ -128,7 +127,9 @@ export function toJudgment(
     status: "completed",
     score: result.confidence,
     impact,
-    verdict: verdictFor("completed", result.confidence, impact),
+    // A completed preflight is not a merge verdict. The nullable legacy field
+    // stays empty for v3 reviews; GitHub records the human review decision.
+    verdict: null,
   };
 }
 
@@ -156,6 +157,7 @@ export function toReview(
   const all = orderedJudgements(result, dropped);
 
   return {
+    version: 3,
     prId,
     headSha: record.pr.headSha,
     provider: record.provider,
@@ -180,6 +182,7 @@ export function toReview(
       endLine: j.endLine ?? null,
       severity: j.severity,
       kind: j.kind,
+      focus: j.focus,
       tag: j.tag,
       title: j.title,
       lede: j.lede,
@@ -192,6 +195,13 @@ export function toReview(
       suggestion: j.suggestion ?? null,
       fixPrompt: j.fixPrompt,
       postable: postable.has(j),
+    })),
+    verificationRequirements: result.verificationChecks.map((check) => ({
+      title: check.title,
+      instruction: check.instruction,
+      expectedResult: check.expectedResult,
+      evidenceKinds: check.evidenceKinds,
+      required: check.required,
     })),
   };
 }
