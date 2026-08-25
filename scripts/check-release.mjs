@@ -1,12 +1,12 @@
 /**
  * One release, one version number.
  *
- * Komodo ships as two artifacts from one repository — the npm package and the
- * Claude Code plugin — and the version appears in four places across three
- * files. They drifted once already: the plugin advertised 0.4.0 while the npm
- * package sat at 0.2.0, so `/plugin install` and `npx komodo-review` handed
- * people different releases of the same tool. Nothing caught it, because
- * nothing was looking.
+ * Komodo keeps every first-party package and both plugin manifests on one
+ * release version. The version appears in eight places across seven files.
+ * They drifted once already: the plugin advertised 0.4.0 while the npm package
+ * sat at 0.2.0, so `/plugin install` and `npx komodo-review` handed people
+ * different releases of the same tool. Nothing caught it, because nothing was
+ * looking.
  *
  * The plugin cache is keyed by version (~/.claude/plugins/cache/<mp>/<p>/<v>/),
  * so a plugin change that ships without a bump reaches nobody. That makes the
@@ -22,10 +22,18 @@ const read = (path) => JSON.parse(readFileSync(join(root, path), "utf8"));
 
 const marketplace = read(".claude-plugin/marketplace.json");
 const plugin = read("plugin/.claude-plugin/plugin.json");
+const web = read("apps/web/package.json");
 const cli = read("packages/cli/package.json");
+const core = read("packages/core/package.json");
+const ingest = read("packages/ingest/package.json");
+const store = read("packages/store/package.json");
 
 const versions = [
+  ["apps/web/package.json", "version", web.version],
   ["packages/cli/package.json", "version", cli.version],
+  ["packages/core/package.json", "version", core.version],
+  ["packages/ingest/package.json", "version", ingest.version],
+  ["packages/store/package.json", "version", store.version],
   ["plugin/.claude-plugin/plugin.json", "version", plugin.version],
   [".claude-plugin/marketplace.json", "metadata.version", marketplace.metadata?.version],
   [

@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "AI code review that ends in a decision, not a comment thread.",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "plugins": [
     {
       "name": "komodo",
       "source": "./plugin",
       "description": "Review the current branch with the Claude instance you are already talking to, and answer the judgements in a local queue.",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "author": {
         "name": "Delavalom"
       },
