@@ -10,11 +10,20 @@ export {
   type DiscoverOptions,
   type DiscoverResult,
 } from "./discover.js";
+export {
+  automaticEligibility,
+  hardLimits,
+  shouldReview,
+  type Eligibility,
+} from "./eligibility.js";
 export { ingestOnce, runIngestLoop, type IngestOptions } from "./loop.js";
-export { pollRepositories, type PollResult } from "./poll.js";
+export {
+  pollRepositories,
+  type PollOptions,
+  type PollResult,
+} from "./poll.js";
 export {
   reviewPending,
-  shouldReview,
   type ReviewPassResult,
   type ReviewRunnerOptions,
 } from "./review.js";

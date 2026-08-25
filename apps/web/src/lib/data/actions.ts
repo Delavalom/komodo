@@ -13,7 +13,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { mintApiKey } from "@komodo/store/api-key";
-import { META_LAST_DISCOVERY_AT } from "@komodo/store";
+import { META_DISCOVERY_REQUESTED_AT } from "@komodo/store";
 import {
   GitHubClient,
   loadConfig,
@@ -67,13 +67,24 @@ export async function updateOrgSettings(
  *
  * The poller lives in another process — `komodo serve` starts both — so this
  * cannot call GitHub and have the result mean anything: the ingester would
- * still be working from its own schedule. It clears the discovery heartbeat
- * instead, which is the same trick `retriggerReviews` uses. The next pass sees
- * a listing older than the interval and lists again, inside a minute on the
- * default settings.
+ * still be working from its own schedule. It records the request instead, and
+ * the next pass serves it; on the default interval that is within a minute.
+ *
+ * This is now the *only* thing that lists an owner, unless new repositories are
+ * set to arrive enabled — discovery stopped running on its own, because an
+ * organisation with hundreds of repositories was paying for the listing every
+ * minute and getting hundreds of rows it never asked for.
+ *
+ * A request timestamp rather than clearing the heartbeat, which is what this
+ * used to write: "last repo scan" is on the screen next to the button, and
+ * resetting it to never every time someone pressed the button made the one fact
+ * the screen had about scanning untrue.
  */
 export async function rescanRepositories(): Promise<void> {
-  await (await getStore()).setMeta(META_LAST_DISCOVERY_AT, "0");
+  await (await getStore()).setMeta(
+    META_DISCOVERY_REQUESTED_AT,
+    String(Date.now()),
+  );
   revalidatePath("/", "layout");
 }
 

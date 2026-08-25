@@ -73,8 +73,11 @@ export type {
 
 export { verdictFor } from "./verdict.js";
 export { pickActor } from "./actor.js";
+export { needsReviewFrom, type QueueLensViewer } from "./queue-lens.js";
 export {
+  META_DISCOVERY_REQUESTED_AT,
   META_LAST_DISCOVERY_AT,
+  META_LAST_DISCOVERY_ERROR,
   META_LAST_POLL_AT,
   META_LAST_POLL_ERROR,
   META_SETTINGS_INITIALIZED,

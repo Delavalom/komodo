@@ -127,6 +127,23 @@ export function CodeProvidersView({ status }: { status: DeploymentStatus }) {
           </p>
         ) : null}
 
+        {/*
+          A scan that lost an owner still counts as the scan a Rescan asked
+          for — the alternative is re-listing every owner every minute for one
+          that will never come back. So the shortfall is stated here, where the
+          person who pressed the button is looking, instead of only in the
+          ingester's log where they are not.
+        */}
+        {status.lastDiscoveryError ? (
+          <p className="flex items-start gap-2 border-t border-border bg-secondary px-4 py-2.5 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--destructive))]" />
+            <span>
+              The last repo scan could not read {status.lastDiscoveryError} —
+              press Rescan to try again.
+            </span>
+          </p>
+        ) : null}
+
         <div className="border-t border-border px-4 py-2.5 text-sm text-muted-foreground">
           {plural(status.owners.length, "organization")}
         </div>

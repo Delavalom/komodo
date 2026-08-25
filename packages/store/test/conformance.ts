@@ -1316,6 +1316,16 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
         expect(settings.summarySections.summary.enabled).toBe(true);
       });
 
+      it("does not start a review nobody asked for", async () => {
+        // A first pass imports whatever inventory exists — a repository with a
+        // hundred open pull requests would otherwise spend a subscription on a
+        // backlog on the strength of installing Komodo. Both flags off means
+        // the queue's Review with AI button is the only thing that starts one.
+        const settings = await store.loadSettings();
+        expect(settings.autoReviewNewPullRequests).toBe(false);
+        expect(settings.autoReviewNewCommits).toBe(false);
+      });
+
       it("applies a patch without disturbing the fields it does not name", async () => {
         await store.saveSettings({ strictness: "high" });
         await store.saveSettings({ fileChangeLimit: 40 });

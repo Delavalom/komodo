@@ -7,7 +7,7 @@
  * which is what lets `komodo dev` and a self-hosted `komodo serve` behave
  * identically. The cost is minutes of lag, which a review queue can afford.
  */
-import type { GitHubClient } from "@komodo/core";
+import type { GitHubClient, KomodoConfig } from "@komodo/core";
 import type {
   KomodoStore,
   OrgSettings,
@@ -16,12 +16,32 @@ import type {
   ReviewTrigger,
 } from "@komodo/store";
 
+import { automaticEligibility } from "./eligibility.js";
+
 export interface PollResult {
   seen: number;
   changed: number;
   closed: number;
   /** Repositories whose listing failed this pass, and so were left as they were. */
   unreachable: number;
+  /**
+   * Imported, but not enqueued: a draft, a WIP title, an author off the review
+   * list. Counted rather than announced one line at a time — a repository whose
+   * roster covers a tenth of its authors would otherwise bury the pass in
+   * explanations of work it was never going to do.
+   */
+  notEligible: number;
+}
+
+export interface PollOptions {
+  onProgress?: (msg: string) => void;
+  /**
+   * Enqueueing needs both of these, so a caller with neither polls inventory
+   * only. `settings` says whether automatic review is wanted at all; `config`
+   * carries the filters that say which pull requests it would apply to.
+   */
+  settings?: OrgSettings;
+  config?: KomodoConfig;
 }
 
 /**
@@ -35,7 +55,7 @@ export interface PollResult {
 export async function pollRepositories(
   github: GitHubClient,
   store: KomodoStore,
-  options: { onProgress?: (msg: string) => void; settings?: OrgSettings } = {},
+  options: PollOptions = {},
 ): Promise<PollResult> {
   // `enabled` is the whole switch, and deliberately the only one. It used to
   // be `enabled` intersected with what some team watched, which was invisible
@@ -54,6 +74,7 @@ export async function pollRepositories(
   let seen = 0;
   let changed = 0;
   let unreachable = 0;
+  let notEligible = 0;
   const stillOpen = new Set<string>();
 
   for (const repo of targets) {
@@ -115,7 +136,7 @@ export async function pollRepositories(
             }),
       ]);
 
-      await store.upsertPullRequest({
+      const row: PullRequest = {
         id,
         repoId: repo.id,
         number: item.number,
@@ -134,20 +155,32 @@ export async function pollRepositories(
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         mergedAt: null,
-      });
+      };
+      await store.upsertPullRequest(row);
 
       const trigger = automaticTrigger(previous, item.headSha, item.isDraft);
       if (
         baselineComplete &&
         trigger &&
-        shouldRequestAutomatically(trigger, item.isDraft, options.settings)
+        shouldRequestAutomatically(trigger, options.settings)
       ) {
-        await store.requestAIReview({
-          prId: id,
-          headSha: item.headSha,
-          trigger,
-          requestedAt: Date.now(),
-        });
+        // Asked here rather than in the worker. The rules have not changed;
+        // what changed is that a pull request they pass over now costs nothing
+        // — no job, no lease, no skipped judgment, no line of output — instead
+        // of all four, once per pass, forever. The row is still in the queue
+        // with its Review with AI button, which is what overrides this.
+        const eligible = options.config
+          ? automaticEligibility(row, options.config)
+          : { skip: true as const, reason: "no review configuration" };
+        if (eligible.skip) notEligible++;
+        else {
+          await store.requestAIReview({
+            prId: id,
+            headSha: item.headSha,
+            trigger,
+            requestedAt: Date.now(),
+          });
+        }
       }
     }
 
@@ -168,7 +201,7 @@ export async function pollRepositories(
     options.onProgress,
   );
 
-  return { seen, changed, closed, unreachable };
+  return { seen, changed, closed, unreachable, notEligible };
 }
 
 function automaticTrigger(
@@ -182,13 +215,21 @@ function automaticTrigger(
   return null;
 }
 
+/**
+ * Whether this team wants Komodo starting reviews of this kind at all.
+ *
+ * Only the two switches. Drafts used to be checked here as well, which was the
+ * same fact twice — `applySettings` writes `reviewDraftPrs` straight into
+ * `auto_review.drafts` — and it meant a draft was dropped before anything
+ * counted it, so the pass reported fewer skipped pull requests than it had.
+ * One rule, one place: `automaticEligibility` owns every "not worth a run"
+ * judgement, and this owns "not wanted at all".
+ */
 function shouldRequestAutomatically(
   trigger: ReviewTrigger,
-  isDraft: boolean,
   settings: OrgSettings | undefined,
 ): boolean {
   if (!settings) return false;
-  if (isDraft && !settings.reviewDraftPrs) return false;
   if (trigger === "new_commit") return settings.autoReviewNewCommits;
   return settings.autoReviewNewPullRequests;
 }

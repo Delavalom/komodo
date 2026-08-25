@@ -63,10 +63,11 @@ export const KomodoConfigSchema = z.object({
    *
    * Every field here is a way of not spending a subscription's quota: a draft
    * nobody is asking about, a WIP title, a bot's dependency bump, a
-   * thousand-file vendor drop. The poller enforces them — see
-   * `shouldReview` in packages/ingest/src/review.ts — and records a skipped
-   * judgment rather than dropping the pull request silently, so the queue can
-   * say why it passed.
+   * thousand-file vendor drop. The poller enforces them before it enqueues —
+   * see `automaticEligibility` in packages/ingest/src/eligibility.ts — so a
+   * pull request they pass over is imported into the queue and simply never
+   * becomes a job. Someone who wants it anyway presses Review with AI, which
+   * overrides all of this except `max_files`.
    */
   auto_review: z
     .object({
@@ -87,14 +88,24 @@ export const KomodoConfigSchema = z.object({
       /** Skip pull requests touching more files than this. 0 disables the cap. */
       max_files: z.number().int().min(0).default(0),
       /**
+       * Review a pull request the poller has never seen before.
+       *
+       * Off by default, and that default is the expensive one to get wrong: a
+       * first pass over a busy repository observes every open pull request as
+       * new, and on would mean a model run for each. Off, the pass imports the
+       * inventory and a person asks for the reviews they want.
+       */
+      new_pull_requests: z.boolean().default(false),
+      /**
        * Re-review when a pull request's head moves.
        *
        * On, a push re-enters the work list and gets a fresh judgment against
        * the new head. Off, the first verdict stands until someone retriggers
        * it by hand — which is what a team that reviews once and then talks
-       * about it actually wants.
+       * about it actually wants, and what keeps a force-push sweep from
+       * re-reviewing a whole queue.
        */
-      on_new_commits: z.boolean().default(true),
+      on_new_commits: z.boolean().default(false),
     })
     .prefault({}),
   modules: z

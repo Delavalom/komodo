@@ -7,7 +7,12 @@
  * `komodo serve` restart resumes without bookkeeping.
  */
 import type { GitHubClient, KomodoConfig, ReviewProvider } from "@komodo/core";
-import { META_LAST_POLL_AT, META_LAST_POLL_ERROR } from "@komodo/store";
+import {
+  META_DISCOVERY_REQUESTED_AT,
+  META_LAST_DISCOVERY_AT,
+  META_LAST_POLL_AT,
+  META_LAST_POLL_ERROR,
+} from "@komodo/store";
 import type { KomodoStore } from "@komodo/store";
 
 import type { RepoCheckout } from "./checkout.js";
@@ -50,19 +55,23 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
   // Before the poll, not after: a repository discovered and auto-enabled this
   // pass gets its pull requests in the same pass, rather than looking empty
   // until the next one.
-  await discoverRepositories({
-    store,
-    github,
-    autoEnable: settings.autoEnableNewRepos,
-    onProgress,
-  });
+  await discoverIfAsked(options, settings.autoEnableNewRepos);
 
-  const polled = await pollRepositories(github, store, { onProgress, settings });
+  // `config` as well as `settings`: the poller decides what to enqueue, and the
+  // filters that decision needs — drafts, title keywords, the author list, the
+  // file cap — are config fields the settings screen writes through.
+  const polled = await pollRepositories(github, store, {
+    onProgress,
+    settings,
+    config,
+  });
   onProgress?.(
     `Polled ${polled.seen} open PRs — ${polled.changed} changed, ${polled.closed} closed` +
-      (polled.unreachable
-        ? `, ${polled.unreachable} unreachable.`
-        : "."),
+      (polled.notEligible
+        ? `, ${polled.notEligible} not eligible for automatic review`
+        : "") +
+      (polled.unreachable ? `, ${polled.unreachable} unreachable` : "") +
+      ".",
   );
 
   if (!provider) {
@@ -79,6 +88,49 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
     config,
     post: options.post,
     checkout: options.checkout,
+    onProgress,
+  });
+}
+
+/**
+ * Lists an owner's repositories, but only when someone wants that.
+ *
+ * It used to run every pass, unconditionally. Against an organisation with 735
+ * repositories that is eight pages of REST per minute, and 735 rows in Manage
+ * Repositories that nobody asked for — for an answer that changes about as
+ * often as somebody creates a repository. Two things ask for it:
+ *
+ *   - `autoEnableNewRepos`, which says new repositories should start polled.
+ *     A team that turned that on has said they want them found; discovery's own
+ *     interval guard keeps the cost to one listing per owner per fifteen
+ *     minutes.
+ *   - The Rescan button, which writes META_DISCOVERY_REQUESTED_AT. Forced,
+ *     because a person pressing a button has already decided the last listing
+ *     is stale, and made of two timestamps rather than a flag so a request that
+ *     is served is self-clearing — no second write, and no rescan replayed by
+ *     a restart.
+ *
+ * The comparison below is only as good as what discovery stamps, which is why
+ * it stamps the moment its listings *began*: a request pressed during a pass
+ * has to outlive that pass, or the button does nothing and says nothing.
+ */
+async function discoverIfAsked(
+  options: IngestOptions,
+  autoEnable: boolean,
+): Promise<void> {
+  const { store, github, onProgress } = options;
+  const [requestedAt, lastAt] = await Promise.all([
+    store.getMeta(META_DISCOVERY_REQUESTED_AT),
+    store.getMeta(META_LAST_DISCOVERY_AT),
+  ]);
+  const requested = Number(requestedAt ?? 0) > Number(lastAt ?? 0);
+  if (!requested && !autoEnable) return;
+
+  await discoverRepositories({
+    store,
+    github,
+    autoEnable,
+    force: requested,
     onProgress,
   });
 }

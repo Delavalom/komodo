@@ -11,7 +11,8 @@
       "WebFetch(domain:deepwiki.com)",
       "WebFetch(domain:coderabbit.ai)",
       "WebFetch(domain:www.coderabbit.ai)",
-      "WebFetch(domain:docs.github.com)"
+      "WebFetch(domain:docs.github.com)",
+      "Bash(sqlite3 *)"
     ]
   }
 }

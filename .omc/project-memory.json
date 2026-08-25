@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1787347605428,
-  "projectRoot": "/Users/delavalom/delavalom-labs/komodo",
+  "lastScanned": 1787681201252,
+  "projectRoot": "/Users/langelarveloperez/delavalom/komodo",
   "techStack": {
     "languages": [
       {
         "name": "JavaScript/TypeScript",
-        "version": ">=20",
+        "version": ">=24",
         "confidence": "high",
         "markers": [
           "package.json"
@@ -15,7 +15,7 @@
     ],
     "frameworks": [],
     "packageManager": "pnpm",
-    "runtime": "Node.js 20"
+    "runtime": "Node.js 24"
   },
   "build": {
     "buildCommand": "pnpm build",
@@ -24,10 +24,15 @@
     "devCommand": "pnpm dev",
     "scripts": {
       "dev": "pnpm -C apps/web dev",
-      "build": "pnpm -r build",
+      "build": "pnpm build:release",
       "lint": "pnpm -r lint",
       "typecheck": "pnpm -r typecheck",
-      "test": "pnpm typecheck && pnpm -r --if-present test"
+      "check:release": "node scripts/check-release.mjs",
+      "test": "pnpm check:release && pnpm typecheck && pnpm -r --if-present test",
+      "build:release": "pnpm --filter '@komodo/ingest...' build && pnpm -C apps/web build && pnpm -C packages/cli build",
+      "test:e2e": "node scripts/test-packed-cli.mjs",
+      "test:e2e:container": "node scripts/test-container.mjs",
+      "verify": "pnpm check:release && pnpm lint && pnpm build:release && pnpm typecheck && pnpm -r --if-present test && pnpm test:e2e"
     }
   },
   "conventions": {
@@ -39,7 +44,10 @@
   "structure": {
     "isMonorepo": true,
     "workspaces": [],
-    "mainDirectories": [],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
     "gitBranches": {
       "defaultBranch": "main",
       "branchingStrategy": null
@@ -51,22 +59,83 @@
       "path": "apps",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1787347605391,
+      "lastAccessed": 1787681201180,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1787681201182,
       "keyFiles": []
     },
     "packages": {
       "path": "packages",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1787347605392,
+      "lastAccessed": 1787681201206,
       "keyFiles": []
+    },
+    "plugin": {
+      "path": "plugin",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1787681201208,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 3,
+      "lastAccessed": 1787681201208,
+      "keyFiles": [
+        "check-release.mjs",
+        "test-container.mjs",
+        "test-packed-cli.mjs"
+      ]
     }
   },
   "hotPaths": [
     {
+      "path": "packages/ingest/src/poll.ts",
+      "accessCount": 14,
+      "lastAccessed": 1787684360129,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/queue/view.tsx",
+      "accessCount": 11,
+      "lastAccessed": 1787684171623,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/review.ts",
+      "accessCount": 10,
+      "lastAccessed": 1787683564409,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/lib/data/queries.ts",
+      "accessCount": 10,
+      "lastAccessed": 1787684451358,
+      "type": "file"
+    },
+    {
       "path": "packages/store/src/sqlite.ts",
+      "accessCount": 9,
+      "lastAccessed": 1787681640759,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/loop.ts",
+      "accessCount": 8,
+      "lastAccessed": 1787683922011,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/config.ts",
       "accessCount": 7,
-      "lastAccessed": 1787198678926,
+      "lastAccessed": 1787684249843,
       "type": "file"
     },
     {
@@ -76,9 +145,39 @@
       "type": "file"
     },
     {
+      "path": "packages/ingest/src/settings.ts",
+      "accessCount": 5,
+      "lastAccessed": 1787683473799,
+      "type": "file"
+    },
+    {
       "path": "packages/store/src/port.ts",
       "accessCount": 4,
       "lastAccessed": 1787198604982,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/github.ts",
+      "accessCount": 4,
+      "lastAccessed": 1787682481775,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/discover.ts",
+      "accessCount": 4,
+      "lastAccessed": 1787683931186,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/lib/data/actions.ts",
+      "accessCount": 4,
+      "lastAccessed": 1787683946823,
+      "type": "file"
+    },
+    {
+      "path": "packages/store/test/conformance.ts",
+      "accessCount": 4,
+      "lastAccessed": 1787684199483,
       "type": "file"
     },
     {
@@ -94,15 +193,15 @@
       "type": "file"
     },
     {
-      "path": "packages/store/test/conformance.ts",
-      "accessCount": 2,
-      "lastAccessed": 1787198825140,
+      "path": "apps/web/src/lib/data/server.ts",
+      "accessCount": 3,
+      "lastAccessed": 1787682016068,
       "type": "file"
     },
     {
-      "path": "packages/core/src/config.ts",
-      "accessCount": 2,
-      "lastAccessed": 1787199169442,
+      "path": "packages/store/src/settings.ts",
+      "accessCount": 3,
+      "lastAccessed": 1787683448974,
       "type": "file"
     },
     {
@@ -148,9 +247,27 @@
       "type": "file"
     },
     {
-      "path": "apps/web/src/lib/data/queries.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787197884463,
+      "path": "packages/store/src/types.ts",
+      "accessCount": 2,
+      "lastAccessed": 1787681623732,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/components/settings/review-view.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1787681661176,
+      "type": "file"
+    },
+    {
+      "path": "packages/ingest/src/config-sync.ts",
+      "accessCount": 2,
+      "lastAccessed": 1787681973057,
+      "type": "file"
+    },
+    {
+      "path": "komodo.yaml",
+      "accessCount": 2,
+      "lastAccessed": 1787683497169,
       "type": "file"
     },
     {
@@ -172,39 +289,9 @@
       "type": "file"
     },
     {
-      "path": "packages/core/src/github.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787197896598,
-      "type": "file"
-    },
-    {
-      "path": "packages/ingest/src/poll.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787197899784,
-      "type": "file"
-    },
-    {
-      "path": "packages/ingest/src/review.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787197902086,
-      "type": "file"
-    },
-    {
       "path": "packages/ingest/src/map.ts",
       "accessCount": 1,
       "lastAccessed": 1787197904690,
-      "type": "file"
-    },
-    {
-      "path": "packages/ingest/src/loop.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787197906968,
-      "type": "file"
-    },
-    {
-      "path": "packages/store/src/types.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787197914239,
       "type": "file"
     },
     {
@@ -229,24 +316,6 @@
       "path": "apps/web/src/components/pull-requests/view.tsx",
       "accessCount": 1,
       "lastAccessed": 1787202265872,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/components/queue/view.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1787202266437,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/lib/data/actions.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787217138177,
-      "type": "file"
-    },
-    {
-      "path": "apps/web/src/lib/data/server.ts",
-      "accessCount": 1,
-      "lastAccessed": 1787217138257,
       "type": "file"
     },
     {
@@ -295,6 +364,36 @@
       "path": "apps/web/src/components/personal/review-view.tsx",
       "accessCount": 1,
       "lastAccessed": 1787435018854,
+      "type": "file"
+    },
+    {
+      "path": "AGENTS.md",
+      "accessCount": 1,
+      "lastAccessed": 1787681586113,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/providers/claude.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787681597227,
+      "type": "file"
+    },
+    {
+      "path": "docs/architecture/inventory-first-review-queue.md",
+      "accessCount": 1,
+      "lastAccessed": 1787681611995,
+      "type": "file"
+    },
+    {
+      "path": "packages/core/src/providers/index.ts",
+      "accessCount": 1,
+      "lastAccessed": 1787681614555,
+      "type": "file"
+    },
+    {
+      "path": "apps/web/src/app/(app)/[org]/-/queue/page.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1787681614991,
       "type": "file"
     }
   ],

@@ -101,8 +101,30 @@ describe("configToSettings", () => {
     expect(adopted.post.status_check).toBe(config.post.status_check);
     expect(adopted.post.status_comments).toBe(config.post.status_comments);
     expect(adopted.auto_review.on_new_commits).toBe(config.auto_review.on_new_commits);
+    expect(adopted.auto_review.new_pull_requests).toBe(
+      config.auto_review.new_pull_requests,
+    );
     expect(adopted.post.include_fix_prompts).toBe(config.post.include_fix_prompts);
     expect(adopted.modules).toEqual(config.modules);
+  });
+
+  it("carries both automatic-review switches out of the file", () => {
+    // A deployment that wants the old behaviour says so in komodo.yaml once,
+    // and the settings row it is adopted into is what the screen then owns.
+    const config = baseConfig({
+      auto_review: { new_pull_requests: true, on_new_commits: true },
+    });
+    const settings = configToSettings(config);
+
+    expect(settings.autoReviewNewPullRequests).toBe(true);
+    expect(settings.autoReviewNewCommits).toBe(true);
+
+    const adopted = applySettings(config, {
+      ...DEFAULT_ORG_SETTINGS,
+      ...settings,
+    });
+    expect(adopted.auto_review.new_pull_requests).toBe(true);
+    expect(adopted.auto_review.on_new_commits).toBe(true);
   });
 
   it("adopts a non-default file config faithfully", () => {
