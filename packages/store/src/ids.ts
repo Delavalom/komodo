@@ -5,8 +5,9 @@
  * request is `${repoId}#${number}`, a judgment is `${prId}@${headSha}` — which
  * is what makes the writers idempotent and the restarts safe. A memory rule
  * has no such key: it is a sentence someone typed, and two people can type the
- * same one and mean different things. So these get a generated id, and the
- * generation is here rather than in each driver so both produce the same shape.
+ * same one and mean different things. Append-only observations have no natural
+ * key either. These get a generated id here so both drivers produce the same
+ * shape.
  */
 import { randomUUID } from "node:crypto";
 

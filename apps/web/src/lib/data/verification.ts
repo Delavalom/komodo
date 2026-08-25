@@ -1,6 +1,11 @@
 import "server-only";
 
-import { GitHubClient, resolveGithubToken, type PRRef } from "@komodo/core";
+import {
+  GitHubClient,
+  publishLatestVerificationStatus,
+  resolveGithubToken,
+  type PRRef,
+} from "@komodo/core";
 import type { KomodoStore } from "@komodo/store";
 
 import { getStore } from "@/lib/data/server";
@@ -95,29 +100,26 @@ async function updateVerificationStatus(
   const reviewId = requirementId.split(":verify:")[0];
   const detail = await store.loadReview(reviewId);
   if (!detail) return;
+  const github = new GitHubClient(resolveGithubToken());
+  const ref = parseReviewId(reviewId);
 
-  const latest = new Map(
-    detail.verifications.map((entry) => [entry.requirementId, entry]),
-  );
-  const required = detail.verificationRequirements.filter((check) => check.required);
-  const results = required.map((check) => latest.get(check.id)?.result ?? null);
-  const state = results.includes("failed")
-    ? "failure"
-    : results.includes("blocked") || results.some((result) => result !== "verified")
-      ? "pending"
-      : "success";
-  const description =
-    state === "success"
-      ? "Human evidence recorded; GitHub approval remains separate"
-      : state === "failure"
-        ? "A required result check failed"
-        : "Human verification is still required";
-
-  await new GitHubClient(resolveGithubToken()).postStatus(
-    parseReviewId(reviewId),
-    detail.review.headSha,
-    state,
-    description,
+  await publishLatestVerificationStatus(
+    async () => {
+      const current = await store.loadReview(reviewId);
+      return current
+        ? {
+            requirements: current.verificationRequirements,
+            entries: current.verifications,
+          }
+        : null;
+    },
+    (status) =>
+      github.postStatus(
+        ref,
+        detail.review.headSha,
+        status.state,
+        status.description,
+      ),
   );
 }
 

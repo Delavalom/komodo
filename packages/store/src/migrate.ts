@@ -366,6 +366,43 @@ CREATE INDEX IF NOT EXISTS verification_entries_review
 CREATE INDEX IF NOT EXISTS verification_entries_requirement
   ON verification_entries ("requirementId", "createdAt")`,
   },
+  {
+    id: "012-verification-entry-order",
+    addColumns: [
+      {
+        table: "verification_entries",
+        column: "seq",
+        sqlite: "INTEGER",
+        postgres: "BIGINT",
+      },
+    ],
+    sqlite: `WITH ranked AS (
+  SELECT id, ROW_NUMBER() OVER (ORDER BY createdAt, id) AS n
+  FROM verification_entries
+)
+UPDATE verification_entries
+SET seq = (SELECT n FROM ranked WHERE ranked.id = verification_entries.id)
+WHERE seq IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS verification_entries_seq_unique
+  ON verification_entries (seq);
+CREATE INDEX IF NOT EXISTS verification_entries_review_seq
+  ON verification_entries (reviewId, seq);
+CREATE INDEX IF NOT EXISTS verification_entries_requirement_seq
+  ON verification_entries (requirementId, seq)`,
+    postgres: `CREATE SEQUENCE IF NOT EXISTS verification_entries_order_seq;
+ALTER TABLE verification_entries
+  ALTER COLUMN seq SET DEFAULT nextval('verification_entries_order_seq');
+UPDATE verification_entries
+SET seq = nextval('verification_entries_order_seq')
+WHERE seq IS NULL;
+ALTER TABLE verification_entries ALTER COLUMN seq SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS verification_entries_seq_unique
+  ON verification_entries (seq);
+CREATE INDEX IF NOT EXISTS verification_entries_review_seq
+  ON verification_entries ("reviewId", seq);
+CREATE INDEX IF NOT EXISTS verification_entries_requirement_seq
+  ON verification_entries ("requirementId", seq)`,
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

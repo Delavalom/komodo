@@ -274,6 +274,7 @@ CREATE INDEX IF NOT EXISTS verification_requirements_review
 -- plan remain history and cannot attach to a new check with different text.
 CREATE TABLE IF NOT EXISTS verification_entries (
   id             TEXT PRIMARY KEY,
+  seq            INTEGER NOT NULL UNIQUE,
   requirementId  TEXT NOT NULL,
   reviewId       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
   actorLogin     TEXT NOT NULL,
@@ -538,7 +539,7 @@ export class SqliteStore implements KomodoStore {
   async listVerificationEntries(reviewId: string): Promise<VerificationEntry[]> {
     const rows = this.db
       .prepare(
-        "SELECT * FROM verification_entries WHERE reviewId = ? ORDER BY createdAt, id",
+        "SELECT * FROM verification_entries WHERE reviewId = ? ORDER BY seq",
       )
       .all(reviewId) as Row[];
     return rows.map(toVerificationEntry);
@@ -954,7 +955,7 @@ export class SqliteStore implements KomodoStore {
     const newestVerification = new Map<string, VerificationEntry>();
     for (const row of this.db
       .prepare(
-        "SELECT * FROM verification_entries WHERE reviewId = ? ORDER BY createdAt, id",
+        "SELECT * FROM verification_entries WHERE reviewId = ? ORDER BY seq",
       )
       .all(review.id) as Row[]) {
       const entry = toVerificationEntry(row);
@@ -979,7 +980,7 @@ export class SqliteStore implements KomodoStore {
         `WITH latest AS (
            SELECT requirementId, result,
                   ROW_NUMBER() OVER (
-                    PARTITION BY requirementId ORDER BY createdAt DESC, id DESC
+                    PARTITION BY requirementId ORDER BY seq DESC
                   ) AS rn
            FROM verification_entries
          )
@@ -1503,20 +1504,16 @@ export class SqliteStore implements KomodoStore {
     if (!requirement) throw new Error("That verification check no longer exists.");
 
     const now = Date.now();
-    const count = num(
-      (this.db
-        .prepare("SELECT COUNT(*) AS n FROM verification_entries WHERE requirementId = ?")
-        .get(input.requirementId) as Row | undefined)?.n,
-    );
     this.db
       .prepare(
         `INSERT INTO verification_entries
-           (id, requirementId, reviewId, actorLogin, result, evidenceKind,
+           (id, seq, requirementId, reviewId, actorLogin, result, evidenceKind,
             evidenceUrl, note, createdAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM verification_entries),
+                 ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        `${input.requirementId}:${now}:${count}`,
+        newId("verification"),
         input.requirementId,
         str(requirement.reviewId),
         input.actorLogin,

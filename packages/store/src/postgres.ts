@@ -272,8 +272,10 @@ CREATE TABLE IF NOT EXISTS verification_requirements (
 CREATE INDEX IF NOT EXISTS verification_requirements_review
   ON verification_requirements ("reviewId", ordinal);
 
+CREATE SEQUENCE IF NOT EXISTS verification_entries_order_seq;
 CREATE TABLE IF NOT EXISTS verification_entries (
   id              TEXT PRIMARY KEY,
+  seq             BIGINT NOT NULL UNIQUE DEFAULT nextval('verification_entries_order_seq'),
   "requirementId" TEXT NOT NULL,
   "reviewId"      TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
   "actorLogin"    TEXT NOT NULL,
@@ -615,7 +617,7 @@ export class PostgresStore implements KomodoStore {
   async listVerificationEntries(reviewId: string): Promise<VerificationEntry[]> {
     const { rows } = await this.sql.query<Row>(
       `SELECT * FROM verification_entries
-       WHERE "reviewId" = $1 ORDER BY "createdAt", id`,
+       WHERE "reviewId" = $1 ORDER BY seq`,
       [reviewId],
     );
     return rows.map(toVerificationEntry);
@@ -1003,7 +1005,7 @@ export class PostgresStore implements KomodoStore {
       ),
       this.sql.query<Row>(
         `SELECT * FROM verification_entries
-         WHERE "reviewId" = $1 ORDER BY "createdAt", id`,
+         WHERE "reviewId" = $1 ORDER BY seq`,
         [review.id],
       ),
     ]);
@@ -1047,7 +1049,7 @@ export class PostgresStore implements KomodoStore {
       `WITH latest AS (
          SELECT "requirementId", result,
                 ROW_NUMBER() OVER (
-                  PARTITION BY "requirementId" ORDER BY "createdAt" DESC, id DESC
+                  PARTITION BY "requirementId" ORDER BY seq DESC
                 ) AS rn
          FROM verification_entries
        )
@@ -1553,10 +1555,6 @@ export class PostgresStore implements KomodoStore {
       throw new Error("That verification check no longer exists.");
     }
 
-    const { rows: countRows } = await this.sql.query<Row>(
-      `SELECT COUNT(*) AS n FROM verification_entries WHERE "requirementId" = $1`,
-      [input.requirementId],
-    );
     const now = Date.now();
     await this.sql.query(
       `INSERT INTO verification_entries
@@ -1564,7 +1562,7 @@ export class PostgresStore implements KomodoStore {
           "evidenceKind", "evidenceUrl", note, "createdAt")
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
-        `${input.requirementId}:${now}:${num(countRows[0]?.n)}`,
+        newId("verification"),
         input.requirementId,
         str(requirementRows[0].reviewId),
         input.actorLogin,

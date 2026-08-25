@@ -5,7 +5,7 @@
  * the port, and the only thing standing between `komodo dev` and `komodo
  * serve` behaving differently. The Postgres driver runs this same suite.
  */
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 import type { KomodoStore, PullRequestInput, ReviewInput } from "../src/port.js";
 
@@ -536,6 +536,62 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
           blocked: 0,
         },
       ]);
+    });
+
+    it("orders same-millisecond evidence by the database append sequence", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const requirementId = (await store.loadReview(reviewId))!
+        .verificationRequirements[0].id;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(T0);
+
+      try {
+        for (let i = 0; i < 11; i += 1) {
+          await store.recordVerification({
+            requirementId,
+            actorLogin: `reviewer-${i}`,
+            result: i === 10 ? "verified" : "failed",
+            evidenceKind: "manual_observation",
+          });
+        }
+      } finally {
+        clock.mockRestore();
+      }
+
+      const entries = await store.listVerificationEntries(reviewId);
+      expect(entries.map((entry) => entry.actorLogin)).toEqual(
+        Array.from({ length: 11 }, (_, i) => `reviewer-${i}`),
+      );
+      expect((await store.loadReview(reviewId))?.verifications).toMatchObject([
+        { requirementId, result: "verified", actorLogin: "reviewer-10" },
+      ]);
+    });
+
+    it("accepts concurrent evidence submissions without id collisions", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const requirementId = (await store.loadReview(reviewId))!
+        .verificationRequirements[0].id;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(T0);
+
+      try {
+        await Promise.all(
+          Array.from({ length: 12 }, (_, i) =>
+            store.recordVerification({
+              requirementId,
+              actorLogin: `reviewer-${i}`,
+              result: "verified",
+              evidenceKind: "manual_observation",
+            }),
+          ),
+        );
+      } finally {
+        clock.mockRestore();
+      }
+
+      const entries = await store.listVerificationEntries(reviewId);
+      expect(entries).toHaveLength(12);
+      expect(new Set(entries.map((entry) => entry.id)).size).toBe(12);
     });
 
     it("does not reassign evidence when a same-head review changes its plan", async () => {
