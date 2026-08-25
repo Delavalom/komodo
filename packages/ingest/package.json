@@ -1,6 +1,6 @@
 {
   "name": "@komodo/ingest",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Polls GitHub and keeps the Komodo store's review queue current",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "@komodo/core",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Provider-agnostic AI code review engine for Komodo",
   "type": "module",
   "license": "MIT",
