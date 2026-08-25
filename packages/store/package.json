@@ -1,6 +1,6 @@
 {
   "name": "@komodo/store",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "Persistence port for Komodo, with SQLite and Postgres drivers",
   "type": "module",
   "license": "MIT",

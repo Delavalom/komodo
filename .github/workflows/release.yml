@@ -1,8 +1,8 @@
 # Cutting a release.
 #
-#   1. bump the version in the four places `pnpm check:release` checks
+#   1. bump the version in every place `pnpm check:release` checks
 #   2. commit, merge to main
-#   3. git tag v0.4.0 && git push origin v0.4.0
+#   3. tag the package version and push the tag
 #
 # A manual run builds and validates both artifacts but never publishes them.
 # Only a matching v* tag can publish to npm or GHCR.

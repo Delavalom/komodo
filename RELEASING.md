@@ -31,11 +31,15 @@ changed, which automated test proves it, and which shipped path you ran.
 ## Cutting one
 
 ```bash
-# 1. One version, four places. Edit them, then prove it:
-#      packages/cli/package.json          version
-#      plugin/.claude-plugin/plugin.json  version
-#      .claude-plugin/marketplace.json    metadata.version
-#      .claude-plugin/marketplace.json    plugins[].version
+# 1. One version, eight places. Edit them, then prove it:
+#      apps/web/package.json               version
+#      packages/cli/package.json           version
+#      packages/core/package.json          version
+#      packages/ingest/package.json        version
+#      packages/store/package.json         version
+#      plugin/.claude-plugin/plugin.json   version
+#      .claude-plugin/marketplace.json     metadata.version
+#      .claude-plugin/marketplace.json     plugins[].version
 pnpm check:release
 
 # 2. The full bar, plus the plugin manifest as Claude reads it
@@ -44,7 +48,8 @@ claude plugin validate .
 
 # 3. Merge to main, then tag. The tag triggers Release, which refuses to
 #    publish if it disagrees with packages/cli/package.json.
-git tag v0.4.0 && git push origin v0.4.0
+version=$(node -p "require('./packages/cli/package.json').version")
+git tag "v${version}" && git push origin "v${version}"
 ```
 
 That publishes the npm package (with provenance) and the
@@ -80,8 +85,8 @@ that, which is the wrong thing to skip during a release.
   travels as a file and unpacks on first run. Everyone pays that download,
   including `npx komodo-review prompt`, which never opens it. Splitting the
   app into its own package is the fix and has not been done.
-- **`@komodo/*` appear in the published `devDependencies`** at `0.1.0`,
-  versions that exist in this workspace and not on any registry. They are
+- **`@komodo/*` appear in the published `devDependencies`** at the release
+  version. They exist in this workspace and not on any registry. They are
   bundled into `dist/` by tsup, and a consumer never installs another
   package's devDependencies, so nothing resolves them.
 - **The CLI declares node >=22 while `@komodo/store` declares >=24.** Only a
