@@ -2,11 +2,33 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_ORG_SETTINGS } from "@komodo/store";
 import { SqliteStore } from "@komodo/store/sqlite";
-import type { GitHubClient } from "@komodo/core";
+import { KomodoConfigSchema, type GitHubClient } from "@komodo/core";
 
 import { pollRepositories } from "../src/poll.js";
 
 const T0 = 1_700_000_000_000;
+
+/**
+ * A team that has asked for automatic review, which is not the default.
+ *
+ * Enqueueing needs the settings to want it *and* a config to filter with, so
+ * every test about jobs has to say both — which is the point: a caller that
+ * supplies neither imports inventory and starts nothing.
+ */
+const AUTOMATIC = {
+  ...DEFAULT_ORG_SETTINGS,
+  autoReviewNewPullRequests: true,
+  autoReviewNewCommits: true,
+};
+
+const config = (over: Record<string, unknown> = {}) =>
+  KomodoConfigSchema.parse(over);
+
+/** Settings and config together, so a test can say "automatic review is on". */
+const automatic = (over: Record<string, unknown> = {}) => ({
+  settings: AUTOMATIC,
+  config: config(over),
+});
 
 /** Counts what the poller asks for, so the cheap-listing promise is testable. */
 function fakeGitHub(
@@ -117,18 +139,20 @@ describe("pollRepositories", () => {
     const first = fakeGitHub({
       "acme/api": [listed(), listed({ number: 2, headSha: "bbb222" })],
     });
-    await pollRepositories(first.client, store, {
-      settings: DEFAULT_ORG_SETTINGS,
-    });
+    await pollRepositories(first.client, store, automatic());
 
     expect(await store.listPullRequests()).toHaveLength(2);
     expect(await store.listAIReviewJobs()).toEqual([]);
   });
 
-  it("queues a pull request first observed after the repository baseline", async () => {
+  it("starts nothing on the shipped settings, however new the pull request", async () => {
+    // The whole first-run complaint: a store whose baseline was written by an
+    // earlier pass, 172 open pull requests, and a subscription spent on a
+    // backlog nobody asked to be reviewed.
     const first = fakeGitHub({ "acme/api": [listed()] });
     await pollRepositories(first.client, store, {
       settings: DEFAULT_ORG_SETTINGS,
+      config: config(),
     });
 
     const second = fakeGitHub({
@@ -136,7 +160,80 @@ describe("pollRepositories", () => {
     });
     await pollRepositories(second.client, store, {
       settings: DEFAULT_ORG_SETTINGS,
+      config: config(),
     });
+
+    expect(await store.listPullRequests()).toHaveLength(2);
+    expect(await store.listAIReviewJobs()).toEqual([]);
+  });
+
+  it("imports what it will not review, and counts it once", async () => {
+    // A draft and an off-roster author are inventory: the row belongs in the
+    // queue with its Review with AI button. What they must not cost is a job,
+    // a lease, a skipped judgment and a line of output per pass, forever.
+    const first = fakeGitHub({ "acme/api": [listed()] });
+    await pollRepositories(first.client, store, automatic());
+
+    const second = fakeGitHub({
+      "acme/api": [
+        listed(),
+        listed({ number: 2, headSha: "bbb222", isDraft: true }),
+        listed({ number: 3, headSha: "ccc333", author: "outsider" }),
+      ],
+    });
+    const result = await pollRepositories(
+      second.client,
+      store,
+      automatic({ auto_review: { authors: { mode: "include", tokens: ["renata"] } } }),
+    );
+
+    expect(await store.listPullRequests()).toHaveLength(3);
+    expect(await store.listAIReviewJobs()).toEqual([]);
+    expect(result.notEligible).toBe(2);
+  });
+
+  it("still refuses a review larger than the file cap", async () => {
+    const first = fakeGitHub({ "acme/api": [listed()] });
+    await pollRepositories(first.client, store, automatic());
+
+    const second = fakeGitHub({
+      "acme/api": [listed(), listed({ number: 2, headSha: "bbb222" })],
+    });
+    const result = await pollRepositories(
+      second.client,
+      store,
+      // The fake reports three changed files for every pull request.
+      automatic({ auto_review: { max_files: 2 } }),
+    );
+
+    expect(await store.listAIReviewJobs()).toEqual([]);
+    expect(result.notEligible).toBe(1);
+  });
+
+  it("imports inventory and starts nothing when no config was supplied", async () => {
+    const first = fakeGitHub({ "acme/api": [listed()] });
+    await pollRepositories(first.client, store, { settings: AUTOMATIC });
+
+    const second = fakeGitHub({
+      "acme/api": [listed(), listed({ number: 2, headSha: "bbb222" })],
+    });
+    const result = await pollRepositories(second.client, store, {
+      settings: AUTOMATIC,
+    });
+
+    expect(await store.listPullRequests()).toHaveLength(2);
+    expect(await store.listAIReviewJobs()).toEqual([]);
+    expect(result.notEligible).toBe(1);
+  });
+
+  it("queues a pull request first observed after the repository baseline", async () => {
+    const first = fakeGitHub({ "acme/api": [listed()] });
+    await pollRepositories(first.client, store, automatic());
+
+    const second = fakeGitHub({
+      "acme/api": [listed(), listed({ number: 2, headSha: "bbb222" })],
+    });
+    await pollRepositories(second.client, store, automatic());
 
     expect(await store.listAIReviewJobs()).toEqual([
       expect.objectContaining({

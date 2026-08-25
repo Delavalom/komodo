@@ -15,7 +15,14 @@
  */
 import * as React from "react";
 import Link from "next/link";
-import { AlertTriangle, GitBranch, ShieldAlert, User } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  GitBranch,
+  RefreshCw,
+  ShieldAlert,
+  User,
+} from "lucide-react";
 
 import { Avatar, Badge, StatusPill } from "@/components/ui/display";
 import { Button } from "@/components/ui/button";
@@ -25,6 +32,7 @@ import {
   fullName,
   useAuthors,
   useMe,
+  useMembers,
   useOrganization,
   useQueue,
   useQueueCounts,
@@ -37,7 +45,11 @@ import { useNow } from "@/lib/data/provider";
 import type { QueueLens, QueueRow } from "@/lib/types";
 
 const LENSES: { key: QueueLens; label: string; hint: string }[] = [
-  { key: "mine", label: "Needs my review", hint: "Waiting on you" },
+  {
+    key: "mine",
+    label: "Needs my review",
+    hint: "Open pull requests by a teammate, or that GitHub has asked you to review",
+  },
   { key: "all", label: "All open", hint: "Every open pull request" },
   { key: "blocked", label: "Needs action", hint: "Human changes requested, or major AI concerns remain" },
   { key: "stale", label: "Stale", hint: "Untouched for three days or more" },
@@ -71,10 +83,14 @@ const HUMAN_LABEL: Record<QueueRow["humanReviewState"], string> = {
 
 export function QueueView() {
   const { get, set } = useUrlState();
+  const router = useRouter();
   const repos = useRepositories();
   const authors = useAuthors();
   const me = useMe();
+  const members = useMembers();
   const org = useOrganization();
+  const now = useNow();
+  const [refreshing, startRefresh] = React.useTransition();
 
   const [search, setSearch] = React.useState("");
   const lens = (get("lens") as QueueLens | null) ?? "mine";
@@ -115,13 +131,31 @@ export function QueueView() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[1216px] px-5 py-6">
-        <header className="mb-5">
-          <h1 className="text-lg font-medium">Review queue</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {me
-              ? `Open pull requests across your team's repositories, ${me.name}.`
-              : "Open pull requests across your team's repositories."}
-          </p>
+        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-medium">Review queue</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {me
+                ? `Open pull requests across your team's repositories, ${me.name}.`
+                : "Open pull requests across your team's repositories."}
+            </p>
+          </div>
+          {/* What the poller has written so far, not what GitHub holds right
+              now. The two differ by up to a poll interval, and a count that
+              says nothing about when it was taken is how "22 open" sits on
+              screen while the last pass imported 172. */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>as of {absoluteStamp(now)}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={refreshing}
+              onClick={() => startRefresh(() => router.refresh())}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </Button>
+          </div>
         </header>
 
         <nav
@@ -172,7 +206,12 @@ export function QueueView() {
           </THead>
           <tbody>
             {rows.length === 0 ? (
-              <EmptyRow colSpan={6}>{emptyMessage(lens)}</EmptyRow>
+              <EmptyRow colSpan={6}>
+                {emptyMessage(lens, {
+                  identified: me !== null,
+                  teammates: members.length,
+                })}
+              </EmptyRow>
             ) : (
               rows.map((row) => (
                   <QueueRowCells key={row.id} row={row} orgSlug={org.slug} />
@@ -195,9 +234,27 @@ function reviewHref(orgSlug: string, row: QueueRow): string {
   return `/${orgSlug}/-/pull-requests/${repoFullName}/${number}`;
 }
 
-function emptyMessage(lens: QueueLens): string {
+/**
+ * Why the table is empty, which is not always "there is no work".
+ *
+ * "Needs my review" needs two things Komodo cannot assume: somebody marked as
+ * you, and a roster to compare authors against. Missing either, the lens is
+ * unconditionally empty — and answering that with "nothing is waiting on you"
+ * is a screen telling a person their queue is clear when what it means is that
+ * it never looked.
+ */
+function emptyMessage(
+  lens: QueueLens,
+  context: { identified: boolean; teammates: number },
+): string {
   switch (lens) {
     case "mine":
+      if (!context.identified) {
+        return "Nobody is marked as you, so no pull request can be matched to you — pick your name from the account menu in the header.";
+      }
+      if (context.teammates <= 1) {
+        return "This shows pull requests by a teammate, or ones GitHub asked you to review. The roster is just you — add your team under Settings → Team Members.";
+      }
       return "Nothing is waiting on you.";
     case "blocked":
       return "Nothing is blocked.";

@@ -18,7 +18,7 @@ export function RepoSettingsView() {
       <PageTitle>Repo Settings</PageTitle>
       <SettingRow
         title="Auto-enable new repos"
-        description={`Poll and review repositories as they appear under the owners ${org.name} already watches`}
+        description={`Keep looking for repositories under the owners ${org.name} already watches, and poll each new one as it appears`}
         control={
           <Toggle
             checked={settings.autoEnableNewRepos}
@@ -48,8 +48,10 @@ export function RepoSettingsView() {
           >
             Manage Repositories
           </Link>
-          . With this off, a newly discovered repository is listed but left
-          alone until someone enables it.
+          . With this on, each new repository is found and polled on its own.
+          With it off, nothing is listed until someone presses Rescan
+          repositories on Code Providers — an owner with hundreds of them is not
+          worth a listing every minute.
         </p>
       )}
     </div>

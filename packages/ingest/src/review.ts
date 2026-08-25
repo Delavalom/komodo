@@ -14,9 +14,15 @@ import {
   type KomodoConfig,
 } from "@komodo/core";
 import type { ReviewProvider } from "@komodo/core";
-import type { KomodoStore, PullRequest, Repository } from "@komodo/store";
+import type {
+  KomodoStore,
+  PullRequest,
+  Repository,
+  ReviewTrigger,
+} from "@komodo/store";
 
 import type { RepoCheckout } from "./checkout.js";
+import { automaticEligibility, hardLimits } from "./eligibility.js";
 import { selectMemories, type SelectedMemories } from "./memory.js";
 import { fetchIssueContext, findIssueKeys } from "./tracker.js";
 import {
@@ -48,67 +54,31 @@ export interface ReviewRunnerOptions {
 export interface ReviewPassResult {
   reviewed: number;
   failed: number;
-  /** Passed over by `shouldReview` rather than attempted. */
+  /** Claimed, then passed over on eligibility rather than attempted. */
   skipped: number;
 }
 
 /**
- * Why a pull request was passed over, or null if it should be reviewed.
+ * A request a person made, rather than one the poller made for them.
  *
- * These rules used to be split between a WHERE clause (drafts) and nowhere at
- * all (everything else in `auto_review`, which the config parsed and no code
- * read). Both problems are the same problem: a decision about *what is worth
- * a review* is a setting, and a setting has to live somewhere a setting can
- * reach.
- *
- * The reason is returned rather than a boolean so the queue can say what
- * happened. A pull request nobody reviewed and nobody explained is
- * indistinguishable, to the person waiting on it, from one Komodo lost.
+ * The distinction decides which rules still apply: someone who asks for a
+ * review of a draft, of a WIP title, or of an author the filter excludes has
+ * overridden a noise setting on purpose, and Komodo refusing them would be a
+ * button that does nothing. The file cap still applies to both.
  */
-export function shouldReview(
-  pr: PullRequest,
-  config: KomodoConfig,
-): { skip: false } | { skip: true; reason: string } {
-  const { auto_review } = config;
+const EXPLICIT_TRIGGERS = new Set<ReviewTrigger>(["manual", "interactive"]);
 
-  if (pr.isDraft && !auto_review.drafts) {
-    return { skip: true, reason: "draft" };
-  }
-
-  const title = pr.title.toLowerCase();
-  const keyword = auto_review.ignore_title_keywords.find(
-    (word) => word.trim() && title.includes(word.toLowerCase()),
-  );
-  if (keyword) {
-    return { skip: true, reason: `title contains "${keyword}"` };
-  }
-
-  const { mode, tokens } = auto_review.authors;
-  if (tokens.length) {
-    // Case-insensitive: GitHub logins are, and a roster typed by hand will
-    // not match one that was copied out of the API.
-    const listed = tokens.some(
-      (t) => t.toLowerCase() === pr.author.toLowerCase(),
-    );
-    if (mode === "exclude" && listed) {
-      return { skip: true, reason: `author ${pr.author} is filtered out` };
-    }
-    if (mode === "include" && !listed) {
-      return { skip: true, reason: `author ${pr.author} is not on the review list` };
-    }
-  }
-
-  // 0 disables the cap. A pull request that rewrites a lockfile or vendors a
-  // dependency is not a review a subscription should pay for.
-  if (auto_review.max_files > 0 && pr.changedFiles > auto_review.max_files) {
-    return {
-      skip: true,
-      reason: `${pr.changedFiles} files changed, over the ${auto_review.max_files} limit`,
-    };
-  }
-
-  return { skip: false };
-}
+/**
+ * The eligibility rules, which live in ./eligibility.js and are applied at
+ * enqueue time. Re-exported here because this is where they used to be, and a
+ * caller asking the reviewer what it reviews is asking a fair question.
+ */
+export {
+  automaticEligibility,
+  hardLimits,
+  shouldReview,
+  type Eligibility,
+} from "./eligibility.js";
 
 /** Claims and reviews explicitly requested jobs. Returns once the queue is empty. */
 export async function reviewPending(
@@ -150,7 +120,13 @@ export async function reviewPending(
       continue;
     }
 
-    const verdict = shouldReview(pr, options.config);
+    // The poller filters before it enqueues, so an automatic job reaching here
+    // is normally eligible; it is re-checked because a setting can change
+    // between the enqueue and the claim. An explicit request answers only to
+    // the limits nobody can override.
+    const verdict = EXPLICIT_TRIGGERS.has(job.trigger)
+      ? hardLimits(pr, options.config)
+      : automaticEligibility(pr, options.config);
     if (verdict.skip) {
       // Recorded, not dropped: the row explains itself in the queue, and the
       // work list treats a skipped head as settled so this costs one write

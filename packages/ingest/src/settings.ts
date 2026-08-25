@@ -71,6 +71,7 @@ export function applySettings(
       ...config.auto_review,
       drafts: settings.reviewDraftPrs,
       max_files: settings.fileChangeLimit,
+      new_pull_requests: settings.autoReviewNewPullRequests,
       on_new_commits: settings.autoReviewNewCommits,
       authors: {
         mode: settings.authorFilterMode,
@@ -107,6 +108,7 @@ export function configToSettings(config: KomodoConfig): Partial<OrgSettings> {
     customInstructions: config.instructions ?? "",
     reviewDraftPrs: config.auto_review.drafts,
     fileChangeLimit: config.auto_review.max_files,
+    autoReviewNewPullRequests: config.auto_review.new_pull_requests,
     autoReviewNewCommits: config.auto_review.on_new_commits,
     authorFilterMode: config.auto_review.authors.mode,
     authorFilterTokens: config.auto_review.authors.tokens,

@@ -8,10 +8,15 @@
  * on Repo Settings and no reader anywhere: there were no *new* repositories,
  * because nothing ever looked for any.
  *
- * This looks. Once per interval it lists what the token can see for each owner
- * the team already watches, and writes the ones the store has never heard of.
- * Whether a new row arrives switched on is exactly what that toggle decides —
- * which is the whole difference between a setting and a decoration.
+ * This looks. It lists what the token can see for each owner the team already
+ * watches and writes the ones the store has never heard of. Whether a new row
+ * arrives switched on is exactly what that toggle decides — which is the whole
+ * difference between a setting and a decoration.
+ *
+ * When it runs is not its own decision: `discoverIfAsked` in loop.ts calls it
+ * only for a team that wants new repositories enabled, or for a Rescan someone
+ * pressed. The interval guard below is what keeps the first of those cheap on a
+ * sixty-second poll; a Rescan passes `force` straight through it.
  *
  * Two things it deliberately does not do:
  *

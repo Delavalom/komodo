@@ -67,8 +67,9 @@ export function ManageReposView() {
       />
       <p className="text-sm text-muted-foreground">
         An enabled repository is polled for open pull requests; a disabled one
-        is left alone. The list is what the deployment&apos;s GitHub token can
-        see for each owner it already knows — Code Providers rescans it.
+        is left alone. The list is what komodo.yaml started with, plus whatever
+        the last scan found — scanning an owner is on demand, so press Rescan
+        repositories on Code Providers to look for more.
       </p>
       <div className="flex items-center gap-3">
         <span className="text-sm text-muted-foreground">

@@ -25,8 +25,13 @@ const folded = (): SummarySectionConfig => ({
 });
 
 export const DEFAULT_ORG_SETTINGS: OrgSettings = {
-  autoReviewNewPullRequests: true,
-  autoReviewNewCommits: true,
+  // Off, both of them. A deployment's first pass imports an inventory, and a
+  // repository with a hundred open pull requests would otherwise spend a
+  // subscription's quota on a backlog nobody asked to be reviewed. The queue
+  // row carries "Review with AI", which is the explicit request these two
+  // settings automate once a team decides they want it.
+  autoReviewNewPullRequests: false,
+  autoReviewNewCommits: false,
   reviewDraftPrs: false,
   fileChangeLimit: 100,
   authorFilterMode: "exclude",

@@ -9,6 +9,19 @@ min_severity: minor   # critical | major | minor | trivial
 #   - path: "src/api/**"
 #     instructions: "Check authorization and input validation on every handler."
 
+# What the poller reviews without being asked. Both are off: the first pass over
+# a repository observes every open pull request as new, and a queue is cheaper to
+# fill than a subscription is to refill. Each row has "Review with AI", and
+# Settings → Review owns these two once the store has adopted this file.
+# auto_review:
+#   new_pull_requests: false   # review a pull request the poller has never seen
+#   on_new_commits: false      # re-review when the head moves
+#   drafts: false
+#   max_files: 100             # 0 disables the cap
+#   authors:                   # `include` reviews only these logins; `exclude` skips them
+#     mode: exclude
+#     tokens: ["dependabot[bot]"]
+
 post:
   # What GitHub gets. The review itself lives in Komodo, where a judgement can
   # actually be answered.

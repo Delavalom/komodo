@@ -34,3 +34,18 @@ export const META_SETTINGS_INITIALIZED = "settingsInitialized";
  * every minute for an answer that is the same all day.
  */
 export const META_LAST_DISCOVERY_AT = "lastDiscoveryAt";
+
+/**
+ * Epoch milliseconds at which someone asked for the repository listing.
+ *
+ * Discovery is on demand: a 735-repository organisation is eight pages of REST
+ * per owner for an answer that changes weekly, and it fills Manage Repositories
+ * with hundreds of rows nobody asked for. So the ingester lists an owner only
+ * when this is newer than META_LAST_DISCOVERY_AT — or when new repositories are
+ * set to arrive enabled, which is a team saying they want them found.
+ *
+ * A request rather than clearing the heartbeat, which is what the Rescan button
+ * used to do: "when did we last look" is a fact the screen shows, and answering
+ * "never" every time someone presses a button is a lie about the past.
+ */
+export const META_DISCOVERY_REQUESTED_AT = "discoveryRequestedAt";

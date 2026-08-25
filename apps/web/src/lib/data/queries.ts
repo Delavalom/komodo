@@ -14,6 +14,8 @@
  */
 import { useMemo } from "react";
 
+import { needsReviewFrom } from "@komodo/store";
+
 import { useNow, useSnapshot } from "@/lib/data/provider";
 import { useDataStore } from "@/lib/data/store";
 import {
@@ -180,19 +182,10 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
       const changedLines = pr.additions + pr.deletions;
       const waitingDays = Math.floor((now - pr.updatedAt) / DAY_MS);
 
-      // This is a personal lens over the team's inventory, not GitHub's
-      // explicit review-request inbox. Team-level and informal assignments
-      // still need to be visible. Once I approve or request changes, the ball
-      // is back in the author's court for this observed review state.
-      const normalizedLogin = login?.toLowerCase() ?? null;
-      const needsMyReview =
-        normalizedLogin !== null &&
-        teammateLogins.has(pr.author.toLowerCase()) &&
-        pr.author.toLowerCase() !== normalizedLogin &&
-        !pr.approvals.some((reviewer) => reviewer.toLowerCase() === normalizedLogin) &&
-        !pr.changesRequested.some(
-          (reviewer) => reviewer.toLowerCase() === normalizedLogin,
-        );
+      // A personal lens over the team's inventory *plus* GitHub's explicit
+      // request — see needsReviewFrom in @komodo/store, which is where the rule
+      // lives so it can be tested without a browser.
+      const needsMyReview = needsReviewFrom(pr, { login, teammateLogins });
       const humanApprovals = pr.approvals.filter(
         (reviewer) =>
           teammateLogins.has(reviewer.toLowerCase()) &&
