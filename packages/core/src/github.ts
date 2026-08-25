@@ -461,13 +461,14 @@ export class GitHubClient {
     ref: PRRef,
     headSha: string,
     body: string,
-    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
     comments: InlineComment[],
   ): Promise<{ html_url: string }> {
     return this.request("POST", `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`, {
       commit_id: headSha,
       body,
-      event,
+      // Komodo prepares a human review. Keeping this out of the caller's hands
+      // makes an AI approval or change request impossible through this client.
+      event: "COMMENT",
       comments,
     });
   }
@@ -538,7 +539,7 @@ export class GitHubClient {
   ): Promise<void> {
     await this.request("POST", `/repos/${ref.owner}/${ref.repo}/statuses/${sha}`, {
       state,
-      context: "komodo/review",
+      context: "komodo/verification",
       description: description.slice(0, 140),
     });
   }

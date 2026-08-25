@@ -295,6 +295,77 @@ CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
 CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
   ON ai_review_jobs (state, "leaseExpiresAt", "requestedAt")`,
   },
+  {
+    id: "011-evidence-first-reviews",
+    addColumns: [
+      {
+        table: "reviews",
+        column: "version",
+        sqlite: "INTEGER NOT NULL DEFAULT 2",
+        postgres: "INTEGER NOT NULL DEFAULT 2",
+      },
+      {
+        table: "review_judgements",
+        column: "focus",
+        sqlite: "TEXT NOT NULL DEFAULT 'code'",
+        postgres: "TEXT NOT NULL DEFAULT 'code'",
+      },
+    ],
+    sqlite: `CREATE TABLE IF NOT EXISTS verification_requirements (
+  id             TEXT PRIMARY KEY,
+  reviewId       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  ordinal        INTEGER NOT NULL,
+  title          TEXT NOT NULL,
+  instruction    TEXT NOT NULL,
+  expectedResult TEXT NOT NULL,
+  evidenceKinds  TEXT NOT NULL DEFAULT '[]',
+  required       INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS verification_requirements_review
+  ON verification_requirements (reviewId, ordinal);
+CREATE TABLE IF NOT EXISTS verification_entries (
+  id            TEXT PRIMARY KEY,
+  requirementId TEXT NOT NULL,
+  reviewId      TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  actorLogin    TEXT NOT NULL,
+  result        TEXT NOT NULL,
+  evidenceKind  TEXT NOT NULL,
+  evidenceUrl   TEXT,
+  note          TEXT,
+  createdAt     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verification_entries_review
+  ON verification_entries (reviewId, createdAt);
+CREATE INDEX IF NOT EXISTS verification_entries_requirement
+  ON verification_entries (requirementId, createdAt)`,
+    postgres: `CREATE TABLE IF NOT EXISTS verification_requirements (
+  id               TEXT PRIMARY KEY,
+  "reviewId"       TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  ordinal          INTEGER NOT NULL,
+  title            TEXT NOT NULL,
+  instruction      TEXT NOT NULL,
+  "expectedResult" TEXT NOT NULL,
+  "evidenceKinds"  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  required         BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS verification_requirements_review
+  ON verification_requirements ("reviewId", ordinal);
+CREATE TABLE IF NOT EXISTS verification_entries (
+  id              TEXT PRIMARY KEY,
+  "requirementId" TEXT NOT NULL,
+  "reviewId"      TEXT NOT NULL REFERENCES reviews (id) ON DELETE CASCADE,
+  "actorLogin"    TEXT NOT NULL,
+  result          TEXT NOT NULL,
+  "evidenceKind"  TEXT NOT NULL,
+  "evidenceUrl"   TEXT,
+  note            TEXT,
+  "createdAt"     BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verification_entries_review
+  ON verification_entries ("reviewId", "createdAt");
+CREATE INDEX IF NOT EXISTS verification_entries_requirement
+  ON verification_entries ("requirementId", "createdAt")`,
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

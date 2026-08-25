@@ -5,8 +5,9 @@
  *
  * This is the screen the whole product is for. GitHub's "Review requested" tab
  * tells you a PR is waiting; a Slack channel tells you it existed. Neither
- * tells you which one to pick up. Every row here arrives pre-triaged — verdict,
- * size, how long it has waited, and its worst findings — so that choice takes
+ * tells you which one to pick up. Every row separates AI preflight, result
+ * evidence, and human review so a model's clean-looking diff cannot become an
+ * approval by implication. Size, age, and open concerns still help triage at
  * a glance instead of opening four diffs.
  *
  * Rows sort by longest wait, not most recent: the queue's job is to surface
@@ -33,37 +34,39 @@ import { useUrlState } from "@/lib/use-url-state";
 import { useRequestAIReview } from "@/lib/data/mutations";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
-import type { QueueLens, QueueRow, Verdict } from "@/lib/types";
+import type { QueueLens, QueueRow } from "@/lib/types";
 
 const LENSES: { key: QueueLens; label: string; hint: string }[] = [
   { key: "mine", label: "Needs my review", hint: "Waiting on you" },
   { key: "all", label: "All open", hint: "Every open pull request" },
-  { key: "blocked", label: "Blocked", hint: "Changes requested, or Komodo says no" },
+  { key: "blocked", label: "Needs action", hint: "Human changes requested, or major AI concerns remain" },
   { key: "stale", label: "Stale", hint: "Untouched for three days or more" },
 ];
-
-const VERDICT_LABEL: Record<Verdict, string> = {
-  ship: "Ship",
-  ship_with_notes: "Ship with notes",
-  needs_work: "Needs work",
-  blocked: "Blocked",
-};
-
-const VERDICT_TONE: Record<Verdict, "default" | "warn" | "error" | "success"> = {
-  ship: "success",
-  ship_with_notes: "default",
-  needs_work: "warn",
-  blocked: "error",
-};
 
 const AI_STATE_LABEL: Record<QueueRow["aiState"], string> = {
   not_requested: "Not requested",
   queued: "Queued",
   running: "Reviewing",
-  completed: "Completed",
+  completed: "Brief ready",
   skipped: "Skipped",
   failed: "Failed",
   cancelled: "Cancelled",
+};
+
+const VERIFICATION_LABEL: Record<QueueRow["verificationState"], string> = {
+  not_planned: "No plan yet",
+  not_required: "No required check",
+  needs_evidence: "Evidence needed",
+  verified: "Verified",
+  failed: "Failed",
+  blocked: "Blocked",
+};
+
+const HUMAN_LABEL: Record<QueueRow["humanReviewState"], string> = {
+  changes_requested: "Changes requested",
+  approved: "Approved by human",
+  awaiting_review: "Awaiting review",
+  unassigned: "Human review needed",
 };
 
 export function QueueView() {
@@ -160,14 +163,16 @@ export function QueueView() {
           <THead>
             <tr>
               <TH>Pull request</TH>
-              <TH className="w-[150px]">Komodo</TH>
+              <TH className="w-[140px]">AI preflight</TH>
+              <TH className="w-[140px]">Verification</TH>
+              <TH className="w-[150px]">Human review</TH>
               <TH className="w-[104px]">Size</TH>
               <TH className="w-[132px]">Waiting</TH>
             </tr>
           </THead>
           <tbody>
             {rows.length === 0 ? (
-              <EmptyRow colSpan={4}>{emptyMessage(lens)}</EmptyRow>
+              <EmptyRow colSpan={6}>{emptyMessage(lens)}</EmptyRow>
             ) : (
               rows.map((row) => (
                   <QueueRowCells key={row.id} row={row} orgSlug={org.slug} />
@@ -263,13 +268,15 @@ function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
         </div>
       </TD>
       <TD>
-        {row.verdict ? (
+        {row.aiState === "completed" ? (
           <>
-            <StatusPill tone={VERDICT_TONE[row.verdict]}>
-              {VERDICT_LABEL[row.verdict]}
+            <StatusPill tone={row.aiConcernCount > 0 ? "warn" : "default"}>
+              Brief ready
             </StatusPill>
             <div className="mt-1 text-xs text-muted-foreground">
-              {row.score}/5 confidence
+              {row.aiConcernCount
+                ? plural(row.aiConcernCount, "open concern")
+                : "No source concerns"}
             </div>
           </>
         ) : (
@@ -304,6 +311,46 @@ function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
             ) : null}
           </div>
         )}
+      </TD>
+      <TD>
+        <StatusPill
+          tone={
+            row.verificationState === "verified"
+              ? "success"
+              : row.verificationState === "failed"
+                ? "error"
+                : row.verificationState === "blocked" ||
+                    row.verificationState === "needs_evidence"
+                  ? "warn"
+                  : "default"
+          }
+        >
+          {VERIFICATION_LABEL[row.verificationState]}
+        </StatusPill>
+        {row.verificationSummary?.required ? (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {row.verificationSummary.requiredVerified}/
+            {row.verificationSummary.required} required
+          </div>
+        ) : null}
+      </TD>
+      <TD>
+        <StatusPill
+          tone={
+            row.humanReviewState === "approved"
+              ? "success"
+              : row.humanReviewState === "changes_requested"
+                ? "error"
+                : "warn"
+          }
+        >
+          {HUMAN_LABEL[row.humanReviewState]}
+        </StatusPill>
+        {row.humanApprovals.length > 0 ? (
+          <div className="mt-1 truncate text-xs text-muted-foreground">
+            {row.humanApprovals.join(", ")}
+          </div>
+        ) : null}
       </TD>
       <TD>
         <span className="label-mono text-[11px]">{row.sizeLabel}</span>

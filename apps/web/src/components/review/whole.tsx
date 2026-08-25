@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/display";
 import { cn } from "@/lib/utils";
 import type { Answer, ReviewDetail, ReviewFile } from "@/lib/types";
 
-import { BUCKET_HEADING, BUCKET_ORDER, SEVERITY_TONE } from "./labels";
+import { BUCKET_HEADING, BUCKET_ORDER, FOCUS_LABEL, SEVERITY_TONE } from "./labels";
 
 export function WholeReview({
   detail,
@@ -108,6 +108,9 @@ export function WholeReview({
                 </span>
                 <div className="min-w-0 flex-1">
                   <div>{j.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {FOCUS_LABEL[j.focus]}
+                  </div>
                   <div className="font-mono text-xs text-muted-foreground">
                     {j.path}:{j.line}
                   </div>

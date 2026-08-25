@@ -1,6 +1,10 @@
 # Komodo
 
-**AI code review on your own subscription.** Komodo reads a pull request the way a reviewer does — the diff, the code around it, and what your team has written down — and turns it into a queue of judgements someone can actually answer. Powered by the Claude or ChatGPT subscription you already pay for. $0/seat.
+**Evidence-first code review on your own AI subscription.** Komodo reads the
+diff, surrounding code, and team context to prepare a review brief. A person
+then verifies the changed behavior, resolves the architectural and scope
+questions, and submits the GitHub review. Powered by the Claude or ChatGPT
+subscription you already pay for. $0/seat.
 
 ```bash
 npx komodo-review init   # 1. detect your Claude/Codex login + GitHub auth
@@ -24,13 +28,25 @@ reviewer — no API key and no second subscription:
 
 Komodo never performs, brokers, or stores logins for any provider — it only detects credentials **you** created with the official tools, and uses them on your machine. If you'd rather use API keys (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`), that works too.
 
-## What you get on every PR
+## The review contract
 
-- **Summary + walkthrough table** — related files grouped into single rows, plain-language change descriptions
-- **Merge-confidence score (0–5)** and review-effort estimate
-- **Inline comments** with severity (🔴 Critical → 🔵 Trivial) × category (security, correctness, performance…), committable ` ```suggestion ` fixes, and copy-paste "fix prompts" for your coding agent
-- **Mermaid sequence diagrams** for flow-changing PRs
-- **Local review queue** (`komodo-review dev`) that ranks what matters and collapses the noise
+Komodo's AI preflight is not an approval. It organizes the change and surfaces
+source-visible concerns before a person reviews it. A person checks the actual
+result, architectural fit, inappropriate codebase changes, and whether the
+tests are useful and complete.
+
+Every new review run contains:
+
+- a summary and walkthrough of the change;
+- questions grouped by code, architecture, scope, and tests;
+- a review-coverage score, never a merge-confidence score;
+- concrete result checks with expected outcomes and acceptable evidence;
+- an append-only evidence ledger pinned to the reviewed head; and
+- separate AI preflight, result-verification, and human-review states in the queue.
+
+Komodo posts only comments and verification statuses. It never emits a GitHub
+approval. An empty concern list means only that the preflight found no
+source-visible concern; it does not mean the change works or is ready to merge.
 
 ## Deploying for a team
 
@@ -101,8 +117,7 @@ What the screen controls, and what each control actually does:
 | Strictness | The severity floor: only critical, down to everything minor |
 | Custom instructions | Handed to the model with every diff |
 | Summary sections | Which blocks a posted review carries |
-| Status checks | The commit status, and the confidence it passes at |
-| Auto-approve | Approves when nothing worse than a chosen severity was found |
+| Status checks | A pending result-verification status, updated from recorded evidence |
 
 A pull request that is skipped gets a row in the queue saying why, rather than
 vanishing — and with `post.status_comments` on, a comment on GitHub saying the
@@ -134,6 +149,7 @@ curl -H "Authorization: Bearer kmd_…" https://komodo.example.com/api/v1/queue
 |---|---|
 | `GET /api/v1/queue` | The team's queue, as data |
 | `GET /api/v1/reviews/:id` | One run: judgements, answers, votes |
+| `POST /api/v1/reviews/:id/verification` | Append evidence for one result check |
 | `POST /api/v1/reviews/:id/receipt` | Post the decided outcome to GitHub |
 | `POST /api/v1/repos/:id/retrigger` | Send a repository's reviews back to the work list |
 

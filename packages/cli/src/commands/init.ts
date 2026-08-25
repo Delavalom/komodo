@@ -20,8 +20,7 @@ min_severity: minor   # critical | major | minor | trivial
 post:
   mode: receipt               # receipt | full | none — what GitHub gets
   update_description: false   # inject "Summary by Komodo" into the PR description (mode: full)
-  request_changes: true       # request changes when major/critical findings exist (mode: full)
-  status_check: false         # post a commit status (pass/fail gate)
+  status_check: false         # post a pending status until human verification is recorded
 
 # Who the queue is for, and what it watches. \`komodo pr\` does not need this;
 # \`komodo dev\` and \`komodo serve\` do — without a team they have nothing to

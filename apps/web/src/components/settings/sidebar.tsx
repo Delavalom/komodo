@@ -12,7 +12,6 @@ import {
   Rocket,
   ScrollText,
   Settings as SettingsIcon,
-  ShieldCheck,
   SlidersHorizontal,
   Users,
 } from "lucide-react";
@@ -85,11 +84,6 @@ export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
               href: `${base}/review#status-checks`,
               label: "Status Checks",
               icon: <CheckCircleIcon />,
-            },
-            {
-              href: `${base}/review#auto-approve`,
-              label: "Auto-approve PRs",
-              icon: <ShieldCheck className="h-4 w-4" />,
             },
           ],
         },

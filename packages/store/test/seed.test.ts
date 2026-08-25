@@ -81,15 +81,11 @@ describe.each(DRIVERS)("seedStore on $name", ({ open }) => {
     store.close();
   });
 
-  it("never lets a judgment disagree with its own score", async () => {
+  it("never turns AI coverage into a merge verdict", async () => {
     const store = await seeded();
     const { judgments } = await store.snapshot();
 
-    for (const j of judgments) {
-      if (j.status !== "completed") expect(j.verdict).toBeNull();
-      else if (j.score >= 5) expect(j.verdict).toBe("ship");
-      else if (j.score < 2) expect(j.verdict).toBe("blocked");
-    }
+    expect(judgments.every((judgment) => judgment.verdict === null)).toBe(true);
     store.close();
   });
 

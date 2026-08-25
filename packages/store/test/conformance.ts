@@ -67,6 +67,7 @@ function review(over: Partial<ReviewInput> = {}): ReviewInput {
         endLine: null,
         severity: "major",
         kind: "Risk",
+        focus: "architecture",
         tag: "changes how logging out works",
         title: "Sessions outlive logout by up to fifteen minutes.",
         lede: "The token is revoked in the store but the edge cache keeps serving it.",
@@ -91,6 +92,7 @@ function review(over: Partial<ReviewInput> = {}): ReviewInput {
         endLine: 9,
         severity: "minor",
         kind: "Unsure",
+        focus: "tests",
         tag: "reaches outside this change",
         title: "The cache TTL is set outside the diff.",
         lede: "Nothing here shows what the TTL actually is.",
@@ -112,7 +114,24 @@ function review(over: Partial<ReviewInput> = {}): ReviewInput {
         postable: false,
       },
     ],
+    verificationRequirements: [
+      {
+        title: "A signed-in user can log out in the preview.",
+        instruction: "Open the preview, sign in, then use Log out.",
+        expectedResult: "The session ends and a protected page redirects to sign-in.",
+        evidenceKinds: ["preview", "video"],
+        required: true,
+      },
+      {
+        title: "The session revocation test passes against the real store.",
+        instruction: "Run the session integration test with the configured store.",
+        expectedResult: "The test exits successfully without retries.",
+        evidenceKinds: ["test_run", "command_output"],
+        required: false,
+      },
+    ],
     ...over,
+    version: 3,
   };
 }
 
@@ -475,6 +494,80 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(j.title).toBe("Add rate limiting");
       expect(j.author).toBe("renata");
       expect(j.requestedReviewers).toEqual(["dev"]);
+    });
+
+    it("keeps verification evidence append-only and derives the queue summary", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const detail = await store.loadReview(reviewId);
+      expect(detail?.review.version).toBe(3);
+      expect(detail?.verificationRequirements).toHaveLength(2);
+
+      const requirementId = detail!.verificationRequirements[0].id;
+      await store.recordVerification({
+        requirementId,
+        actorLogin: "renata",
+        result: "failed",
+        evidenceKind: "preview",
+        evidenceUrl: "https://preview.example.test/pr/1",
+        note: "The protected page stayed open.",
+      });
+      await store.recordVerification({
+        requirementId,
+        actorLogin: "renata",
+        result: "verified",
+        evidenceKind: "video",
+        evidenceUrl: "https://evidence.example.test/logout.mp4",
+        note: "Retested after the fix.",
+      });
+
+      expect(await store.listVerificationEntries(reviewId)).toHaveLength(2);
+      expect((await store.loadReview(reviewId))?.verifications).toMatchObject([
+        { requirementId, result: "verified", actorLogin: "renata" },
+      ]);
+      expect((await store.snapshot()).verificationSummaries).toMatchObject([
+        {
+          reviewId,
+          total: 2,
+          required: 1,
+          verified: 1,
+          requiredVerified: 1,
+          failed: 0,
+          blocked: 0,
+        },
+      ]);
+    });
+
+    it("does not reassign evidence when a same-head review changes its plan", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      const first = (await store.loadReview(reviewId))!.verificationRequirements[0];
+      await store.recordVerification({
+        requirementId: first.id,
+        actorLogin: "renata",
+        result: "verified",
+        evidenceKind: "manual_observation",
+      });
+
+      await store.saveReview(
+        review({
+          prId,
+          verificationRequirements: [
+            {
+              title: "A different result is visible.",
+              instruction: "Open the changed screen.",
+              expectedResult: "The new result appears.",
+              evidenceKinds: ["manual_observation"],
+              required: true,
+            },
+          ],
+        }),
+      );
+
+      const current = await store.loadReview(reviewId);
+      expect(current?.verificationRequirements[0].id).not.toBe(first.id);
+      expect(current?.verifications).toEqual([]);
+      expect(await store.listVerificationEntries(reviewId)).toHaveLength(1);
     });
 
     describe("the ingester work list", () => {

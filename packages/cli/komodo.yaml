@@ -11,5 +11,4 @@ min_severity: minor   # critical | major | minor | trivial
 
 post:
   update_description: false   # inject "Summary by Komodo" into the PR description
-  request_changes: true       # request changes when major/critical findings exist
-  status_check: false         # post a commit status (pass/fail gate)
+  status_check: false         # post a pending status until human verification is recorded

@@ -8,8 +8,9 @@ description: >
 
 # Komodo review
 
-You are the reviewer. Komodo supplies the prompt, validates what you write,
-and gives the result somewhere to live.
+You prepare the review brief. Komodo supplies the prompt, validates what you
+write, and gives the result somewhere to live. A person still verifies the
+changed behavior and makes the GitHub review decision.
 
 Nothing here starts another model process. This Claude session is the
 reviewer. A claimed teammate PR needs the user's existing `gh` authentication
@@ -42,7 +43,10 @@ command refuses a different head.
 ### 3. Review and submit
 
 Run `npx komodo-review prompt`, follow the prompt exactly, and write the single
-ReviewResult JSON object it requests to a temporary file. Then:
+ReviewResult JSON object it requests to a temporary file. Include concrete
+result checks a person can perform. Do not claim to have run, seen, or verified
+behavior unless you actually did, and never turn an empty finding list into a
+merge recommendation. Then:
 
 ```bash
 npx komodo-review submit <claim-json> <result-json>
@@ -75,13 +79,15 @@ stop. If the output is enormous (a long-lived branch), suggest a narrower
 ## 2. Review
 
 You have something the headless providers usually do not: the working tree is
-already open in front of you. Use it. `Read`, `Glob` and `Grep` the
-surrounding code for any file where the diff alone is ambiguous — trace the
-callers, check how a changed function is used elsewhere, confirm the type is
-what you assumed — before you claim a bug.
+already open in front of you. Use it. `Read`, `Glob` and `Grep` the surrounding
+code to assess architecture, scope, and test adequacy: trace callers, identify
+ownership boundaries, and check whether the change reaches unrelated modules.
+Treat source-visible bugs as preflight concerns, not as proof of runtime behavior.
 
-A judgement you cannot substantiate this way is one you should drop. The
-prompt's own rules govern everything else.
+A judgement you cannot substantiate this way is one you should drop. If a
+claim depends on a rendered screen, real data, an external system, timing, or
+layout, turn it into a verification check instead of asserting that it works.
+The prompt's own rules govern everything else.
 
 ## 3. Save it
 
@@ -104,9 +110,11 @@ that failed validation.
 npx komodo-review dev
 ```
 
-Then tell the user the URL it prints. This is the point of the exercise: each
-judgement is a question with four answers, and answering them is how the
-review closes. A summary in the terminal is not the deliverable.
+Then tell the user the URL it prints. The default view is the result checklist:
+the person runs the changed behavior and records evidence. Decisions organize
+the architectural, scope, and test questions. A terminal summary is not the
+deliverable, and neither completing the checklist nor answering the decisions
+grants GitHub approval.
 
 If a queue is already running on that port, say so instead of starting
 another.

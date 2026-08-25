@@ -18,7 +18,14 @@ import { Button } from "@/components/ui/button";
 import { usePostReceipt } from "@/lib/data/mutations";
 import { cn, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
-import type { Answer, Bucket, Review, ReviewJudgement } from "@/lib/types";
+import type {
+  Answer,
+  Bucket,
+  Review,
+  ReviewJudgement,
+  VerificationEntry,
+  VerificationRequirement,
+} from "@/lib/types";
 
 import { BUCKET_HEADING, BUCKET_ORDER, BUCKET_TONE } from "./labels";
 
@@ -26,11 +33,15 @@ export function ClosingScreen({
   review,
   judgements,
   answers,
+  verificationRequirements,
+  verifications,
   onBack,
 }: {
   review: Review;
   judgements: ReviewJudgement[];
   answers: Answer[];
+  verificationRequirements: VerificationRequirement[];
+  verifications: VerificationEntry[];
   onBack: () => void;
 }) {
   const router = useRouter();
@@ -48,6 +59,21 @@ export function ClosingScreen({
     .map((j) => ({ judgement: j, answer: answerFor.get(j.id) }))
     .filter((row) => row.answer?.bucket);
   const unanswered = judgements.length - decided.length;
+  const currentVerification = new Map(
+    verifications.map((entry) => [entry.requirementId, entry]),
+  );
+  const requiredChecks = verificationRequirements.filter((check) => check.required);
+  const verifiedChecks = requiredChecks.filter(
+    (check) => currentVerification.get(check.id)?.result === "verified",
+  ).length;
+  const failedChecks = requiredChecks.filter(
+    (check) => currentVerification.get(check.id)?.result === "failed",
+  ).length;
+  const blockedChecks = requiredChecks.filter(
+    (check) => currentVerification.get(check.id)?.result === "blocked",
+  ).length;
+  const verificationComplete =
+    review.version === 3 && verifiedChecks === requiredChecks.length;
 
   const countFor = (bucket: Bucket) =>
     decided.filter((row) => row.answer?.bucket === bucket).length;
@@ -103,6 +129,25 @@ export function ClosingScreen({
           ))}
         </div>
 
+        <section className="mt-6 border border-border px-3 py-3 text-sm">
+          <h2 className="label-mono text-[10px] text-muted-foreground">
+            Result verification
+          </h2>
+          <p className="mt-2">
+            {requiredChecks.length
+              ? `${verifiedChecks} of ${requiredChecks.length} required checks verified.`
+              : "No verification plan was recorded. This is not evidence that the result works."}
+          </p>
+          {failedChecks || blockedChecks ? (
+            <p className="mt-1 text-[hsl(var(--destructive))]">
+              {failedChecks} failed · {blockedChecks} blocked
+            </p>
+          ) : null}
+          <p className="mt-1 text-xs text-muted-foreground">
+            GitHub approval is a separate human action and is never granted by Komodo.
+          </p>
+        </section>
+
         {BUCKET_ORDER.map((bucket) => {
           const inBucket = decided.filter((row) => row.answer?.bucket === bucket);
           if (!inBucket.length) return null;
@@ -154,7 +199,11 @@ export function ClosingScreen({
           ) : (
             <div className="flex items-center gap-3">
               <Button variant="brand" onClick={() => void send()} disabled={pending}>
-                {pending ? "Posting…" : "Post the receipt"}
+                {pending
+                  ? "Posting…"
+                  : verificationComplete && unanswered === 0
+                    ? "Post review record"
+                    : "Post in-progress record"}
               </Button>
               <span className="text-xs text-muted-foreground">
                 Replaces Komodo&rsquo;s comment on the pull request.

@@ -6,7 +6,12 @@
  * an app that owns its own type. The vocabularies are the same; the rendering
  * is not.
  */
-import type { Bucket, JudgementKind, JudgementSeverity } from "@/lib/types";
+import type {
+  Bucket,
+  JudgementKind,
+  JudgementSeverity,
+  ReviewFocus,
+} from "@/lib/types";
 
 export const KIND_LABEL: Record<JudgementKind, string> = {
   Choice: "A choice was made",
@@ -14,6 +19,13 @@ export const KIND_LABEL: Record<JudgementKind, string> = {
   Behaviour: "Behaviour changes",
   Domain: "Reaches outside this change",
   Unsure: "Komodo is unsure",
+};
+
+export const FOCUS_LABEL: Record<ReviewFocus, string> = {
+  code: "AI preflight",
+  architecture: "Architecture",
+  scope: "Change scope",
+  tests: "Test adequacy",
 };
 
 export const SEVERITY_TONE: Record<JudgementSeverity, string> = {

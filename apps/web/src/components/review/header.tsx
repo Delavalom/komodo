@@ -34,7 +34,13 @@ export function ReviewHeader({
 }) {
   const now = useNow();
   const { get, set } = useUrlState();
-  const view = get("view") === "whole" ? "whole" : "queue";
+  const requestedView = get("view");
+  const view =
+    requestedView === "whole"
+      ? "whole"
+      : requestedView === "decisions"
+        ? "decisions"
+        : "verify";
   const isLatest = !current || runs[0]?.id === current.id;
 
   return (
@@ -113,7 +119,13 @@ export function ReviewHeader({
       )}
 
       <nav className="flex gap-1 px-4 pt-3">
-        <Tab active={view === "queue"} onClick={() => set({ view: null })}>
+        <Tab active={view === "verify"} onClick={() => set({ view: null, j: null })}>
+          Verify result
+        </Tab>
+        <Tab
+          active={view === "decisions"}
+          onClick={() => set({ view: "decisions" })}
+        >
           Decisions
         </Tab>
         <Tab active={view === "whole"} onClick={() => set({ view: "whole" })}>

@@ -140,8 +140,9 @@ export interface PullRequest {
 }
 
 /**
- * Komodo's verdict on one pull request — what a human reads instead of the
- * diff. Flat because it is a read-model: everything from `prId` down is joined
+ * The legacy AI result summary for one pull request. Version 3 reviews leave
+ * `verdict` null because coverage and concern impact are not merge authority.
+ * Flat because it is a read-model: everything from `prId` down is joined
  * in from `pullRequests`, not stored on the judgment row.
  */
 export interface Judgment {
@@ -262,11 +263,7 @@ export interface OrgSettings {
   commentHeader: string;
   promptToFixWithAi: boolean;
   useStatusChecks: boolean;
-  /** The commit status passes at or above this confidence, 0–5. */
-  requiredConfidence: number;
   postStatusComments: boolean;
-  autoApprovePrs: boolean;
-  maxAutoApproveRisk: ImpactLevel;
   autoEnableNewRepos: boolean;
   /**
    * Whether the rules on /custom-context are handed to the reviewer.
@@ -291,6 +288,18 @@ export type JudgementSeverity = "critical" | "major" | "minor" | "trivial";
 
 export type JudgementKind = "Choice" | "Risk" | "Behaviour" | "Domain" | "Unsure";
 
+export type ReviewFocus = "code" | "architecture" | "scope" | "tests";
+
+export type EvidenceKind =
+  | "preview"
+  | "screenshot"
+  | "video"
+  | "test_run"
+  | "command_output"
+  | "manual_observation";
+
+export type VerificationResult = "verified" | "failed" | "blocked" | "not_applicable";
+
 /** Where an answer lands in the verdict. */
 export type Bucket = "Blocks" | "Agreed" | "Asked" | "Passed on";
 
@@ -313,6 +322,8 @@ export interface WalkthroughEntry {
  * old one stays readable forever.
  */
 export interface Review {
+  /** Version 2 is a legacy source review. Version 3 carries a verification plan. */
+  version: 2 | 3;
   id: string;
   prId: string;
   headSha: string;
@@ -321,7 +332,7 @@ export interface Review {
   /** Markdown bullets grouped by change type, as the reviewer wrote them. */
   summary: string;
   walkthrough: WalkthroughEntry[];
-  /** Merge confidence, 0–5. */
+  /** Confidence that the review brief had enough context, 0–5. Never approval. */
   confidence: number;
   /** Human review effort, 1–5. */
   effort: number;
@@ -368,6 +379,7 @@ export interface ReviewJudgement {
   endLine: number | null;
   severity: JudgementSeverity;
   kind: JudgementKind;
+  focus: ReviewFocus;
   tag: string;
   title: string;
   lede: string;
@@ -381,6 +393,47 @@ export interface ReviewJudgement {
   suggestion: string | null;
   fixPrompt: string;
   postable: boolean;
+}
+
+/** One result the AI review brief asks a human to observe. */
+export interface VerificationRequirement {
+  id: string;
+  reviewId: string;
+  ordinal: number;
+  title: string;
+  instruction: string;
+  expectedResult: string;
+  evidenceKinds: EvidenceKind[];
+  required: boolean;
+}
+
+/**
+ * One append-only observation against a verification requirement.
+ *
+ * The newest row is current. Older rows remain the record of a failed check
+ * that later passed, or proof that was withdrawn by a later blocked result.
+ */
+export interface VerificationEntry {
+  id: string;
+  requirementId: string;
+  reviewId: string;
+  actorLogin: string;
+  result: VerificationResult;
+  evidenceKind: EvidenceKind;
+  evidenceUrl: string | null;
+  note: string | null;
+  createdAt: number;
+}
+
+/** Queue-sized verification state, counted from requirements and latest entries. */
+export interface VerificationSummary {
+  reviewId: string;
+  total: number;
+  required: number;
+  verified: number;
+  requiredVerified: number;
+  failed: number;
+  blocked: number;
 }
 
 /**
@@ -575,4 +628,7 @@ export interface ReviewDetail {
   answers: Answer[];
   /** Every vote on this run's judgements — at most one per person per one. */
   votes: JudgementVote[];
+  verificationRequirements: VerificationRequirement[];
+  /** Newest entry per requirement id. */
+  verifications: VerificationEntry[];
 }

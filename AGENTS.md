@@ -89,7 +89,15 @@ Inherited by every future session in this repo. These are not suggestions.
     Its branding, copy, agent surfaces and URL parameters have been removed and
     replaced with Komodo's own. Structural text — nav labels, headings, button
     labels — is ours to write. Do not reintroduce another product's name into
-    the UI, nor invented customer quotes or statistics nobody measured.
+   the UI, nor invented customer quotes or statistics nobody measured.
+
+15. **Komodo prepares human review; it does not replace it.** Source-visible
+    defects belong in the AI development and preflight loop. The review brief
+    must instead surface architectural fit, inappropriate scope, and test
+    adequacy, then name the real results a person must verify. A clean diff or
+    an empty finding list is never evidence that behavior works. Verification
+    evidence is append-only and pinned to the reviewed head, and only a human
+    GitHub review can approve a pull request. Komodo must never emit one.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

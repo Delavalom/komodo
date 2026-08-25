@@ -31,6 +31,11 @@ import type {
   MemoryRuleStats,
   RepoCluster,
   ReviewJudgement,
+  VerificationEntry,
+  VerificationRequirement,
+  VerificationSummary,
+  EvidenceKind,
+  VerificationResult,
   Team,
   Verdict,
   ImpactLevel,
@@ -63,6 +68,8 @@ export interface QueueSnapshot {
   apiKeys: ApiKey[];
   /** Never with a token — see Integration. */
   integrations: Integration[];
+  /** Derived from requirements and the newest verification entry for each. */
+  verificationSummaries: VerificationSummary[];
 }
 
 export interface StoreReader {
@@ -118,6 +125,9 @@ export interface StoreReader {
 
   /** The full ledger for a run, oldest first — including withdrawn answers. */
   listAnswers(reviewId: string): Promise<Answer[]>;
+
+  /** Full append-only verification history for audit and API clients. */
+  listVerificationEntries(reviewId: string): Promise<VerificationEntry[]>;
 
   /**
    * One small fact about the deployment rather than about a review — when the
@@ -176,6 +186,7 @@ export interface StoreReader {
 
 /** What the reviewer writes once a run completes. */
 export interface ReviewInput {
+  version: 3;
   prId: string;
   headSha: string;
   provider: string;
@@ -189,7 +200,20 @@ export interface ReviewInput {
   recordId: string;
   /** In the order they should be answered. Ordinals are assigned here. */
   judgements: Omit<ReviewJudgement, "id" | "reviewId" | "ordinal">[];
+  verificationRequirements: Omit<
+    VerificationRequirement,
+    "id" | "reviewId" | "ordinal"
+  >[];
   files: Omit<ReviewFile, "reviewId">[];
+}
+
+export interface VerificationInput {
+  requirementId: string;
+  actorLogin: string;
+  result: VerificationResult;
+  evidenceKind: EvidenceKind;
+  evidenceUrl?: string | null;
+  note?: string | null;
 }
 
 /** One entry appended to the decision ledger. */
@@ -297,6 +321,9 @@ export interface StoreWriter {
    * it are how the team got there.
    */
   recordAnswer(input: AnswerInput): Promise<void>;
+
+  /** Adds one observation to the verification ledger. Never edits history. */
+  recordVerification(input: VerificationInput): Promise<void>;
 
   /**
    * Records that a run's outcome was posted to GitHub, and where.

@@ -29,6 +29,7 @@ const judgement: Judgement = {
   line: 12,
   severity: "critical",
   kind: "Risk",
+  focus: "code",
   tag: "how users are looked up",
   title: "User input is pasted straight into the query.",
   lede: "Anyone who can type into the search box can ask the database for anything it holds.",
@@ -53,6 +54,15 @@ const result: ReviewResult = {
   confidence: 2,
   verdict: "Blocking security issue in the query layer.",
   effort: 3,
+  verificationChecks: [
+    {
+      title: "Search rejects an injection payload.",
+      instruction: "Run the search flow with a quoted SQL fragment.",
+      expectedResult: "The query treats the fragment as text.",
+      evidenceKinds: ["test_run"],
+      required: true,
+    },
+  ],
   diagram: "sequenceDiagram\n  A->>B: pay()",
   judgements: [judgement],
 };
@@ -86,9 +96,11 @@ describe("renderJudgementComment", () => {
 
 describe("renderReviewBody", () => {
   it("summarizes counts", () => {
-    expect(renderReviewBody(result)).toContain("1 judgement");
+    expect(renderReviewBody(result)).toContain("raised 1 concern");
   });
   it("handles clean reviews", () => {
-    expect(renderReviewBody({ ...result, judgements: [] })).toContain("nothing worth judging");
+    expect(renderReviewBody({ ...result, judgements: [] })).toContain(
+      "Human verification and approval are still required",
+    );
   });
 });

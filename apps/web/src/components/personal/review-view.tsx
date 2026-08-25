@@ -28,8 +28,8 @@ const ROWS: {
   },
   {
     key: "confidence",
-    title: "Confidence Score",
-    description: "The merge-confidence rating and the verdict line",
+    title: "Review coverage",
+    description: "How much context the AI brief had, never a merge recommendation",
     icon: <BarChart3 className="h-5 w-5 text-muted-foreground" />,
   },
   {
