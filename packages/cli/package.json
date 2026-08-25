@@ -1,6 +1,6 @@
 {
   "name": "komodo-review",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "AI code review on your own Claude or ChatGPT subscription. CodeRabbit-class reviews, $0/seat.",
   "type": "module",
   "license": "MIT",
