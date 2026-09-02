@@ -42,3 +42,26 @@ export async function resolveActor(members: Member[]): Promise<Member | null> {
 export async function resolveActorLogin(members: Member[]): Promise<string> {
   return (await resolveActor(members))?.githubLogin ?? "unknown";
 }
+
+/**
+ * The member this device has explicitly said it is — no fallback.
+ *
+ * `resolveActor` falls back to `team.you`, which is right for the ledger: a
+ * fresh browser answering a judgement should record the deployment's owner
+ * rather than nobody. It is wrong for anything that reaches outside Komodo
+ * with somebody's own credential. A request with no cookie at all is not
+ * `team.you` making a decision; it is a request with no cookie, and acting on
+ * GitHub as a named person on that basis is the one thing this must not do.
+ *
+ * This does not make the cookie a credential — it still is not one, and rule
+ * 11 still holds. It removes the case where no cookie is needed at all.
+ */
+export async function resolveDeclaredActor(members: Member[]): Promise<Member | null> {
+  const declared = (await cookies()).get(ACTOR_COOKIE)?.value?.trim();
+  if (!declared) return null;
+  return (
+    members.find(
+      (member) => member.githubLogin.toLowerCase() === declared.toLowerCase(),
+    ) ?? null
+  );
+}

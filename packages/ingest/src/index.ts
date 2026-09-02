@@ -42,6 +42,10 @@ export {
   toReview,
   toSkippedJudgment,
 } from "./map.js";
+export {
+  fetchConversation,
+  type ConversationEntry,
+} from "./conversation.js";
 export { recordReview, type RecordReviewResult } from "./record.js";
 export {
   fetchIssueContext,

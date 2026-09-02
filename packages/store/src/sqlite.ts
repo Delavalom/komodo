@@ -15,6 +15,8 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { newId } from "./ids.js";
+import { readChecks } from "./checks.js";
+import { dedupeComments } from "./comments.js";
 import { runSqliteMigrations } from "./migrate.js";
 import { mergeSettings } from "./settings.js";
 
@@ -38,12 +40,16 @@ import type {
   Judgment,
   JudgementVote,
   Member,
+  MemberGithubIdentity,
   MemoryFile,
   MemoryRule,
   MemoryRuleStats,
   Organization,
   OrgSettings,
   PullRequest,
+  PullRequestChecks,
+  PullRequestComment,
+  PullRequestConversation,
   RepoCluster,
   Repository,
   Review,
@@ -121,10 +127,52 @@ CREATE TABLE IF NOT EXISTS pull_requests (
   changedFiles      INTEGER NOT NULL DEFAULT 0,
   createdAt         INTEGER NOT NULL,
   updatedAt         INTEGER NOT NULL,
-  mergedAt          INTEGER
+  mergedAt          INTEGER,
+  -- The last observed check rollup, and the commit it describes. Nullable so
+  -- "never looked" stays distinguishable from "nothing is failing", and
+  -- carrying its own sha so a push does not leave a green build on screen for
+  -- a commit that no longer exists.
+  checksHeadSha     TEXT,
+  checksState       TEXT,
+  -- Only what cannot be counted back: the failure count is checksFailing's
+  -- length and the total is the three added together, so neither is a column.
+  checksPassed      INTEGER,
+  checksPending     INTEGER,
+  checksFailing     TEXT NOT NULL DEFAULT '[]',
+  checksObservedAt  INTEGER
 );
 CREATE INDEX IF NOT EXISTS pull_requests_repo ON pull_requests (repoId);
 CREATE INDEX IF NOT EXISTS pull_requests_updated ON pull_requests (updatedAt);
+
+CREATE TABLE IF NOT EXISTS pr_conversations (
+  prId       TEXT PRIMARY KEY REFERENCES pull_requests (id) ON DELETE CASCADE,
+  observedAt INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pr_comments (
+  id          TEXT PRIMARY KEY,
+  prId        TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,
+  externalId  INTEGER NOT NULL,
+  inReplyToId INTEGER,
+  author      TEXT NOT NULL,
+  body        TEXT NOT NULL,
+  path        TEXT,
+  line        INTEGER,
+  state       TEXT,
+  url         TEXT NOT NULL,
+  createdAt   INTEGER NOT NULL,
+  updatedAt   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pr_comments_pr ON pr_comments (prId, createdAt);
+
+CREATE TABLE IF NOT EXISTS github_identities (
+  memberId    TEXT PRIMARY KEY REFERENCES members (id) ON DELETE CASCADE,
+  login       TEXT NOT NULL,
+  token       TEXT NOT NULL,
+  connectedAt INTEGER NOT NULL,
+  lastError   TEXT
+);
 
 CREATE TABLE IF NOT EXISTS ai_review_jobs (
   id             TEXT PRIMARY KEY,
@@ -445,6 +493,7 @@ export class SqliteStore implements KomodoStore {
       repoClusters: await this.listRepoClusters(),
       apiKeys: await this.listApiKeys(),
       integrations: await this.listIntegrations(),
+      githubIdentities: await this.listGithubIdentities(),
       verificationSummaries: this.readVerificationSummaries(),
     };
   }
@@ -595,6 +644,56 @@ export class SqliteStore implements KomodoStore {
   }
 
   /* ── Integrations ───────────────────────────────────────────────────── */
+
+  /* ── Personal GitHub credentials ────────────────────────────────────── */
+
+  async listGithubIdentities(): Promise<MemberGithubIdentity[]> {
+    const rows = this.db
+      .prepare("SELECT * FROM github_identities ORDER BY login")
+      .all() as Row[];
+    // The token is selected and dropped by the mapper, for the same reason
+    // toIntegration does it: one place decides what leaves.
+    return rows.map(toGithubIdentity);
+  }
+
+  async loadGithubToken(
+    memberId: string,
+  ): Promise<{ identity: MemberGithubIdentity; token: string } | null> {
+    const row = this.db
+      .prepare("SELECT * FROM github_identities WHERE memberId = ?")
+      .get(memberId) as Row | undefined;
+    if (!row) return null;
+    return { identity: toGithubIdentity(row), token: str(row.token) };
+  }
+
+  async saveGithubIdentity(input: {
+    memberId: string;
+    login: string;
+    token: string;
+  }): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT INTO github_identities
+           (memberId, login, token, connectedAt, lastError)
+         VALUES (?, ?, ?, ?, NULL)
+         ON CONFLICT(memberId) DO UPDATE SET
+           login = excluded.login, token = excluded.token,
+           connectedAt = excluded.connectedAt, lastError = NULL`,
+      )
+      .run(input.memberId, input.login, input.token, Date.now());
+  }
+
+  async deleteGithubIdentity(memberId: string): Promise<void> {
+    this.db
+      .prepare("DELETE FROM github_identities WHERE memberId = ?")
+      .run(memberId);
+  }
+
+  async setGithubIdentityError(memberId: string, error: string | null): Promise<void> {
+    this.db
+      .prepare("UPDATE github_identities SET lastError = ? WHERE memberId = ?")
+      .run(error, memberId);
+  }
 
   async listIntegrations(): Promise<Integration[]> {
     const rows = this.db
@@ -1155,8 +1254,17 @@ export class SqliteStore implements KomodoStore {
     // takes its state from the answer that judgement got:
     //
     //   Passed on  → dismissed (someone looked and decided not to act)
+    //   Blocks     → open      (someone looked and said it must be fixed)
     //   any other  → addressed (someone answered it)
     //   unanswered → open
+    //
+    // `Blocks` reading as `addressed` was the sharp edge here. That bucket is
+    // how a reviewer says "this has to change before it merges", and it is the
+    // one answer that most certainly does not settle the finding — yet it fell
+    // into the catch-all and came back as dealt with. Everything counting open
+    // concerns then read zero: the queue's concern count, the "needs action"
+    // lens, and the easy-wins ranking, which would cheerfully recommend a pull
+    // request somebody had explicitly blocked.
     //
     // Linked by id rather than by title: a finding's index and its
     // judgement's ordinal do not line up — findings come from the postable
@@ -1167,6 +1275,7 @@ export class SqliteStore implements KomodoStore {
         `SELECT f.*,
                 CASE
                   WHEN a.bucket = 'Passed on' THEN 'dismissed'
+                  WHEN a.bucket = 'Blocks'    THEN 'open'
                   WHEN a.bucket IS NOT NULL   THEN 'addressed'
                   ELSE 'open'
                 END AS status
@@ -1245,6 +1354,99 @@ export class SqliteStore implements KomodoStore {
     return id;
   }
 
+  async recordPullRequestChecks(
+    prId: string,
+    checks: PullRequestChecks | null,
+  ): Promise<void> {
+    this.db
+      .prepare(
+        `UPDATE pull_requests SET
+           checksHeadSha = ?, checksState = ?,
+           checksPassed = ?, checksPending = ?,
+           checksFailing = ?, checksObservedAt = ?
+         WHERE id = ?`,
+      )
+      .run(
+        checks?.headSha ?? null,
+        checks?.state ?? null,
+        checks?.passed ?? null,
+        checks?.pending ?? null,
+        JSON.stringify(checks?.failing ?? []),
+        checks?.observedAt ?? null,
+        prId,
+      );
+  }
+
+  async loadPullRequestConversation(
+    prId: string,
+  ): Promise<PullRequestConversation | null> {
+    const head = this.db
+      .prepare("SELECT observedAt FROM pr_conversations WHERE prId = ?")
+      .get(prId) as Row | undefined;
+    if (!head) return null;
+
+    const rows = this.db
+      .prepare("SELECT * FROM pr_comments WHERE prId = ? ORDER BY createdAt, externalId")
+      .all(prId) as Row[];
+    return {
+      prId,
+      observedAt: num(head.observedAt),
+      comments: rows.map(toPullRequestComment),
+    };
+  }
+
+  async replacePullRequestComments(
+    prId: string,
+    comments: Omit<PullRequestComment, "id" | "prId">[],
+    observedAt: number,
+  ): Promise<void> {
+    // One transaction, and not for tidiness. The delete lands first, so a
+    // failure part-way through the inserts would otherwise leave a truncated
+    // conversation behind an unchanged `observedAt` — a cache that has lost
+    // half its rows while still claiming to be a complete read, which is worse
+    // than an empty one because nothing will refetch it.
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM pr_comments WHERE prId = ?").run(prId);
+      // A whole-row upsert, not a plain insert. Two people opening the same
+      // pull request run two of these at once, and the second one's delete
+      // cannot see rows the first committed after it started — so its inserts
+      // collide on the primary key and the whole transaction is lost. The
+      // batch is deduplicated before it gets here, so a conflict can only ever
+      // be another writer's copy of the same comment, and replacing it whole
+      // is the same answer either way.
+      const insert = this.db.prepare(
+        `INSERT INTO pr_comments
+           (id, prId, kind, externalId, inReplyToId, author, body, path, line,
+            state, url, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           kind = excluded.kind, externalId = excluded.externalId,
+           inReplyToId = excluded.inReplyToId, author = excluded.author,
+           body = excluded.body, path = excluded.path, line = excluded.line,
+           state = excluded.state, url = excluded.url,
+           createdAt = excluded.createdAt, updatedAt = excluded.updatedAt`,
+      );
+      for (const c of dedupeComments(prId, comments)) {
+        insert.run(
+          c.id, prId, c.kind, c.externalId,
+          c.inReplyToId, c.author, c.body, c.path, c.line, c.state, c.url,
+          c.createdAt, c.updatedAt,
+        );
+      }
+      this.db
+        .prepare(
+          `INSERT INTO pr_conversations (prId, observedAt) VALUES (?, ?)
+           ON CONFLICT(prId) DO UPDATE SET observedAt = excluded.observedAt`,
+        )
+        .run(prId, observedAt);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
   async requestAIReview(input: {
     prId: string;
     headSha: string;
@@ -1309,6 +1511,19 @@ export class SqliteStore implements KomodoStore {
       .prepare("SELECT * FROM pull_requests WHERE id = ?")
       .get(job.prId) as Row | undefined;
     return prRow ? { job, pr: toPullRequest(prRow) } : null;
+  }
+
+  async supersedeAIReviewJob(jobId: string, finishedAt: number): Promise<boolean> {
+    // No lease check, by design — see the port. The guard is on state instead:
+    // a job that already finished stays as it finished, so this cannot rewrite
+    // the outcome of a run that actually happened.
+    const result = this.db.prepare(
+      `UPDATE ai_review_jobs
+       SET state = 'completed', updatedAt = ?, lastError = NULL,
+           workerId = NULL, leaseExpiresAt = NULL
+       WHERE id = ? AND state IN ('queued', 'running')`,
+    ).run(finishedAt, jobId) as { changes: number };
+    return result.changes === 1;
   }
 
   async finishAIReviewJob(input: {
@@ -1648,6 +1863,43 @@ function toPullRequest(r: Row): PullRequest {
     createdAt: num(r.createdAt),
     updatedAt: num(r.updatedAt),
     mergedAt: r.mergedAt === null ? null : num(r.mergedAt),
+    checks: readChecks({
+      headSha: str(r.headSha),
+      checksHeadSha: r.checksHeadSha == null ? null : str(r.checksHeadSha),
+      checksState: r.checksState == null ? null : str(r.checksState),
+      checksPassed: r.checksPassed == null ? null : num(r.checksPassed),
+      checksPending: r.checksPending == null ? null : num(r.checksPending),
+      checksFailing: list(r.checksFailing),
+      checksObservedAt: r.checksObservedAt == null ? null : num(r.checksObservedAt),
+    }),
+  };
+}
+
+function toPullRequestComment(r: Row): PullRequestComment {
+  return {
+    id: str(r.id),
+    prId: str(r.prId),
+    kind: str(r.kind) as PullRequestComment["kind"],
+    externalId: num(r.externalId),
+    inReplyToId: r.inReplyToId == null ? null : num(r.inReplyToId),
+    author: str(r.author),
+    body: str(r.body),
+    path: r.path == null ? null : str(r.path),
+    line: r.line == null ? null : num(r.line),
+    state: r.state == null ? null : str(r.state),
+    url: str(r.url),
+    createdAt: num(r.createdAt),
+    updatedAt: num(r.updatedAt),
+  };
+}
+
+/** Never carries the token — see loadGithubToken, which is the only way out. */
+function toGithubIdentity(r: Row): MemberGithubIdentity {
+  return {
+    memberId: str(r.memberId),
+    login: str(r.login),
+    connectedAt: num(r.connectedAt),
+    lastError: r.lastError == null ? null : str(r.lastError),
   };
 }
 

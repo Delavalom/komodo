@@ -14,7 +14,7 @@
  */
 import { useMemo } from "react";
 
-import { needsReviewFrom } from "@komodo/store";
+import { easyWin, needsReviewFrom } from "@komodo/store";
 
 import { useNow, useSnapshot } from "@/lib/data/provider";
 import { useDataStore } from "@/lib/data/store";
@@ -113,6 +113,22 @@ const SIZE_BUCKETS: readonly [number, QueueRow["sizeLabel"]][] = [
 function sizeLabel(lines: number): QueueRow["sizeLabel"] {
   for (const [limit, label] of SIZE_BUCKETS) if (lines < limit) return label;
   return "XL";
+}
+
+/**
+ * This person's own GitHub credential, if they have connected one.
+ *
+ * Never the token — the snapshot does not carry it, by design. Enough for a
+ * screen to know whether the review buttons can work before it draws them.
+ */
+export function useGithubIdentity() {
+  const { githubIdentities } = useSnapshot();
+  const me = useMe();
+  return useMemo(
+    () =>
+      me ? githubIdentities.find((identity) => identity.memberId === me.id) ?? null : null,
+    [githubIdentities, me],
+  );
 }
 
 /** The signed-in member, or null when nobody on the roster is marked. */
@@ -255,6 +271,17 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
               (finding.severity === "P0" || finding.severity === "P1"),
           ),
         isStale: waitingDays >= STALE_DAYS,
+        // Derived here, never stored — see easyWin in @komodo/store, where the
+        // rule lives so it can be tested without a browser.
+        easyWin: easyWin({
+          isDraft: pr.isDraft,
+          checks: pr.checks,
+          changesRequested: humanChangesRequested,
+          changedLines,
+          changedFiles: pr.changedFiles,
+          concerns: allFindings.filter((finding) => finding.status === "open").length,
+          briefReady: judgment?.status === "completed",
+        }),
         topFindings: allFindings
           .filter((f) => f.status === "open")
           .sort((a, b) => bySeverity[a.severity] - bySeverity[b.severity])
@@ -267,6 +294,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
       if (lens === "mine" && !r.needsMyReview) return false;
       if (lens === "blocked" && !r.isBlocked) return false;
       if (lens === "stale" && !r.isStale) return false;
+      if (lens === "easy" && !r.easyWin) return false;
       if (author && r.author !== author) return false;
       if (repo && r.repoFullName !== repo) return false;
       if (q) {
@@ -278,8 +306,19 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
       return true;
     });
 
-    // Longest wait first: the queue's job is to surface what is going stale,
-    // not what landed most recently.
+    // Easy wins are the one lens that is not about waiting: it exists to be
+    // worked from the top down, so it sorts by how cheap the review is and
+    // falls back to the longest wait between equals.
+    if (lens === "easy") {
+      return filtered.sort(
+        (a, b) =>
+          (b.easyWin?.score ?? 0) - (a.easyWin?.score ?? 0) ||
+          a.updatedAt - b.updatedAt,
+      );
+    }
+
+    // Everywhere else, longest wait first: the queue's job is to surface what
+    // is going stale, not what landed most recently.
     return filtered.sort((a, b) => a.updatedAt - b.updatedAt);
   }, [pullRequests, aiReviewJobs, judgments, findings, members, verificationSummaries, repoIndex, login, now, lens, search, author, repo]);
 }
@@ -293,6 +332,7 @@ export function useQueueCounts(query: Omit<QueueQuery, "lens"> = {}) {
       mine: all.filter((r) => r.needsMyReview).length,
       blocked: all.filter((r) => r.isBlocked).length,
       stale: all.filter((r) => r.isStale).length,
+      easy: all.filter((r) => r.easyWin).length,
     }),
     [all],
   );

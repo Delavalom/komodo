@@ -9,6 +9,8 @@ import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { claimCommand } from "./commands/claim.js";
+import { loginCommand } from "./commands/login.js";
+import { pushCommand } from "./commands/push.js";
 import { submitCommand } from "./commands/submit.js";
 import { cliVersion } from "./web.js";
 
@@ -82,6 +84,15 @@ program
   .action(validateCommand);
 
 program
+  .command("push")
+  .argument("<record>", "review record JSON saved by komodo-review validate")
+  .description("Send a locally produced review to a team's Komodo deployment")
+  .option("--pr <ref>", "pull request the review belongs to, e.g. owner/repo#123")
+  .option("--host <url>", "deployment URL (default: the saved login)")
+  .option("--api-key <key>", "API key for --host")
+  .action(pushCommand);
+
+program
   .command("config")
   .description("Print the resolved komodo.yaml configuration")
   .action(configCommand);
@@ -93,8 +104,18 @@ program
   .action(doctorCommand);
 
 program
+  .command("login")
+  .description("Save a Komodo deployment and API key for claim and submit")
+  .option("--host <url>", "deployment URL, e.g. http://localhost:4400")
+  .option("--api-key <key>", "API key minted under Settings → API Keys")
+  .option("--forget", "delete the saved host and key", false)
+  .action(loginCommand);
+
+program
   .command("claim")
   .description("Claim one queued review for the current interactive agent session")
+  .option("--host <url>", "Komodo deployment to claim from (default: the saved login)")
+  .option("--api-key <key>", "API key for --host")
   .option("--db <path>", "local Komodo database (default .komodo/komodo.db)")
   .option("--out <path>", "claim context JSON path")
   .action(claimCommand);
@@ -103,8 +124,9 @@ program
   .command("submit")
   .argument("<claim>", "claim context JSON from komodo-review claim")
   .argument("<result>", "ReviewResult JSON written by the interactive agent")
-  .description("Validate an interactive review and complete its local Komodo job")
+  .description("Validate an interactive review and complete its Komodo job")
   .option("--base <branch>", "base branch to diff against (default: auto-detect)")
+  .option("--api-key <key>", "API key, when the claim names a remote deployment")
   .action(submitCommand);
 
 program.parseAsync().catch((err) => {

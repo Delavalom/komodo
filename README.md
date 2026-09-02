@@ -77,6 +77,24 @@ driver; anything else is a SQLite path), `GITHUB_TOKEN`, and one provider
 credential. Point `local.url` in komodo.yaml at the deployment's real hostname
 so review receipts link back to it.
 
+### Reviewing a deployment's queue from your own Claude session
+
+A deployment does not have to run the model itself. Mint a key under
+**Settings → API Keys**, point a machine at the queue once, and the Claude
+session already open on that machine can take jobs off it:
+
+```bash
+npx komodo-review login --host https://komodo.acme.com --api-key kmd_…
+npx komodo-review claim          # leases one job for two hours
+npx komodo-review submit <claim> <result>
+```
+
+The review runs where the code is: the checkout, the diff and the prompt never
+leave that machine, and what crosses the network is the finished record. A
+review of a branch you were already working on goes the same way, with
+`komodo-review push`. Over plain `http://` this refuses any host but your own
+machine — use `https://`, or tunnel to localhost.
+
 The reviewer fetches a shallow working tree per repository so it reads the
 code around a change rather than the patch alone — the same context
 `komodo-review pr` gets from your checkout. Trees live under `.komodo/repos`

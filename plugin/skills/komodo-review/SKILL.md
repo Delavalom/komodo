@@ -2,8 +2,8 @@
 name: komodo-review
 description: >
   Run a Komodo review from the current approved Claude session, either for the
-  current branch or for one job claimed from a local Komodo queue. Source,
-  diffs, prompts, and results stay on the local machine.
+  current branch or for one job claimed from a Komodo queue — local, or the
+  team's deployment. Source, diffs and prompts stay on the local machine.
 ---
 
 # Komodo review
@@ -18,7 +18,28 @@ only to check out the branch; never attempt a login on the user's behalf.
 
 ## Queue job mode
 
-Use this mode when the user asks to work through the local Komodo queue.
+Use this mode when the user asks to work through a Komodo queue — their own
+`komodo dev` on this machine, or the team's deployment.
+
+### 0. Point at the deployment, once
+
+Skip this if the queue is the local `.komodo/komodo.db` — that is the default
+and needs no setup. For a `komodo serve` on localhost, in a container, or
+behind a proxy:
+
+```bash
+npx komodo-review login --host <url> --api-key <key>
+```
+
+The key is minted in that queue under **Settings → API Keys**. It is saved to
+`~/.komodo/host.json`, so nothing after this needs the flag. If the user has
+not got a key, say so and stop — never guess a URL, and never put a key on a
+command line the user did not type.
+
+Every command that carries the key refuses to send it over plain `http://` to
+anything but this machine — including `submit`, which reads its address out of
+a claim file rather than from anything you typed. That refusal is correct; do
+not work around it. Ask the user for the `https://` address or an SSH tunnel.
 
 ### 1. Claim one job
 
@@ -28,6 +49,9 @@ npx komodo-review claim
 
 The command prints a claim JSON path and the exact `owner/repo#number`. If no
 job is queued, tell the user and stop. Do not claim several jobs at once.
+
+The claim holds a two-hour lease and names the deployment it came from, so
+`submit` goes back to the same place with no further arguments.
 
 ### 2. Check out the claimed head
 
@@ -52,9 +76,21 @@ merge recommendation. Then:
 npx komodo-review submit <claim-json> <result-json>
 ```
 
-This validates the result, writes the judgment and review into the same local
-Komodo store, and completes the claimed job. If validation fails, correct the
-JSON and submit again. Do not summarize an unsubmitted result as completed.
+This validates the result, writes the judgment and review into the Komodo store
+the claim came from — local file or deployment, whichever it named — and
+completes the claimed job. It prints a URL for a remote submission; give that to
+the user.
+
+If validation fails, correct the JSON and submit again. Do not summarize an
+unsubmitted result as completed.
+
+Two refusals are worth recognising rather than retrying blindly:
+
+- *"Claimed `<sha>`, but this checkout is `<sha>`"* — you are on the wrong
+  commit. Check out the claimed head; do not edit the claim file.
+- *"no longer leased to that worker"* — the two-hour lease expired or someone
+  else took the job. Claim again and review the head you are given, which may
+  have moved.
 
 ## Current branch mode
 
@@ -114,7 +150,19 @@ Then tell the user the URL it prints. The default view is the result checklist:
 the person runs the changed behavior and records evidence. Decisions organize
 the architectural, scope, and test questions. A terminal summary is not the
 deliverable, and neither completing the checklist nor answering the decisions
-grants GitHub approval.
+grants GitHub approval — that is a separate button, pressed by a person with
+their own GitHub account connected.
+
+If the user works from a team deployment rather than a local queue, send the
+saved record there instead — the pull request has to already be in that
+deployment's inventory, at the head you reviewed:
+
+```bash
+npx komodo-review push .komodo/reviews/<id>.json --pr <owner/repo#123>
+```
+
+It prints the URL of the stored review. A record built from a local branch
+carries no pull request number, which is why `--pr` is needed.
 
 If a queue is already running on that port, say so instead of starting
 another.

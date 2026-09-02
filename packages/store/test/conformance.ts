@@ -420,6 +420,41 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
         expect(await statusNow()).toBe("dismissed");
       });
 
+      it("keeps a finding open when somebody answered that it blocks", async () => {
+        // `Blocks` is how a reviewer says this has to change before it merges.
+        // It used to fall into the catch-all and read as `addressed`, so every
+        // count of open concerns — the queue's column, the "needs action"
+        // lens, the easy-wins ranking — read zero for a pull request somebody
+        // had explicitly blocked.
+        const prId = await store.upsertPullRequest(pr());
+        const judgmentId = await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: "needs_work",
+          status: "completed", impact: "critical", score: 20,
+        });
+        const reviewId = await store.saveReview(review({ prId }));
+        const [first] = (await store.loadReview(reviewId))!.judgements;
+        await store.replaceFindings(judgmentId, [
+          {
+            judgementId: first.id,
+            title: first.title,
+            body: first.lede,
+            severity: "P0",
+            isSecurity: false,
+            filePath: first.path,
+          },
+        ]);
+
+        await store.recordAnswer({
+          judgementId: first.id,
+          actorLogin: "renata",
+          bucket: "Blocks",
+          optionLabel: "No — revoke the cache entry",
+          blocking: true,
+        });
+
+        expect((await store.snapshot()).findings[0].status).toBe("open");
+      });
+
       it("leaves a finding open when it names no judgement", async () => {
         // A run recorded before the link existed. Correct, if inert — and it
         // must not throw or pick up somebody else's answer.
@@ -1031,6 +1066,496 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
     });
 
     /* ── API keys ─────────────────────────────────────────────────────── */
+
+    describe("superseding a job whose work was done elsewhere", () => {
+      it("settles a queued job that nobody has leased", async () => {
+        await store.upsertPullRequest(pr());
+        const jobId = await store.requestAIReview({
+          prId: "acme/api#1",
+          headSha: "aaa111",
+          trigger: "new_pull_request",
+          requestedAt: T0,
+        });
+
+        // The lease-holding path cannot do this: it requires state 'running'
+        // and a matching worker, and a queued job has neither.
+        expect(await store.supersedeAIReviewJob(jobId, T0 + 1000)).toBe(true);
+        const [job] = await store.listAIReviewJobs();
+        expect(job.state).toBe("completed");
+        expect(job.workerId).toBeNull();
+      });
+
+      it("settles a job leased by a worker that is not the caller", async () => {
+        await store.upsertPullRequest(pr());
+        const jobId = await store.requestAIReview({
+          prId: "acme/api#1",
+          headSha: "aaa111",
+          trigger: "new_pull_request",
+          requestedAt: T0,
+        });
+        await store.claimNextAIReview({ workerId: "worker-a", now: T0, leaseMs: 60_000 });
+
+        expect(await store.supersedeAIReviewJob(jobId, T0 + 1000)).toBe(true);
+        expect((await store.listAIReviewJobs())[0].state).toBe("completed");
+      });
+
+      it("leaves a job that already finished exactly as it finished", async () => {
+        await store.upsertPullRequest(pr());
+        const jobId = await store.requestAIReview({
+          prId: "acme/api#1",
+          headSha: "aaa111",
+          trigger: "new_pull_request",
+          requestedAt: T0,
+        });
+        await store.claimNextAIReview({ workerId: "worker-a", now: T0, leaseMs: 60_000 });
+        await store.finishAIReviewJob({
+          jobId,
+          workerId: "worker-a",
+          state: "failed",
+          finishedAt: T0 + 1,
+          error: "provider timed out",
+        });
+
+        // A run that actually happened keeps its outcome. Rewriting a failure
+        // as a success would erase the only record that the provider broke.
+        expect(await store.supersedeAIReviewJob(jobId, T0 + 1000)).toBe(false);
+        expect((await store.listAIReviewJobs())[0]).toMatchObject({
+          state: "failed",
+          lastError: "provider timed out",
+        });
+      });
+
+      it("reports nothing settled for a job that does not exist", async () => {
+        expect(await store.supersedeAIReviewJob("acme/api#1@nope", T0)).toBe(false);
+      });
+    });
+
+    /* ── Check rollups ────────────────────────────────────────────────── */
+
+    describe("check rollups", () => {
+      // Observed just now, not at T0. A rollup carries an age and stops being
+      // shown once it is a day old — see readChecks — so a fixture pinned to a
+      // fixed past timestamp would test the expiry rule by accident on every
+      // other assertion.
+      const RECENT = Date.now() - 60_000;
+      const rollup = (over: Record<string, unknown> = {}) => ({
+        headSha: "aaa111",
+        state: "passing" as const,
+        failing: [] as string[],
+        total: 3,
+        passed: 3,
+        pending: 0,
+        observedAt: RECENT,
+        ...over,
+      });
+
+      it("reads back nothing before anything has been observed", async () => {
+        await store.upsertPullRequest(pr());
+        const [row] = await store.listPullRequests();
+        // Not a zeroed rollup: "no checks have been read" and "no checks
+        // failed" are different sentences and only one of them is true here.
+        expect(row.checks).toBeNull();
+      });
+
+      it("round-trips a rollup for the current head", async () => {
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks("acme/api#1", rollup());
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks).toEqual(rollup());
+      });
+
+      it("carries the failing check names", async () => {
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks(
+          "acme/api#1",
+          rollup({ state: "failing", passed: 1, total: 3, failing: ["build", "lint"] }),
+        );
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks?.state).toBe("failing");
+        expect(row.checks?.failing).toEqual(["build", "lint"]);
+      });
+
+      it("keeps a rollup whose detail was never fetched, without inventing counts", async () => {
+        // The cheap query answers the state for a whole repository at once and
+        // returns no counts. A screen showing "0 checks" for a commit nobody
+        // counted would be making a number up.
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks("acme/api#1", {
+          headSha: "aaa111",
+          state: "failing",
+          failing: [],
+          total: null,
+          passed: null,
+          pending: null,
+          observedAt: RECENT,
+        });
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks?.state).toBe("failing");
+        expect(row.checks?.total).toBeNull();
+        expect(row.checks?.passed).toBeNull();
+      });
+
+      it("stops showing an observation old enough to be describing the past", async () => {
+        // A repository can stop being readable — renamed, gone private, the
+        // GraphQL budget spent — and the poller then writes nothing rather
+        // than writing a wrong answer. Without an age bound the last green
+        // pill stays on screen against an unmoved head indefinitely, which is
+        // the same lie the head check exists to prevent by a different road.
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks(
+          "acme/api#1",
+          rollup({ observedAt: Date.now() - 25 * 60 * 60 * 1000 }),
+        );
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks).toBeNull();
+      });
+
+      it("counts the failures back from their names rather than storing them", async () => {
+        await store.upsertPullRequest(pr());
+        // A caller whose `failed` disagrees with `failing` — the drift a stored
+        // counter makes possible. The names are the record; the count follows.
+        await store.recordPullRequestChecks(
+          "acme/api#1",
+          rollup({
+            state: "failing",
+            passed: 1,
+            pending: 1,
+            total: 4321,
+            failing: ["build", "lint"],
+          }),
+        );
+
+        const [row] = await store.listPullRequests();
+        // Counted back from the names, so the stored total cannot disagree
+        // with the row that produced it.
+        expect(row.checks?.total).toBe(4);
+        expect(row.checks?.failing).toHaveLength(2);
+      });
+
+      it("hides a rollup once the head has moved past it", async () => {
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks("acme/api#1", rollup());
+        // A push. The rollup still describes aaa111, which is no longer what
+        // would merge — showing it green would be the worst thing this column
+        // could do.
+        await store.upsertPullRequest(pr({ headSha: "bbb222" }));
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks).toBeNull();
+      });
+
+      it("shows it again once the new head has been observed", async () => {
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks("acme/api#1", rollup());
+        await store.upsertPullRequest(pr({ headSha: "bbb222" }));
+        await store.recordPullRequestChecks(
+          "acme/api#1",
+          rollup({ headSha: "bbb222", state: "pending", passed: 1, pending: 2, total: 3 }),
+        );
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks?.headSha).toBe("bbb222");
+        expect(row.checks?.state).toBe("pending");
+      });
+
+      it("erases the rollup when the caller can no longer read one", async () => {
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks("acme/api#1", rollup());
+        await store.recordPullRequestChecks("acme/api#1", null);
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks).toBeNull();
+      });
+
+      it("survives the inventory upsert that follows it", async () => {
+        // The listing pass rewrites the row every time something moves, and it
+        // knows nothing about checks. If it could blank them, the column would
+        // flicker empty on every poll.
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks("acme/api#1", rollup());
+        await store.upsertPullRequest(pr({ title: "Renamed", updatedAt: T0 + 1000 }));
+
+        const [row] = await store.listPullRequests();
+        expect(row.checks?.state).toBe("passing");
+      });
+
+      it("is on the shared snapshot, which is what the queue renders", async () => {
+        await store.upsertPullRequest(pr());
+        await store.recordPullRequestChecks("acme/api#1", rollup());
+
+        const snapshot = await store.snapshot();
+        expect(snapshot.pullRequests[0].checks?.passed).toBe(3);
+      });
+    });
+
+    /* ── Cached conversations ─────────────────────────────────────────── */
+
+    describe("pull request conversations", () => {
+      const comment = (over: Record<string, unknown> = {}) => ({
+        kind: "issue" as const,
+        externalId: 1,
+        inReplyToId: null,
+        author: "renata",
+        body: "Does this handle the empty case?",
+        path: null,
+        line: null,
+        state: null,
+        url: "https://github.com/acme/api/pull/1#issuecomment-1",
+        createdAt: T0,
+        updatedAt: T0,
+        ...over,
+      });
+
+      it("reports null before anyone has read the conversation", async () => {
+        await store.upsertPullRequest(pr());
+        expect(await store.loadPullRequestConversation("acme/api#1")).toBeNull();
+      });
+
+      it("distinguishes an empty conversation from an unread one", async () => {
+        await store.upsertPullRequest(pr());
+        await store.replacePullRequestComments("acme/api#1", [], T0);
+
+        const loaded = await store.loadPullRequestConversation("acme/api#1");
+        // The whole reason observedAt is stored: otherwise a pull request with
+        // no comments is re-fetched from GitHub on every single view.
+        expect(loaded).not.toBeNull();
+        expect(loaded?.comments).toEqual([]);
+        expect(loaded?.observedAt).toBe(T0);
+      });
+
+      it("round-trips the three kinds and their anchors", async () => {
+        await store.upsertPullRequest(pr());
+        await store.replacePullRequestComments(
+          "acme/api#1",
+          [
+            comment(),
+            comment({
+              kind: "review",
+              externalId: 2,
+              path: "auth/session.ts",
+              line: 88,
+              createdAt: T0 + 1,
+            }),
+            comment({
+              kind: "review_summary",
+              externalId: 3,
+              state: "CHANGES_REQUESTED",
+              createdAt: T0 + 2,
+            }),
+          ],
+          T0 + 10,
+        );
+
+        const loaded = await store.loadPullRequestConversation("acme/api#1");
+        expect(loaded?.comments.map((c) => c.kind)).toEqual([
+          "issue",
+          "review",
+          "review_summary",
+        ]);
+        expect(loaded?.comments[1]).toMatchObject({
+          path: "auth/session.ts",
+          line: 88,
+        });
+        expect(loaded?.comments[2].state).toBe("CHANGES_REQUESTED");
+        expect(loaded?.comments[0].path).toBeNull();
+      });
+
+      it("keeps replies pointing at what they answer", async () => {
+        await store.upsertPullRequest(pr());
+        await store.replacePullRequestComments(
+          "acme/api#1",
+          [
+            comment({ kind: "review", externalId: 2, path: "a.ts", line: 3 }),
+            comment({
+              kind: "review",
+              externalId: 4,
+              inReplyToId: 2,
+              path: "a.ts",
+              line: 3,
+              createdAt: T0 + 5,
+            }),
+          ],
+          T0 + 10,
+        );
+
+        const loaded = await store.loadPullRequestConversation("acme/api#1");
+        expect(loaded?.comments[1].inReplyToId).toBe(2);
+      });
+
+      it("derives an id that survives re-reading the same conversation", async () => {
+        await store.upsertPullRequest(pr());
+        await store.replacePullRequestComments("acme/api#1", [comment()], T0);
+        const first = await store.loadPullRequestConversation("acme/api#1");
+
+        await store.replacePullRequestComments("acme/api#1", [comment()], T0 + 60_000);
+        const second = await store.loadPullRequestConversation("acme/api#1");
+
+        expect(second?.comments).toHaveLength(1);
+        expect(second?.comments[0].id).toBe(first?.comments[0].id);
+      });
+
+      it("replaces rather than merges, so a deleted comment stops existing", async () => {
+        await store.upsertPullRequest(pr());
+        await store.replacePullRequestComments(
+          "acme/api#1",
+          [comment(), comment({ externalId: 2, createdAt: T0 + 1 })],
+          T0,
+        );
+        await store.replacePullRequestComments("acme/api#1", [comment()], T0 + 60_000);
+
+        const loaded = await store.loadPullRequestConversation("acme/api#1");
+        expect(loaded?.comments.map((c) => c.externalId)).toEqual([1]);
+        expect(loaded?.observedAt).toBe(T0 + 60_000);
+      });
+
+      it("keeps a torn write from leaving a cache that lies about being current", async () => {
+        await store.upsertPullRequest(pr());
+        await store.replacePullRequestComments("acme/api#1", [comment()], T0);
+
+        // The second row is unstorable. Without a transaction the delete has
+        // already landed, so the conversation loses its existing comment and
+        // keeps the old observedAt — a truncated cache that looks like a
+        // complete read and is never refetched.
+        await expect(
+          store.replacePullRequestComments(
+            "acme/api#1",
+            [
+              comment({ externalId: 5, body: "fine" }),
+              comment({ externalId: 6, body: null as unknown as string }),
+            ],
+            T0 + 60_000,
+          ),
+        ).rejects.toThrow();
+
+        const loaded = await store.loadPullRequestConversation("acme/api#1");
+        expect(loaded?.comments.map((c) => c.externalId)).toEqual([1]);
+        expect(loaded?.observedAt).toBe(T0);
+      });
+
+      it("takes the last of two comments that derive the same id, whole", async () => {
+        await store.upsertPullRequest(pr());
+        await store.replacePullRequestComments(
+          "acme/api#1",
+          [
+            comment({ author: "renata", body: "first", url: "u1" }),
+            comment({ author: "kai", body: "second", url: "u2", updatedAt: T0 + 2 }),
+          ],
+          T0,
+        );
+
+        const loaded = await store.loadPullRequestConversation("acme/api#1");
+        // One row, and every field from the same comment. Merging them field by
+        // field would attribute one person's words to the other's name.
+        expect(loaded?.comments).toHaveLength(1);
+        expect(loaded?.comments[0]).toMatchObject({
+          author: "kai",
+          body: "second",
+          url: "u2",
+        });
+      });
+
+      it("keeps one pull request's conversation out of another's", async () => {
+        await store.upsertPullRequest(pr());
+        await store.upsertPullRequest(pr({ number: 2 }));
+        await store.replacePullRequestComments("acme/api#1", [comment()], T0);
+
+        expect(await store.loadPullRequestConversation("acme/api#2")).toBeNull();
+      });
+    });
+
+    /* ── Personal GitHub credentials ──────────────────────────────────── */
+
+    describe("member github identities", () => {
+      const MEMBER = { login: "renata" };
+      let memberId: string;
+
+      beforeEach(async () => {
+        memberId = await store.saveMember({
+          email: "renata@acme.com",
+          name: "Renata",
+          githubLogin: MEMBER.login,
+          role: "member",
+          avatarSeed: "renata",
+          isYou: false,
+        });
+      });
+
+      it("stores a token and never lists it", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "ghp_secret" });
+
+        const [listed] = await store.listGithubIdentities();
+        expect(listed).toMatchObject({ memberId, login: "renata", lastError: null });
+        // An approval posted with someone else's credential is the failure
+        // this separation exists to make impossible.
+        expect(listed).not.toHaveProperty("token");
+      });
+
+      it("hands the token to the one caller that acts as the person", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "ghp_secret" });
+        const loaded = await store.loadGithubToken(memberId);
+
+        expect(loaded?.token).toBe("ghp_secret");
+        expect(loaded?.identity.login).toBe("renata");
+      });
+
+      it("keeps one credential per member — reconnecting replaces", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "first" });
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "second" });
+
+        expect(await store.listGithubIdentities()).toHaveLength(1);
+        expect((await store.loadGithubToken(memberId))?.token).toBe("second");
+      });
+
+      it("records a failure and clears it on reconnect", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "revoked" });
+        await store.setGithubIdentityError(memberId, "401 Bad credentials");
+        expect((await store.listGithubIdentities())[0].lastError).toBe(
+          "401 Bad credentials",
+        );
+
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "fresh" });
+        expect((await store.listGithubIdentities())[0].lastError).toBeNull();
+      });
+
+      it("clears an error without reconnecting", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "tok" });
+        await store.setGithubIdentityError(memberId, "401 Bad credentials");
+        await store.setGithubIdentityError(memberId, null);
+
+        expect((await store.listGithubIdentities())[0].lastError).toBeNull();
+      });
+
+      it("disconnects, and the token goes with it", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "tok" });
+        await store.deleteGithubIdentity(memberId);
+
+        expect(await store.listGithubIdentities()).toHaveLength(0);
+        expect(await store.loadGithubToken(memberId)).toBeNull();
+      });
+
+      it("reports nothing for a member who never connected", async () => {
+        expect(await store.loadGithubToken(memberId)).toBeNull();
+      });
+
+      it("is on the shared snapshot, so a screen knows before it renders", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "tok" });
+        const snapshot = await store.snapshot();
+
+        expect(snapshot.githubIdentities).toHaveLength(1);
+        expect(snapshot.githubIdentities[0]).not.toHaveProperty("token");
+      });
+
+      it("forgets the credential when the member leaves the roster", async () => {
+        await store.saveGithubIdentity({ memberId, login: "renata", token: "tok" });
+        await store.removeMember(memberId);
+
+        expect(await store.listGithubIdentities()).toHaveLength(0);
+      });
+    });
 
     describe("api keys", () => {
       const key = (over: Record<string, unknown> = {}) => ({

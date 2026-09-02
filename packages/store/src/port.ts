@@ -19,9 +19,13 @@ import type {
   Integration,
   Judgment,
   Member,
+  MemberGithubIdentity,
   Organization,
   OrgSettings,
   PullRequest,
+  PullRequestChecks,
+  PullRequestComment,
+  PullRequestConversation,
   Repository,
   Review,
   ReviewDetail,
@@ -68,6 +72,8 @@ export interface QueueSnapshot {
   apiKeys: ApiKey[];
   /** Never with a token — see Integration. */
   integrations: Integration[];
+  /** Who on the roster can act on GitHub as themselves. Never with a token. */
+  githubIdentities: MemberGithubIdentity[];
   /** Derived from requirements and the newest verification entry for each. */
   verificationSummaries: VerificationSummary[];
 }
@@ -170,8 +176,40 @@ export interface StoreReader {
    */
   findApiKeyByHash(keyHash: string): Promise<ApiKey | null>;
 
+  /**
+   * A pull request's cached conversation, or null if it has never been read.
+   *
+   * Null and "read, and there was nothing" are different answers: the first
+   * means fetch it, the second means do not. Only a stored `observedAt` can
+   * tell them apart, which is why this returns the wrapper rather than a bare
+   * list of comments.
+   */
+  loadPullRequestConversation(
+    prId: string,
+  ): Promise<PullRequestConversation | null>;
+
   /** Connected trackers, without their tokens. */
   listIntegrations(): Promise<Integration[]>;
+
+  /**
+   * Who on the roster has connected their own GitHub account. Never a token.
+   *
+   * On the snapshot as well, because every screen offering a GitHub review has
+   * to know whether the button can work before it renders one.
+   */
+  listGithubIdentities(): Promise<MemberGithubIdentity[]>;
+
+  /**
+   * One member's GitHub token, for acting on GitHub as that person.
+   *
+   * The single path out of the store for this secret, separate from
+   * `listGithubIdentities` for exactly the reason `loadIntegrationToken` is
+   * separate from `listIntegrations`: a token must not be reachable from the
+   * call the UI makes.
+   */
+  loadGithubToken(
+    memberId: string,
+  ): Promise<{ identity: MemberGithubIdentity; token: string } | null>;
 
   /**
    * One integration with its token, for the ingester alone.
@@ -227,9 +265,16 @@ export interface AnswerInput {
   blocking?: boolean;
 }
 
-/** What the poller writes. Git facts only. */
+/**
+ * What the poller writes. Git facts only.
+ *
+ * `checks` is not here on purpose. The listing pass writes this row and knows
+ * nothing about a rollup, so including it would mean every inventory upsert
+ * blanked the check state a separate call had just observed —
+ * `recordPullRequestChecks` owns that field alone.
+ */
 export interface PullRequestInput
-  extends Omit<PullRequest, "id"> {
+  extends Omit<PullRequest, "id" | "checks"> {
   /** Stable across polls: `${repoId}#${number}`. */
   id?: string;
 }
@@ -271,6 +316,37 @@ export interface StoreWriter {
   /** Idempotent on (repoId, number). Never touches the PR's judgment. */
   upsertPullRequest(pr: PullRequestInput): Promise<string>;
 
+  /**
+   * Records the check rollup observed for one pull request.
+   *
+   * Separate from the listing upsert because it comes from a separate call
+   * against a separate API, on a separate cadence: GitHub does not move a pull
+   * request's `updatedAt` when a check completes, so this is written on every
+   * pass while the listing fields are written only when something moved.
+   *
+   * `null` erases the rollup — what a caller writes when the token stopped
+   * being able to read one. Silence is the honest answer there; the previous
+   * observation describes a moment that has passed.
+   */
+  recordPullRequestChecks(
+    prId: string,
+    checks: PullRequestChecks | null,
+  ): Promise<void>;
+
+  /**
+   * Replaces a pull request's cached conversation, and stamps the read.
+   *
+   * Wholesale rather than incremental: GitHub is the truth, comments are
+   * edited and deleted there, and merging would leave this holding rows that
+   * no longer exist anywhere. Records `observedAt` even for an empty list, so
+   * "nobody has commented" is a fact rather than a reason to ask again.
+   */
+  replacePullRequestComments(
+    prId: string,
+    comments: Omit<PullRequestComment, "id" | "prId">[],
+    observedAt: number,
+  ): Promise<void>;
+
   /** Idempotent on the immutable `(prId, headSha)` job id. */
   requestAIReview(input: {
     prId: string;
@@ -286,6 +362,21 @@ export interface StoreWriter {
     now: number;
     leaseMs: number;
   }): Promise<{ job: AIReviewJob; pr: PullRequest } | null>;
+
+  /**
+   * Settles a job whose work was done somewhere else.
+   *
+   * `finishAIReviewJob` deliberately refuses everything but its own lease
+   * holder, which is right for a worker reporting on itself and wrong for the
+   * one case where nobody holds the lease: a person reviewed the head by hand
+   * and submitted the result, and the job queued for that same head is now
+   * moot. Leaving it queued means the headless worker reviews the commit again
+   * and overwrites a human's run with its own.
+   *
+   * Returns false when there was nothing to settle — an already-finished job,
+   * or no job at all.
+   */
+  supersedeAIReviewJob(jobId: string, finishedAt: number): Promise<boolean>;
 
   /** Settles a lease only when it is still owned by this worker. */
   finishAIReviewJob(input: {
@@ -396,6 +487,24 @@ export interface StoreWriter {
   }): Promise<string>;
 
   disconnectIntegration(integrationId: string): Promise<void>;
+
+  /**
+   * Connects one member's own GitHub account, or replaces their credential.
+   *
+   * `login` is what GitHub said the token authenticates as, established by the
+   * caller before it gets here. Storing a claimed login instead would let a
+   * mistyped connection file one person's approvals under another's name.
+   */
+  saveGithubIdentity(input: {
+    memberId: string;
+    login: string;
+    token: string;
+  }): Promise<void>;
+
+  deleteGithubIdentity(memberId: string): Promise<void>;
+
+  /** Records that acting as this member failed — a revoked token, usually. */
+  setGithubIdentityError(memberId: string, error: string | null): Promise<void>;
 
   /** Records that a fetch failed, so the screen can say so. */
   setIntegrationError(

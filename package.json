@@ -16,6 +16,7 @@
     "build:release": "pnpm --filter '@komodo/ingest...' build && pnpm -C apps/web build && pnpm -C packages/cli build",
     "test:e2e": "node scripts/test-packed-cli.mjs",
     "test:e2e:container": "node scripts/test-container.mjs",
-    "verify": "pnpm check:release && pnpm lint && pnpm build:release && pnpm typecheck && pnpm -r --if-present test && pnpm test:e2e"
+    "verify": "pnpm check:release && pnpm lint && pnpm build:release && pnpm typecheck && pnpm -r --if-present test && pnpm test:e2e && pnpm test:e2e:remote",
+    "test:e2e:remote": "node scripts/test-remote-submit.mjs"
   }
 }
