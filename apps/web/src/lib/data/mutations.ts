@@ -57,6 +57,19 @@ export const useRecordVerification = () => actions.recordVerification;
 
 export const useVoteJudgement = () => actions.voteJudgement;
 
+/** Re-reads one pull request's conversation from GitHub, on demand. */
+export const useRefreshConversation = () => actions.refreshConversation;
+
+/** Says something on the pull request, from inside the review. */
+export const usePostConversationComment = () => actions.postConversationComment;
+
+/** Connects, or forgets, this person's own GitHub credential. */
+export const useConnectGithubIdentity = () => actions.connectGithubIdentity;
+export const useDisconnectGithubIdentity = () => actions.disconnectGithubIdentity;
+
+/** The one call that can produce a GitHub approval, and only as a person. */
+export const useSubmitGithubReview = () => actions.submitGithubReview;
+
 /**
  * Says which member of the roster is at this browser.
  *

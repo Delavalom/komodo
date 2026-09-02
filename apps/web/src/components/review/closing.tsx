@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { GithubReviewPanel } from "@/components/review/github-review";
 import { usePostReceipt } from "@/lib/data/mutations";
 import { cn, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
@@ -35,6 +36,7 @@ export function ClosingScreen({
   answers,
   verificationRequirements,
   verifications,
+  currentHeadSha,
   onBack,
 }: {
   review: Review;
@@ -42,6 +44,8 @@ export function ClosingScreen({
   answers: Answer[];
   verificationRequirements: VerificationRequirement[];
   verifications: VerificationEntry[];
+  /** The pull request's head now, which the run's may no longer be. */
+  currentHeadSha: string;
   onBack: () => void;
 }) {
   const router = useRouter();
@@ -144,7 +148,8 @@ export function ClosingScreen({
             </p>
           ) : null}
           <p className="mt-1 text-xs text-muted-foreground">
-            GitHub approval is a separate human action and is never granted by Komodo.
+            Approving is a separate act, taken below with your own GitHub
+            account. Nothing Komodo records here grants it.
           </p>
         </section>
 
@@ -216,6 +221,22 @@ export function ClosingScreen({
           ) : null}
         </div>
 
+        {/* The GitHub review itself, which is a separate act from Komodo's
+            record of it — see AGENTS.md rule 15. The record above is Komodo
+            saying what the team decided; this is a person telling GitHub. */}
+        <GithubReviewPanel
+          reviewId={review.id}
+          headSha={review.headSha}
+          headMoved={review.headSha !== currentHeadSha}
+          unverifiedRequired={requiredChecks.length - verifiedChecks}
+          suggestedBody={suggestedReviewBody({
+            decided,
+            unanswered,
+            verified: verifiedChecks,
+            required: requiredChecks.length,
+          })}
+        />
+
         <button
           type="button"
           onClick={onBack}
@@ -226,4 +247,47 @@ export function ClosingScreen({
       </div>
     </div>
   );
+}
+
+/**
+ * A first draft of the review body, from what the team actually answered.
+ *
+ * A starting point and nothing more — it stays editable, because the tally is a
+ * summary of decisions and not a substitute for whatever the reviewer wants to
+ * say. It deliberately does not render a verdict: Komodo's answer buckets are
+ * how a team organised its questions, and turning them into "looks good to me"
+ * would be Komodo making the call the person is here to make.
+ */
+function suggestedReviewBody({
+  decided,
+  unanswered,
+  verified,
+  required,
+}: {
+  decided: { judgement: ReviewJudgement; answer: Answer | undefined }[];
+  unanswered: number;
+  verified: number;
+  required: number;
+}): string {
+  const lines: string[] = [];
+
+  for (const bucket of BUCKET_ORDER) {
+    const inBucket = decided.filter((row) => row.answer?.bucket === bucket);
+    if (!inBucket.length) continue;
+    lines.push(`**${BUCKET_HEADING[bucket]}**`);
+    for (const { judgement, answer } of inBucket) {
+      const note = answer?.note ? ` — ${answer.note}` : "";
+      lines.push(`- ${judgement.title.replace(/\.$/, "")}${note}`);
+    }
+    lines.push("");
+  }
+
+  if (required > 0) {
+    lines.push(`${verified} of ${required} required result checks verified.`);
+  }
+  if (unanswered > 0) {
+    lines.push(`${unanswered} question${unanswered > 1 ? "s" : ""} still open.`);
+  }
+
+  return lines.join("\n").trim();
 }

@@ -67,6 +67,7 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
   });
   onProgress?.(
     `Polled ${polled.seen} open PRs — ${polled.changed} changed, ${polled.closed} closed` +
+      (polled.checksObserved ? `, ${polled.checksObserved} with checks read` : "") +
       (polled.notEligible
         ? `, ${polled.notEligible} not eligible for automatic review`
         : "") +

@@ -24,8 +24,24 @@ import type { PullRequest } from "@komodo/store";
 
 export type Eligibility = { skip: false } | { skip: true; reason: string };
 
+/**
+ * Only the fields an eligibility rule reads.
+ *
+ * Narrower than PullRequest because the caller is the poller, which is holding
+ * a row it is about to write rather than one the store has handed back — and a
+ * stored pull request carries observations (a check rollup) that the listing
+ * pass has not made and this decision does not use.
+ */
+export type EligibilityCandidate = Pick<
+  PullRequest,
+  "isDraft" | "title" | "author" | "changedFiles"
+>;
+
 /** The rules a request cannot override: a review that cannot be run well. */
-export function hardLimits(pr: PullRequest, config: KomodoConfig): Eligibility {
+export function hardLimits(
+  pr: EligibilityCandidate,
+  config: KomodoConfig,
+): Eligibility {
   // 0 disables the cap. A pull request that rewrites a lockfile or vendors a
   // dependency is not a review a subscription should pay for.
   const { max_files } = config.auto_review;
@@ -46,7 +62,7 @@ export function hardLimits(pr: PullRequest, config: KomodoConfig): Eligibility {
  * them is a setting, because whose pull requests matter is not Komodo's call.
  */
 export function automaticEligibility(
-  pr: PullRequest,
+  pr: EligibilityCandidate,
   config: KomodoConfig,
 ): Eligibility {
   const { auto_review } = config;

@@ -40,7 +40,9 @@ export function ReviewHeader({
       ? "whole"
       : requestedView === "decisions"
         ? "decisions"
-        : "verify";
+        : requestedView === "conversation"
+          ? "conversation"
+          : "verify";
   const isLatest = !current || runs[0]?.id === current.id;
 
   return (
@@ -130,6 +132,12 @@ export function ReviewHeader({
         </Tab>
         <Tab active={view === "whole"} onClick={() => set({ view: "whole" })}>
           The whole review
+        </Tab>
+        <Tab
+          active={view === "conversation"}
+          onClick={() => set({ view: "conversation" })}
+        >
+          Conversation
         </Tab>
       </nav>
     </div>

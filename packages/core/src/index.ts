@@ -5,6 +5,7 @@ export * from "./diff.js";
 export * from "./diff-source.js";
 export * from "./diff-sources/index.js";
 export * from "./github.js";
+export * from "./remote.js";
 export * from "./providers/index.js";
 export * from "./render/markdown.js";
 export * from "./pipeline.js";

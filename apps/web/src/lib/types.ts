@@ -16,6 +16,14 @@ export type {
   AIReviewJobState,
   ApiKey,
   Bucket,
+  ChecksState,
+  EasyWin,
+  EasyWinSignal,
+  MemberGithubIdentity,
+  PullRequestChecks,
+  PullRequestComment,
+  PullRequestCommentKind,
+  PullRequestConversation,
   Finding,
   FindingStatus,
   EvidenceKind,
@@ -155,11 +163,19 @@ export interface QueueRow extends PullRequest {
   /** Komodo says blocked, or a human already requested changes. */
   isBlocked: boolean;
   isStale: boolean;
+  /**
+   * How cheap this review is to finish, or null when it is not a quick win.
+   *
+   * Null rather than a zero score: a draft or a broken build is absent from
+   * the lens rather than sorted to the bottom of it. See easyWin in
+   * @komodo/store.
+   */
+  easyWin: import("@komodo/store").EasyWin | null;
   /** The worst few findings, P0 first — the pre-triage the queue exists for. */
   topFindings: Finding[];
 }
 
-export type QueueLens = "all" | "mine" | "blocked" | "stale";
+export type QueueLens = "all" | "mine" | "blocked" | "stale" | "easy";
 
 export interface QueueQuery {
   lens?: QueueLens;

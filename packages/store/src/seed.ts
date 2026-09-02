@@ -40,6 +40,16 @@ const REPO_NAMES = [
   "61149",
 ] as const;
 
+/** Names a CI job could plausibly have. Only failing ones are ever shown. */
+const CHECK_NAMES = [
+  "build",
+  "unit tests",
+  "typecheck",
+  "lint",
+  "e2e / chromium",
+  "coverage",
+];
+
 const AUTHORS = [
   "Delavalom",
   "mgutierrez",
@@ -426,6 +436,42 @@ export async function seedStore(
       updatedAt,
       mergedAt: merged ? updatedAt : null,
     });
+
+    // Checks, through the same writer the poller uses. Written for open pull
+    // requests only, because a merged one's rollup describes a commit that is
+    // no longer anybody's problem — and a share of them are left unread, which
+    // is what a real deployment looks like a minute after a push lands.
+    if (state === "open" && next() > 0.12) {
+      const roll = next();
+      // All four states are reachable, and `neutral` deliberately so: a
+      // repository with no CI is the one state every comment in this feature
+      // calls the dangerous one to get wrong, and a dataset that cannot
+      // produce it is a dataset that never shows anybody the bug.
+      const checksState =
+        roll < 0.12 ? "neutral" : roll < 0.3 ? "failing" : roll < 0.46 ? "pending" : "passing";
+      const failed = checksState === "failing" ? 1 + Math.floor(next() * 2) : 0;
+      const pending = checksState === "pending" ? 1 + Math.floor(next() * 2) : 0;
+      const passed = checksState === "neutral" ? 0 : Math.floor(next() * 4);
+      // Names are what the detail fetch returns, and it only runs for a
+      // failing commit — so a passing row has counts and no names, and an
+      // unfetched one would have neither.
+      const failing = [...new Set(
+        Array.from({ length: failed }, () => pick(next, CHECK_NAMES)),
+      )];
+      await store.recordPullRequestChecks(prId, {
+        headSha,
+        state: checksState,
+        failing,
+        total: checksState === "neutral" ? 0 : passed + pending + failing.length,
+        passed: checksState === "neutral" ? 0 : passed,
+        pending: checksState === "neutral" ? 0 : pending,
+        // When Komodo *read* the rollup, not when the pull request last
+        // changed. Stamping it with `updatedAt` looked reasonable and meant
+        // every row older than a day was dropped by the staleness rule — a
+        // seeded queue of fifty-five pull requests showed checks on four.
+        observedAt: now - Math.floor(next() * 4 * 60_000),
+      });
+    }
 
     const judgmentId = await store.upsertJudgment({
       prId,

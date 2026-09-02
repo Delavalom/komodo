@@ -33,10 +33,16 @@ export type {
   MemoryStatus,
   JudgementSeverity,
   Member,
+  MemberGithubIdentity,
   MemberRole,
   Organization,
   OrgSettings,
+  ChecksState,
   PullRequest,
+  PullRequestChecks,
+  PullRequestComment,
+  PullRequestCommentKind,
+  PullRequestConversation,
   PullRequestState,
   RepoCluster,
   Repository,
@@ -74,6 +80,13 @@ export type {
 export { verdictFor } from "./verdict.js";
 export { pickActor } from "./actor.js";
 export { needsReviewFrom, type QueueLensViewer } from "./queue-lens.js";
+export { readChecks, type StoredChecks } from "./checks.js";
+export {
+  easyWin,
+  type EasyWin,
+  type EasyWinInput,
+  type EasyWinSignal,
+} from "./easy-win.js";
 export {
   META_DISCOVERY_REQUESTED_AT,
   META_LAST_DISCOVERY_AT,

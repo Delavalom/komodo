@@ -48,6 +48,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({
   createdAt: 0,
   updatedAt: 0,
   mergedAt: null,
+  checks: null,
   ...over,
 });
 

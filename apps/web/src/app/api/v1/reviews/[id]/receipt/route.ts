@@ -6,6 +6,7 @@
  * marker, rather than a second Komodo comment in a different shape.
  */
 import { authenticate, unauthorized } from "@/lib/api/auth";
+import { routeParam } from "@/lib/api/request";
 import { postReceipt } from "@/lib/data/actions";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +18,10 @@ export async function POST(
   const auth = await authenticate(request);
   if (!auth.ok) return unauthorized(auth);
 
+  // Already decoded by Next — see lib/api/request.ts.
   const { id } = await params;
   try {
-    const url = await postReceipt(decodeURIComponent(id));
+    const url = await postReceipt(routeParam(id));
     return Response.json({ url });
   } catch (err) {
     // A missing token or an unknown run. Both are the caller's to fix, and

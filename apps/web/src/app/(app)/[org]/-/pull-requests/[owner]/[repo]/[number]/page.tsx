@@ -10,9 +10,11 @@
  * judgement on screen, and `?view=decisions|whole` switches away from result
  * verification. AGENTS.md rule 8.
  */
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 
 import { ReviewHeader } from "@/components/review/header";
+import { ConversationView } from "@/components/review/conversation";
 import { DecisionQueue } from "@/components/review/queue";
 import { WholeReview } from "@/components/review/whole";
 import { VerificationReview } from "@/components/review/verification";
@@ -21,7 +23,9 @@ import {
   loadReviewFiles,
   loadReviewRuns,
   loadSnapshot,
+  requestNow,
 } from "@/lib/data/server";
+import { loadConversation } from "@/lib/data/conversation";
 import { estimateTime } from "@komodo/core/store";
 
 export default async function ReviewPage({
@@ -63,7 +67,13 @@ export default async function ReviewPage({
       ? "whole"
       : requestedView === "decisions"
         ? "decisions"
-        : "verify";
+        : requestedView === "conversation"
+          ? "conversation"
+          : "verify";
+
+  // Read through the cache, and only for the view that shows it: a
+  // conversation costs three GitHub requests, and the other three views have
+  // no use for one. See lib/data/conversation.ts for why this is not polled.
 
   return (
     // The shell is fixed-height, so this pane owns its own scrolling and the
@@ -78,7 +88,14 @@ export default async function ReviewPage({
         estimate={estimateTime(detail?.judgements.length ?? 0)}
       />
 
-      {!detail ? (
+      {view === "conversation" ? (
+        // Streamed, because this is the one view that waits on GitHub. Without
+        // a boundary a slow or hanging API leaves the reader looking at the
+        // previous screen with no indication that anything is happening.
+        <Suspense fallback={<LoadingConversation />}>
+          <Conversation prId={prId} prUrl={pr.url} />
+        </Suspense>
+      ) : !detail ? (
         <NoRun status={judgment?.status ?? "not_requested"} />
       ) : view === "whole" ? (
         <WholeReview detail={detail} files={files} />
@@ -93,11 +110,38 @@ export default async function ReviewPage({
           judgements={detail.judgements}
           answers={detail.answers}
           votes={detail.votes}
-          prUrl={pr.url}
+          currentHeadSha={pr.headSha}
           verificationRequirements={detail.verificationRequirements}
           verifications={detail.verifications}
         />
       )}
+    </div>
+  );
+}
+
+/** The conversation, once GitHub has answered. */
+async function Conversation({ prId, prUrl }: { prId: string; prUrl: string }) {
+  // The clock is read once per request and carried down — AGENTS.md rule 6.
+  // Staleness is an age, and an age computed from a second reading of the
+  // clock is one the rest of the page does not agree with.
+  const view = await loadConversation(prId, { now: requestNow() });
+  return (
+    <ConversationView
+      prId={prId}
+      prUrl={prUrl}
+      comments={view.conversation?.comments ?? []}
+      observedAt={view.conversation?.observedAt ?? null}
+      error={view.error}
+    />
+  );
+}
+
+function LoadingConversation() {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <p className="mx-auto max-w-[760px] px-6 py-10 text-sm text-muted-foreground">
+        Reading the conversation from GitHub…
+      </p>
     </div>
   );
 }

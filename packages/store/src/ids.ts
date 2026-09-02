@@ -14,3 +14,20 @@ import { randomUUID } from "node:crypto";
 export function newId(prefix: string): string {
   return `${prefix}_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 }
+
+/**
+ * One cached GitHub comment's id.
+ *
+ * Derived from the pull request, the endpoint it came from and GitHub's own
+ * id, because the three endpoints number their comments independently — an
+ * issue comment and a review comment can share an id and mean nothing to each
+ * other. A generated id would make re-reading the same conversation produce a
+ * new row every time.
+ */
+export function commentId(
+  prId: string,
+  kind: string,
+  externalId: number,
+): string {
+  return `${prId}:${kind}:${externalId}`;
+}
