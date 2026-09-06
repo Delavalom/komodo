@@ -482,15 +482,26 @@ export function useTeams(): Team[] {
 
 /* ── Analytics: PR Reviews tab ──────────────────────────────────────────── */
 
+/**
+ * Day span between creation and merge, floored at zero.
+ *
+ * A manually recorded review can backfill `createdAt` from the moment of
+ * the review rather than the PR's real creation time (see
+ * `packages/ingest/src/record.ts`), which occasionally lands after a later
+ * `mergedAt`. Averaging that inverted span in unclamped is what made "Avg
+ * Merge Time" render as a negative number of days.
+ */
+function mergeDays(pr: { createdAt: number; mergedAt: number | null }): number {
+  if (pr.mergedAt === null) return 0;
+  return Math.max(0, (pr.mergedAt - pr.createdAt) / DAY_MS);
+}
+
 export function useAnalyticsSummary(query: AnalyticsQuery): AnalyticsSummary {
   const { scoped } = useScopedJudgments(query);
   const findings = useScopedFindings(query);
   return useMemo(() => {
     const merged = scoped.filter((p) => p.mergedAt !== null);
-    const totalMergeDays = merged.reduce(
-      (sum, p) => sum + (p.mergedAt! - p.createdAt) / DAY_MS,
-      0,
-    );
+    const totalMergeDays = merged.reduce((sum, p) => sum + mergeDays(p), 0);
     return {
       totalPrs: scoped.length,
       totalReviews: scoped.reduce((s, p) => s + p.reviewCount, 0),
@@ -609,7 +620,7 @@ export function useMergeTimeSeries(
     for (const pr of scoped) {
       if (pr.mergedAt === null) continue;
       const key = bucketKey(pr.mergedAt, granularity);
-      grouped.get(key)?.push((pr.mergedAt - pr.createdAt) / DAY_MS);
+      grouped.get(key)?.push(mergeDays(pr));
     }
     return buckets.map((date) => {
       const rows = grouped.get(date) ?? [];
@@ -702,7 +713,7 @@ export function useLeaderboards(query: AnalyticsQuery) {
         { reviews: 0, mergeDays: [], addressed: 0, comments: 0 };
       row.reviews += pr.reviewCount;
       if (pr.mergedAt !== null) {
-        row.mergeDays.push((pr.mergedAt - pr.createdAt) / DAY_MS);
+        row.mergeDays.push(mergeDays(pr));
       }
       row.addressed += pr.addressedComments;
       row.comments += pr.totalComments;
