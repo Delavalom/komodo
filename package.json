@@ -10,7 +10,7 @@
     "dev": "pnpm -C apps/web dev",
     "build": "pnpm build:release",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter ./packages/ingest... build && pnpm -r typecheck",
     "check:release": "node scripts/check-release.mjs",
     "test": "pnpm check:release && pnpm typecheck && pnpm -r --if-present test",
     "build:release": "pnpm --filter '@komodo/ingest...' build && pnpm -C apps/web build && pnpm -C packages/cli build",
