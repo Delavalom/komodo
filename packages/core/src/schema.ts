@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DiagramSpecSchema } from "@komodo/diagram";
 
 export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
 
@@ -197,10 +198,11 @@ export const ReviewResultSchema = z.object({
     .describe(
       "Checks a human must perform against the running result. Empty only when the change has no observable runtime, generated, or operational result.",
     ),
-  diagram: z
-    .string()
-    .optional()
-    .describe("Mermaid sequenceDiagram source (no fences) when the PR changes a flow/interaction; else omit"),
+  diagram: DiagramSpecSchema.optional().describe(
+    "Structured diagram — sequence (multi-actor request/response), flowchart (branching/decision logic), " +
+      "state (state-machine changes), or er (schema/migration changes) — when the PR's change fits one of " +
+      "those shapes; omit if none fit. Emit structured nodes/edges, never markup or Mermaid text.",
+  ),
   judgements: z.array(JudgementSchema),
 });
 

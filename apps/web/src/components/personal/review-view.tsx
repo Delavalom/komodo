@@ -1,50 +1,11 @@
 "use client";
 
-import * as React from "react";
-import { BarChart3, FileText, Table2, Workflow } from "lucide-react";
-
 import { Card, SectionHeading } from "@/components/ui/card";
 import { CheckboxField, Toggle } from "@/components/ui/controls";
 import { Badge, KomodoMark } from "@/components/ui/display";
 import { usePersonalSettings } from "@/lib/data/queries";
 import { useUpdatePersonalSettings } from "@/lib/data/mutations";
-import type { PersonalSectionKey } from "@/lib/types";
-
-/**
- * The four blocks a posted review can carry — the same four the org settings
- * name, because there is one renderer and it knows four modules.
- */
-const ROWS: {
-  key: PersonalSectionKey;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-}[] = [
-  {
-    key: "summary",
-    title: "Summary",
-    description: "What changed, in the reviewer's own words",
-    icon: <FileText className="h-5 w-5 text-muted-foreground" />,
-  },
-  {
-    key: "confidence",
-    title: "Review coverage",
-    description: "How much context the AI brief had, never a merge recommendation",
-    icon: <BarChart3 className="h-5 w-5 text-muted-foreground" />,
-  },
-  {
-    key: "walkthrough",
-    title: "Walkthrough",
-    description: "Related files grouped into rows, each with a plain-language note",
-    icon: <Table2 className="h-5 w-5 text-muted-foreground" />,
-  },
-  {
-    key: "diagram",
-    title: "Sequence Diagram",
-    description: "A Mermaid diagram, when the change moved a flow",
-    icon: <Workflow className="h-5 w-5 text-muted-foreground" />,
-  },
-];
+import { SUMMARY_ROWS as ROWS } from "@/components/review/summary-rows";
 
 export function PersonalReviewView() {
   const personal = usePersonalSettings();
@@ -143,7 +104,7 @@ export function PersonalReviewView() {
               <span className="text-muted-foreground">commented just now</span>
             </div>
             <p className="mt-1.5 text-[15px]">
-              Preview how Komodo comments look on your pull requests.
+              This is what a Komodo comment looks like on your pull requests.
             </p>
           </div>
         </div>

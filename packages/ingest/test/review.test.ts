@@ -7,16 +7,20 @@
  * are enforced at enqueue time now, so what the worker checks is the difference
  * between work Komodo started and work a person asked for.
  */
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   KomodoConfigSchema,
   type GitHubClient,
   type KomodoConfig,
+  type ReviewInput,
   type ReviewProvider,
   type ReviewResult,
 } from "@komodo/core";
-import type { PullRequest } from "@komodo/store";
+import { META_CONTEXT_SOURCES, type PullRequest, type SharedContextRecord } from "@komodo/store";
 import { SqliteStore } from "@komodo/store/sqlite";
 
 import {
@@ -261,5 +265,152 @@ describe("reviewPending", () => {
 
     expect(pass).toMatchObject({ reviewed: 0, skipped: 1 });
     expect(reviewed).toEqual([]);
+  });
+});
+
+describe("reviewPending — shared context", () => {
+  const result: ReviewResult = {
+    summary: "- Adds a rate limiter.",
+    walkthrough: [],
+    confidence: 4,
+    verdict: "Read the limiter and its tests.",
+    effort: 2,
+    verificationChecks: [],
+    judgements: [],
+  };
+
+  const dirs: string[] = [];
+  const tree = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), "komodo-review-context-"));
+    dirs.push(dir);
+    for (const [path, body] of Object.entries(files)) {
+      writeFileSync(join(dir, path), body);
+    }
+    return dir;
+  };
+  afterEach(() => {
+    while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+
+  function harness() {
+    const inputs: ReviewInput[] = [];
+    const provider: ReviewProvider = {
+      name: "fake",
+      async review(input) {
+        inputs.push(input);
+        return result;
+      },
+    };
+    const github = {
+      async getPR(ref: { owner: string; repo: string; number: number }) {
+        return {
+          ...ref,
+          title: "Add rate limiting",
+          body: "",
+          author: "marco",
+          url: "https://github.com/acme/api/pull/1",
+          baseRef: "main",
+          headRef: "limits",
+          headSha: "aaa111",
+          isDraft: false,
+          labels: [],
+        };
+      },
+      async listFiles() {
+        return [
+          { path: "src/limit.ts", status: "modified", additions: 40, deletions: 3 },
+        ];
+      },
+    } as unknown as GitHubClient;
+    return { provider, github, inputs };
+  }
+
+  async function storeWith(over: Partial<PullRequest> = {}) {
+    const store = new SqliteStore({ path: ":memory:" });
+    await store.upsertRepository({
+      id: "acme/api", owner: "acme", name: "api",
+      provider: "github", enabled: true, reviewCount: 0,
+    });
+    const row = pr(over);
+    await store.upsertPullRequest(row);
+    await store.requestAIReview({
+      prId: row.id,
+      headSha: row.headSha,
+      trigger: "manual",
+      requestedAt: 1,
+    });
+    return store;
+  }
+
+  it("hands an unscoped shared context document to the provider", async () => {
+    const dir = tree({ "rules.md": "Never bypass rate limiting in a handler." });
+    const store = await storeWith();
+    const { provider, github, inputs } = harness();
+
+    await reviewPending({
+      store,
+      github,
+      provider,
+      config: config({ context: { sources: [{ type: "path", path: dir }] } }),
+      configDir: "/",
+    });
+
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].sharedContext?.[0]?.text).toContain("Never bypass rate limiting");
+  });
+
+  it("only hands over a cluster-scoped document when the repo is in that cluster", async () => {
+    const dir = tree({
+      "cluster.md": "---\nclusters: [payments]\n---\nOnly payments repos see this.",
+    });
+    const store = await storeWith();
+    const { provider, github, inputs } = harness();
+    const cfg = config({ context: { sources: [{ type: "path", path: dir }] } });
+
+    await reviewPending({ store, github, provider, config: cfg, configDir: "/" });
+    expect(inputs[0].sharedContext ?? []).toHaveLength(0);
+
+    await store.saveRepoCluster({ name: "payments", memberRepoIds: ["acme/api"] });
+    await store.requestAIReview({ prId: "acme/api#1", headSha: "aaa111", trigger: "manual", requestedAt: 2 });
+    await reviewPending({ store, github, provider, config: cfg, configDir: "/" });
+    expect(inputs[1].sharedContext).toHaveLength(1);
+  });
+
+  it("still reviews when a configured source directory is missing", async () => {
+    const store = await storeWith();
+    const { provider, github, inputs } = harness();
+
+    const pass = await reviewPending({
+      store,
+      github,
+      provider,
+      config: config({ context: { sources: [{ type: "path", path: "/does/not/exist" }] } }),
+      configDir: "/",
+    });
+
+    expect(pass).toMatchObject({ reviewed: 1, failed: 0 });
+    expect(inputs[0].sharedContext ?? []).toHaveLength(0);
+  });
+
+  it("records what it resolved under the context-sources meta key", async () => {
+    const dir = tree({ "rules.md": "Body." });
+    const store = await storeWith();
+    const { provider, github } = harness();
+
+    await reviewPending({
+      store,
+      github,
+      provider,
+      config: config({ context: { sources: [{ type: "path", path: dir }] } }),
+      configDir: "/",
+    });
+
+    const raw = await store.getMeta(META_CONTEXT_SOURCES);
+    expect(raw).toBeTruthy();
+    const record = JSON.parse(raw!) as SharedContextRecord;
+    expect(record.sources[0].ok).toBe(true);
+    expect(record.sources[0].files[0].path).toBe("rules.md");
+    // Bodies never travel into the record.
+    expect(JSON.stringify(record)).not.toContain("Body.");
   });
 });

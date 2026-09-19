@@ -17,6 +17,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquare, RefreshCw } from "lucide-react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkGemoji from "remark-gemoji";
 
 import { Avatar, Badge } from "@/components/ui/display";
 import { Button } from "@/components/ui/button";
@@ -102,7 +105,7 @@ export function ConversationView({
           // with twelve of them is the kind of quiet wrongness that costs a
           // reader their trust in the whole page.
           <p className="mb-6 border border-[hsl(var(--error))]/40 bg-[hsl(var(--error))]/5 px-3 py-2 text-sm">
-            GitHub could not be read, so this may be incomplete or empty.{" "}
+            Couldn&apos;t read GitHub, so this may be incomplete or empty.{" "}
             <span className="text-muted-foreground">{problem}</span>
           </p>
         ) : null}
@@ -197,6 +200,94 @@ function ThreadBlock({ prId, thread }: { prId: string; thread: Thread }) {
   );
 }
 
+const MARKDOWN_PLUGINS = [remarkGfm, remarkGemoji];
+
+/**
+ * react-markdown turns markdown into React elements directly — it never
+ * builds an HTML string or calls `dangerouslySetInnerHTML`, and by default it
+ * drops raw HTML nodes embedded in the source rather than rendering them
+ * (that's the `rehype-raw` plugin, which is deliberately not added here). So
+ * a comment body stays arbitrary Markdown from a stranger, same as before,
+ * but formatted the way GitHub itself would show it instead of as source.
+ */
+const MARKDOWN_COMPONENTS: Components = {
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer nofollow"
+      className="underline hover:text-foreground"
+    >
+      {children}
+    </a>
+  ),
+  img: ({ src, alt }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={typeof src === "string" ? src : undefined}
+      alt={alt ?? ""}
+      loading="lazy"
+      className="my-2 h-auto max-w-full rounded-sm"
+    />
+  ),
+  code: ({ className, children }) =>
+    /language-/.test(className ?? "") ? (
+      <code className={cn("font-mono text-xs", className)}>{children}</code>
+    ) : (
+      <code className="rounded-sm bg-muted-accent px-1 py-0.5 font-mono text-[13px]">
+        {children}
+      </code>
+    ),
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-x-auto rounded-sm border border-border bg-muted-accent/40 p-2">
+      {children}
+    </pre>
+  ),
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  h1: ({ children }) => (
+    <h1 className="mt-3 mb-1 text-base font-semibold first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mt-3 mb-1 text-[15px] font-semibold first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="mt-3 mb-1 text-sm font-semibold first:mt-0">{children}</h3>
+  ),
+  h4: ({ children }) => (
+    <h4 className="mt-3 mb-1 text-sm font-semibold first:mt-0">{children}</h4>
+  ),
+  h5: ({ children }) => (
+    <h5 className="mt-3 mb-1 text-sm font-semibold first:mt-0">{children}</h5>
+  ),
+  h6: ({ children }) => (
+    <h6 className="mt-3 mb-1 text-sm font-semibold first:mt-0">{children}</h6>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted-foreground italic">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-3 border-border" />,
+  p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="w-full border-collapse border border-border text-xs">
+        {children}
+      </table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border border-border bg-muted-accent/40 px-2 py-1 text-left font-medium">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border border-border px-2 py-1 align-top">{children}</td>
+  ),
+};
+
 function CommentBody({ comment }: { comment: PullRequestComment }) {
   const now = useNow();
   const state = comment.state ? REVIEW_STATE[comment.state] : undefined;
@@ -222,16 +313,15 @@ function CommentBody({ comment }: { comment: PullRequestComment }) {
           on GitHub
         </a>
       </div>
-      {/* Plain text, deliberately. A comment body is arbitrary Markdown from
-          anybody with write access to the repository, and rendering it as HTML
-          here would be rendering a stranger's markup inside the queue. */}
-      {/* `break-words` as well as `pre-wrap`: a stack trace, a base64 blob or
-          a long URL in a comment body is routine, and an unbroken token gives
-          the pane thousands of pixels of horizontal scroll — which slides the
+      {/* `[overflow-wrap:anywhere]`: a stack trace, a base64 blob or a long
+          URL in a comment body is routine, and an unbroken token gives the
+          pane thousands of pixels of horizontal scroll — which slides the
           header, the re-read button and the reply box off screen. */}
-      <p className="mt-1.5 [overflow-wrap:anywhere] whitespace-pre-wrap text-sm leading-relaxed">
-        {comment.body}
-      </p>
+      <div className="mt-1.5 [overflow-wrap:anywhere] text-sm leading-relaxed">
+        <Markdown remarkPlugins={MARKDOWN_PLUGINS} components={MARKDOWN_COMPONENTS}>
+          {comment.body}
+        </Markdown>
+      </div>
     </article>
   );
 }
@@ -323,6 +413,15 @@ function ReplyBox({
  * on the number alone silently drops one of them and renders the other twice.
  * `id` is `prId:kind:externalId` and was derived for exactly this reason.
  */
+/**
+ * GitHub App bots — Snyk, Optibot, Dependabot and the rest — always carry
+ * this suffix on their login (`agent-optibot[bot]`, `dependabot[bot]`), the
+ * same signal `packages/store/src/settings.ts` already filters on elsewhere.
+ */
+function isBotAuthor(author: string): boolean {
+  return author.endsWith("[bot]");
+}
+
 function buildThreads(comments: PullRequestComment[]): Thread[] {
   // Only inline comments can be replied to, and only an inline comment can be
   // a reply's root — so the lookup is scoped to them. An issue comment that
@@ -356,5 +455,10 @@ function buildThreads(comments: PullRequestComment[]): Thread[] {
     order.push(comment.id);
   }
 
-  return order.map((key) => threads.get(key)!);
+  // A person's thread first, a bot's after — a reader wants to see what was
+  // said before deciding whether to read what was flagged. Array.prototype.sort
+  // is stable, so within each group the reading order stays chronological.
+  return order
+    .map((key) => threads.get(key)!)
+    .sort((a, b) => Number(isBotAuthor(a.root.author)) - Number(isBotAuthor(b.root.author)));
 }

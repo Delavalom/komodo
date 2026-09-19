@@ -14,6 +14,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { DiagramSpecSchema, type DiagramSpec } from "@komodo/diagram";
+
 import { newId } from "./ids.js";
 import { readChecks } from "./checks.js";
 import { dedupeComments } from "./comments.js";
@@ -442,6 +444,24 @@ const bool = (v: unknown): boolean => Boolean(v);
 const list = (v: unknown): string[] => JSON.parse(String(v ?? "[]")) as string[];
 const num = (v: unknown): number => Number(v ?? 0);
 const str = (v: unknown): string => String(v ?? "");
+
+/**
+ * `diagram` holds free-text Mermaid source in rows written before this column
+ * held JSON. Those don't parse as JSON (or validate against the spec schema
+ * even when they happen to), so this falls back to null rather than throwing
+ * — a diagram is supplementary content, not the record of a decision, and no
+ * backfill for pre-change rows is planned.
+ */
+function readDiagram(v: unknown): DiagramSpec | null {
+  if (v === null || v === undefined) return null;
+  try {
+    const parsed = typeof v === "string" ? JSON.parse(v) : v;
+    const result = DiagramSpecSchema.safeParse(parsed);
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
 
 /** SQLite has no boolean, so every flag crosses the boundary as 0 or 1. */
 const flag = (v: boolean): number => (v ? 1 : 0);
@@ -1623,7 +1643,7 @@ export class SqliteStore implements KomodoStore {
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
-          input.diagram ?? null, input.recordId, now,
+          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId, now,
         );
 
       // A re-run of the same head replaces its own bodies. The answer rows
@@ -1932,7 +1952,7 @@ function toReview(r: Row): Review {
     confidence: num(r.confidence),
     effort: num(r.effort),
     verdictLine: str(r.verdictLine),
-    diagram: r.diagram === null ? null : str(r.diagram),
+    diagram: readDiagram(r.diagram),
     recordId: str(r.recordId),
     receiptUrl: r.receiptUrl == null ? null : str(r.receiptUrl),
     receiptPostedAt: r.receiptPostedAt == null ? null : num(r.receiptPostedAt),

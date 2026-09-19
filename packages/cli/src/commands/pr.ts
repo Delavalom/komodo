@@ -1,13 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
 import {
   createProvider,
   GitHubClient,
   loadConfig,
   parsePRRef,
+  resolveContextSources,
   runReview,
   SEVERITY_LABEL,
   type PRRef,
@@ -20,7 +21,7 @@ export async function prCommand(
   opts: { localOnly: boolean; provider?: string; model?: string },
 ): Promise<void> {
   const prRef = parsePRRef(ref);
-  const { config } = loadConfig();
+  const { config, path: configPath } = loadConfig();
   if (opts.model) config.model = opts.model;
   const provider = createProvider(config, opts.provider);
   const github = new GitHubClient();
@@ -29,16 +30,39 @@ export async function prCommand(
   if (repoDir) console.log(pc.dim(`Using repo context from ${repoDir}`));
 
   const spin = (msg: string) => console.log(pc.dim(`• ${msg}`));
+
+  // No store here, so a document scoped to a repo cluster cannot be resolved
+  // — clusterNames is left undefined rather than [], which is what tells
+  // `selectSharedContext` to report it as needing one instead of dropping it
+  // silently. `repos:` and `globs:` scoping still works.
+  const contextSources = resolveContextSources(config, configPath ? dirname(configPath) : process.cwd());
+  for (const source of contextSources.filter((s) => !s.ok)) {
+    console.error(pc.yellow(`Shared context source "${source.name}" could not be read: ${source.error}`));
+  }
+
   const outcome = await runReview({
     ref: prRef,
     provider,
     config,
     github,
     repoDir,
+    contextSources,
+    contextScope: { repoId: `${prRef.owner}/${prRef.repo}` },
     post: !opts.localOnly,
     onProgress: spin,
     model: config.model,
   });
+
+  if (outcome.sharedContext.length) {
+    console.log(pc.dim(`  applied shared context: ${outcome.sharedContext.map((d) => d.label).join(", ")}`));
+  }
+  if (outcome.sharedContextNeedsClusters.length) {
+    console.error(
+      pc.yellow(
+        `  ${outcome.sharedContextNeedsClusters.length} shared context document(s) are scoped to a repo cluster, which \`komodo pr\` cannot resolve; skipped.`,
+      ),
+    );
+  }
 
   const r = outcome.record.result;
   console.log(pc.bold(`\n🦎 Komodo review — ${prRef.owner}/${prRef.repo}#${prRef.number}`));

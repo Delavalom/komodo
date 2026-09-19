@@ -16,6 +16,13 @@ Nothing here starts another model process. This Claude session is the
 reviewer. A claimed teammate PR needs the user's existing `gh` authentication
 only to check out the branch; never attempt a login on the user's behalf.
 
+Every judgement, summary, and note you write goes through `VOICE_STYLE.md` at
+the repository root — the same house voice `npx komodo-review prompt` already
+embeds, so this session's review and a headless one read the same. If you are
+running this skill against a checkout that has no `VOICE_STYLE.md` (a
+teammate's repository, not Komodo's own), the printed prompt still carries the
+voice section inline; follow that instead.
+
 ## Queue job mode
 
 Use this mode when the user asks to work through a Komodo queue — their own
@@ -102,7 +109,12 @@ npx komodo-review prompt
 
 Pass `--base <branch>` if the user names one. The output is the complete
 review instruction — persona, the annotated diff, this repository's
-`komodo.yaml` rules, and the exact JSON schema to produce.
+`komodo.yaml` rules, and the exact JSON schema to produce. It also carries any
+shared context sources declared under `context.sources` in that komodo.yaml —
+company-wide review guidance kept outside the repository, resolved and
+narrowed by scope before it reaches you. A document scoped to a repo cluster
+is not resolved in this mode (no store on this path); stderr says so if one
+was skipped.
 
 Do not restate or summarise it. **Follow it.** It is the same prompt Komodo
 sends to Claude and Codex when it runs headless, which is what keeps your

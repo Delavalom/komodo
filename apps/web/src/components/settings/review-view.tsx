@@ -2,13 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import {
-  BarChart3,
-  FileText,
-  Table2,
-  Trash2,
-  Workflow,
-} from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +22,7 @@ import { Textarea } from "@/components/ui/input";
 import { InfoHint } from "@/components/analytics/panels";
 import { useOrgSettings, useOrganization } from "@/lib/data/queries";
 import { useUpdateOrgSettings } from "@/lib/data/mutations";
-import type { SummarySectionKey } from "@/lib/types";
+import { SUMMARY_ROWS } from "@/components/review/summary-rows";
 
 /**
  * Strictness is a floor on severity — see MIN_SEVERITY in
@@ -40,51 +34,6 @@ const STRICTNESS_HINT = {
   medium: "Critical and major findings. Minor ones are dropped.",
   high: "Everything down to minor findings.",
 } as const;
-
-/**
- * The blocks a posted review can carry.
- *
- * One per module in @komodo/core's renderer — no more. The screen used to
- * offer an "Issue Table" and "Comments Outside Diff" that nothing rendered,
- * which made every other control here look equally decorative.
- *
- * They apply to what GitHub gets in `post.mode: full`. In the default receipt
- * mode GitHub gets a link and the review itself lives in Komodo, where none of
- * this applies.
- */
-const SUMMARY_ROWS: {
-  key: SummarySectionKey;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  hint?: string;
-}[] = [
-  {
-    key: "summary",
-    title: "Summary",
-    description: "What changed, in the reviewer's own words",
-    icon: <FileText className="h-5 w-5 text-muted-foreground" />,
-  },
-  {
-    key: "confidence",
-    title: "Review coverage",
-    description: "How much context the AI brief had, never a merge recommendation",
-    icon: <BarChart3 className="h-5 w-5 text-muted-foreground" />,
-    hint: "How well grounded the AI review brief is, from 0 to 5.",
-  },
-  {
-    key: "walkthrough",
-    title: "Walkthrough",
-    description: "Related files grouped into rows, each with a plain-language note",
-    icon: <Table2 className="h-5 w-5 text-muted-foreground" />,
-  },
-  {
-    key: "diagram",
-    title: "Sequence Diagram",
-    description: "A Mermaid diagram, when the change moved a flow",
-    icon: <Workflow className="h-5 w-5 text-muted-foreground" />,
-  },
-];
 
 const INSTRUCTIONS_PLACEHOLDER =
   'Question every "temporary" workaround that has outlived a presidential term.';
@@ -144,7 +93,7 @@ export function ReviewSettingsView() {
         />
         <SettingRow
           title="Review draft pull requests"
-          description="When enabled, Komodo reviews draft pull requests too."
+          description="Reviews draft pull requests too, not just ones marked ready."
           control={
             <Toggle
               checked={settings.reviewDraftPrs}

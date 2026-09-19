@@ -11,6 +11,7 @@
  * `${repoId}#${number}`, a judgment is `${prId}@${headSha}` — so idempotency
  * and restart safety fall out of the primary key.
  */
+import { DiagramSpecSchema, type DiagramSpec } from "@komodo/diagram";
 import type {
   AnswerInput,
   FindingInput,
@@ -1665,7 +1666,7 @@ export class PostgresStore implements KomodoStore {
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
-          input.diagram ?? null, input.recordId, now,
+          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId, now,
         ],
       );
 
@@ -1885,6 +1886,25 @@ const json = <T,>(v: unknown, fallback: T): T =>
       ? (JSON.parse(v) as T)
       : (v as T);
 
+/**
+ * `diagram` is a plain TEXT column, not JSONB, so it always arrives as a raw
+ * string — including rows written before this column held JSON at all, when
+ * it held free-text Mermaid source instead. Those don't parse as JSON (or
+ * validate against the spec schema even if they happen to), so this falls
+ * back to null rather than throwing: a diagram is supplementary content, not
+ * the record of a decision, and no backfill for pre-change rows is planned.
+ */
+function readDiagram(v: unknown): DiagramSpec | null {
+  if (v === null || v === undefined) return null;
+  try {
+    const parsed = typeof v === "string" ? JSON.parse(v) : v;
+    const result = DiagramSpecSchema.safeParse(parsed);
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
 function toReview(r: Row): Review {
   return {
     version: num(r.version) === 3 ? 3 : 2,
@@ -1898,7 +1918,7 @@ function toReview(r: Row): Review {
     confidence: num(r.confidence),
     effort: num(r.effort),
     verdictLine: str(r.verdictLine),
-    diagram: r.diagram === null ? null : str(r.diagram),
+    diagram: readDiagram(r.diagram),
     recordId: str(r.recordId),
     receiptUrl: r.receiptUrl == null ? null : str(r.receiptUrl),
     receiptPostedAt: r.receiptPostedAt == null ? null : num(r.receiptPostedAt),

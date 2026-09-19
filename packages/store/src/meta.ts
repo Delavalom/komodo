@@ -66,3 +66,16 @@ export const META_DISCOVERY_REQUESTED_AT = "discoveryRequestedAt";
  * Cleared on a clean pass, so its presence always describes the latest one.
  */
 export const META_LAST_DISCOVERY_ERROR = "lastDiscoveryError";
+
+/**
+ * A JSON `SharedContextRecord`: what `context.sources` in komodo.yaml
+ * resolved to on the last pass — which sources read cleanly, which errored,
+ * and which files each one contained.
+ *
+ * A meta key rather than a table: this is a deployment fact replaced whole
+ * every pass, the same as `lastDiscoveryError`, and nothing ever queries a
+ * single file's row on its own. File bodies are never stored here — the
+ * checkout is a repository someone else owns, and a stale copy of it would
+ * silently stop matching what the reviewer actually reads once it moves on.
+ */
+export const META_CONTEXT_SOURCES = "contextSources";

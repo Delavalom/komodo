@@ -49,7 +49,14 @@ function review(over: Partial<ReviewInput> = {}): ReviewInput {
     confidence: 3,
     effort: 2,
     verdictLine: "Ships once the cache question is settled.",
-    diagram: "sequenceDiagram\n  A->>B: hi",
+    diagram: {
+      type: "sequence",
+      actors: [
+        { id: "a", name: "A" },
+        { id: "b", name: "B" },
+      ],
+      items: [{ kind: "message", message: { from: "a", to: "b", kind: "call", label: "hi", headline: false } }],
+    },
     recordId: "acme-api-1-1700000000000",
     files: [
       {
@@ -892,7 +899,14 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(loaded).not.toBeNull();
       expect(loaded!.review.confidence).toBe(3);
       expect(loaded!.review.effort).toBe(2);
-      expect(loaded!.review.diagram).toBe("sequenceDiagram\n  A->>B: hi");
+      expect(loaded!.review.diagram).toEqual({
+        type: "sequence",
+        actors: [
+          { id: "a", name: "A" },
+          { id: "b", name: "B" },
+        ],
+        items: [{ kind: "message", message: { from: "a", to: "b", kind: "call", label: "hi", headline: false } }],
+      });
       // The JSON columns are where the two dialects diverge — TEXT here,
       // JSONB there — so this is the assertion that keeps them honest.
       expect(loaded!.review.walkthrough).toEqual([

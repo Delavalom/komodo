@@ -10,6 +10,7 @@
  * is: the web app loads through a server component but mutates through server
  * actions, so only half of this is ever reachable from a client component.
  */
+import type { DiagramSpec } from "@komodo/diagram";
 import type {
   Answer,
   AIReviewJob,
@@ -234,7 +235,7 @@ export interface ReviewInput {
   confidence: number;
   effort: number;
   verdictLine: string;
-  diagram?: string | null;
+  diagram?: DiagramSpec | null;
   recordId: string;
   /** In the order they should be answered. Ordinals are assigned here. */
   judgements: Omit<ReviewJudgement, "id" | "reviewId" | "ordinal">[];

@@ -50,6 +50,9 @@ export type {
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,
+  SharedContextFileRecord,
+  SharedContextRecord,
+  SharedContextSourceRecord,
   VerificationEntry,
   VerificationRequirement,
   VerificationResult,
@@ -88,6 +91,7 @@ export {
   type EasyWinSignal,
 } from "./easy-win.js";
 export {
+  META_CONTEXT_SOURCES,
   META_DISCOVERY_REQUESTED_AT,
   META_LAST_DISCOVERY_AT,
   META_LAST_DISCOVERY_ERROR,

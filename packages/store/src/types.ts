@@ -8,6 +8,7 @@
  * Timestamps are epoch milliseconds. They survive JSON and the RSC boundary
  * unchanged, and `date-fns` in the UI takes them directly.
  */
+import type { DiagramSpec } from "@komodo/diagram";
 
 export type ImpactLevel = "low" | "medium" | "high" | "critical";
 
@@ -441,8 +442,8 @@ export interface Review {
   effort: number;
   /** One line justifying the confidence score. */
   verdictLine: string;
-  /** Mermaid sequenceDiagram source, when the run produced one. */
-  diagram: string | null;
+  /** Structured diagram (sequence/flowchart/state/er), when the run produced one. */
+  diagram: DiagramSpec | null;
   /** The `.komodo/reviews/<id>.json` this row was built from. */
   recordId: string;
   /**
@@ -697,6 +698,48 @@ export interface RepoCluster {
   name: string;
   memberRepoIds: string[];
   createdAt: number;
+}
+
+/**
+ * One markdown file read out of a shared context source, as recorded for the
+ * Cross-repo context screen. No body: the screen shows what was read, not the
+ * text itself, the same way `MemoryRuleUse.paths` names files without their
+ * contents.
+ */
+export interface SharedContextFileRecord {
+  path: string;
+  label: string;
+  description: string | null;
+  repos: string[];
+  clusters: string[];
+  globs: string[];
+  chars: number;
+  truncated: boolean;
+  warning: string | null;
+}
+
+/** One `context.sources` entry from komodo.yaml, as last resolved. */
+export interface SharedContextSourceRecord {
+  type: "path";
+  name: string;
+  configuredPath: string;
+  root: string;
+  repos: string[];
+  clusters: string[];
+  ok: boolean;
+  error: string | null;
+  files: SharedContextFileRecord[];
+}
+
+/**
+ * What `context.sources` resolved to on the last pass. Stored whole under one
+ * meta key — see `META_CONTEXT_SOURCES` — and replaced wholesale every time,
+ * the same as `lastDiscoveryError`.
+ */
+export interface SharedContextRecord {
+  version: 1;
+  resolvedAt: number;
+  sources: SharedContextSourceRecord[];
 }
 
 /**

@@ -7,6 +7,7 @@ import { promptCommand } from "./commands/prompt.js";
 import { devCommand, serveCommand } from "./commands/serve.js";
 import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
+import { contextCommand } from "./commands/context.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { claimCommand } from "./commands/claim.js";
 import { loginCommand } from "./commands/login.js";
@@ -96,6 +97,13 @@ program
   .command("config")
   .description("Print the resolved komodo.yaml configuration")
   .action(configCommand);
+
+program
+  .command("context")
+  .description("Inspect the shared context sources configured in komodo.yaml")
+  .option("--repo <owner/name>", "check what would apply to this repository")
+  .option("--paths <a,b,c>", "changed paths to test glob-scoped documents against")
+  .action(contextCommand);
 
 program
   .command("doctor")

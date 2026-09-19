@@ -1,4 +1,5 @@
 export { applyTeamConfig, type TeamSyncResult } from "./config-sync.js";
+export { recordContextSources, toSharedContextRecord } from "./context-sync.js";
 export {
   createCheckout,
   type CheckoutOptions,

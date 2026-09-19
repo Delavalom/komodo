@@ -8,6 +8,7 @@
  * still outstanding.
  */
 import {
+  resolveContextSources,
   runReview,
   WALKTHROUGH_MARKER,
   type GitHubClient,
@@ -22,6 +23,7 @@ import type {
 } from "@komodo/store";
 
 import type { RepoCheckout } from "./checkout.js";
+import { recordContextSources } from "./context-sync.js";
 import { automaticEligibility, hardLimits } from "./eligibility.js";
 import { selectMemories, type SelectedMemories } from "./memory.js";
 import { fetchIssueContext, findIssueKeys } from "./tracker.js";
@@ -46,6 +48,12 @@ export interface ReviewRunnerOptions {
    * `komodo serve` passes one by default.
    */
   checkout?: RepoCheckout;
+  /**
+   * Directory `context.sources` paths in komodo.yaml resolve relative to —
+   * the directory the config file itself was found in. Defaults to `cwd`,
+   * which is only correct when the process was started there.
+   */
+  configDir?: string;
   /** Stable for one worker process; used to own durable leases. */
   workerId?: string;
   onProgress?: (msg: string) => void;
@@ -201,6 +209,15 @@ async function reviewOne(
     // ledger keys on the run's id.
     const context = await gatherMemories(options, repo, pr, repoDir);
 
+    // The organisation's shared context sources — not gated by
+    // settings.memoryEnabled, because that switch is about memory rules, and
+    // this is a deployment fact declared in komodo.yaml alongside voice.extra
+    // and path_instructions. Resolved fresh every review: the usual case is a
+    // checkout someone else `git pull`s.
+    const contextSources = resolveContextSources(config, options.configDir ?? process.cwd());
+    await recordContextSources(store, contextSources);
+    const clusterNames = await resolveClusterNames(store, repo.id);
+
     const outcome = await runReview({
       ref,
       provider,
@@ -208,6 +225,8 @@ async function reviewOne(
       github,
       repoDir,
       memories: context.memories,
+      contextSources,
+      contextScope: { repoId: repo.id, clusterNames },
       post: options.post ?? false,
       onProgress,
     });
@@ -259,6 +278,20 @@ async function reviewOne(
  * Best effort throughout. Custom context makes a review better; failing to
  * load it must not stop the review happening at all.
  */
+/**
+ * Names of the clusters this repository belongs to, for scoping shared
+ * context sources. Best effort: a store error leaves clusters unresolved
+ * rather than failing the review, same as `gatherMemories`.
+ */
+async function resolveClusterNames(store: KomodoStore, repoId: string): Promise<string[]> {
+  try {
+    const clusters = await store.listRepoClusters();
+    return clusters.filter((c) => c.memberRepoIds.includes(repoId)).map((c) => c.name);
+  } catch {
+    return [];
+  }
+}
+
 async function gatherMemories(
   options: ReviewRunnerOptions,
   repo: Repository,

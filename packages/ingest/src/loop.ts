@@ -36,6 +36,8 @@ export interface IngestOptions {
   post?: boolean;
   /** Gives the reviewer a tree to read. Omit to review diffs alone. */
   checkout?: RepoCheckout;
+  /** Directory `context.sources` paths resolve relative to. Defaults to cwd. */
+  configDir?: string;
   signal?: AbortSignal;
   onProgress?: (msg: string) => void;
 }
@@ -89,6 +91,7 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
     config,
     post: options.post,
     checkout: options.checkout,
+    configDir: options.configDir,
     onProgress,
   });
 }

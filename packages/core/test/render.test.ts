@@ -8,6 +8,7 @@ import {
   WALKTHROUGH_MARKER,
 } from "../src/render/markdown.js";
 import type { Judgement, ReviewResult } from "../src/schema.js";
+import { voiceLint } from "../src/voice.js";
 
 const pr: PRMeta = {
   owner: "acme",
@@ -63,7 +64,19 @@ const result: ReviewResult = {
       required: true,
     },
   ],
-  diagram: "sequenceDiagram\n  A->>B: pay()",
+  diagram: {
+    type: "sequence",
+    actors: [
+      { id: "a", name: "A" },
+      { id: "b", name: "B" },
+    ],
+    items: [
+      {
+        kind: "message",
+        message: { from: "a", to: "b", kind: "call", label: "pay()", headline: false },
+      },
+    ],
+  },
   judgements: [judgement],
 };
 
@@ -102,5 +115,31 @@ describe("renderReviewBody", () => {
     expect(renderReviewBody({ ...result, judgements: [] })).toContain(
       "Human verification and approval are still required",
     );
+  });
+});
+
+// The renderers add markdown chrome — bold labels, badges, bullet dividers —
+// around what a provider wrote. That chrome is UI structure, not editorial
+// voice, and voiceLint is not run against it. What must stay in the house
+// voice is the prose a provider is asked to write: judgement fields, the
+// summary, and verification checks. This is the audit the delivery plan in
+// docs/architecture/voice-style.md calls for.
+describe("judgement and review prose stays in the house voice", () => {
+  // result.summary is exempt: the schema requires it as GitHub markdown
+  // bullets grouped by change type with a bold category label per line
+  // ("- **Bug Fixes**: ..."), a structural convention independent of the
+  // sentence-level voice this lint checks.
+  const proseFields = [
+    judgement.title,
+    judgement.lede,
+    judgement.detail,
+    judgement.ask,
+    judgement.sourceNote,
+    result.verdict,
+    ...result.verificationChecks.flatMap((c) => [c.title, c.instruction, c.expectedResult]),
+  ];
+
+  it.each(proseFields)("passes voiceLint: %s", (field) => {
+    expect(voiceLint(field)).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { annotatePatch } from "../diff.js";
 import type { Judgement } from "../schema.js";
+import { voiceSection } from "../voice.js";
 
 export const RereadResultSchema = z.object({
   stillApplies: z
@@ -9,7 +10,7 @@ export const RereadResultSchema = z.object({
   note: z
     .string()
     .describe(
-      "Two or three sentences in Komodo's voice, addressed to the reviewer. If the judgement no longer applies, say what changed and withdraw the claim explicitly.",
+      "Two or three sentences, addressed to the reviewer, in the house voice given in the prompt. If the judgement no longer applies, say what changed and withdraw the claim explicitly.",
     ),
 });
 
@@ -24,6 +25,8 @@ export interface RereadInput {
   /** Current patch for `judgement.path` at `headSha`, or undefined if the file is gone. */
   patch?: string;
   headSha: string;
+  /** A team's own vocabulary, from `config.voice.extra`. Appended after the house voice. */
+  voiceExtra?: string;
 }
 
 /**
@@ -44,7 +47,7 @@ export function rereadJsonSchema(): Record<string, unknown> {
 }
 
 export function buildRereadPrompt(input: RereadInput): string {
-  const { judgement: j, question, reply, patch, headSha } = input;
+  const { judgement: j, question, reply, patch, headSha, voiceExtra } = input;
 
   const code = patch
     ? `\`\`\`diff\n${annotatePatch(patch)}\n\`\`\``
@@ -77,5 +80,7 @@ Decide one thing: does the code still do what your judgement claimed?
 - Judge the CODE, not the reply. A promise to fix it later is not a fix. If the author says they changed something but the diff does not show it, the judgement still applies.
 - If it still applies, say briefly why the reply does not resolve it.
 - If it no longer applies, withdraw the claim in plain language: say what the code does now, and state that the original claim is withdrawn. Do not be defensive about having raised it.
-- Address the reviewer, not the author. Two or three sentences.`;
+- Address the reviewer, not the author. Two or three sentences.
+
+${voiceSection(voiceExtra)}`;
 }

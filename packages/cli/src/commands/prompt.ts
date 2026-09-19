@@ -11,6 +11,7 @@
  * So the skill asks for the prompt instead of restating it, and there stays
  * exactly one definition of what a Komodo review is.
  */
+import { dirname } from "node:path";
 import pc from "picocolors";
 import {
   buildReviewPrompt,
@@ -18,12 +19,14 @@ import {
   filterPaths,
   loadConfig,
   LocalGitDiffSource,
+  resolveContextSources,
   reviewResultJsonSchema,
+  selectSharedContext,
   type PRMeta,
 } from "@komodo/core";
 
 export async function promptCommand(opts: { base?: string }): Promise<void> {
-  const { config } = loadConfig();
+  const { config, path: configPath } = loadConfig();
 
   let source: InstanceType<typeof LocalGitDiffSource>;
   try {
@@ -65,8 +68,29 @@ export async function promptCommand(opts: { base?: string }): Promise<void> {
   // channel; an agent reading this has no such channel, so it is spelled out.
   const schema = JSON.stringify(reviewResultJsonSchema(), null, 2);
 
+  // No store on this path, so a document scoped to a repo cluster cannot be
+  // resolved here — `repos:` and `globs:` scoping still applies. Diagnostics
+  // go to stderr; stdout stays exactly the prompt the skill pipes onward.
+  const contextSources = resolveContextSources(config, configPath ? dirname(configPath) : process.cwd());
+  for (const source of contextSources.filter((s) => !s.ok)) {
+    console.error(pc.yellow(`Shared context source "${source.name}" could not be read: ${source.error}`));
+  }
+  const repoId = meta.owner !== "local" ? `${meta.owner}/${meta.repo}` : undefined;
+  const shared = selectSharedContext(contextSources, {
+    repoId,
+    changedPaths: files.map((f) => f.path),
+    maxTotalChars: config.context.max_total_chars,
+  });
+  if (shared.needsClusters.length) {
+    console.error(
+      pc.yellow(
+        `${shared.needsClusters.length} shared context document(s) are scoped to a repo cluster, which this command cannot resolve; skipped.`,
+      ),
+    );
+  }
+
   process.stdout.write(
-    `${buildReviewPrompt({ pr: meta, files, config })}
+    `${buildReviewPrompt({ pr: meta, files, config, sharedContext: shared.docs })}
 
 ## Output format
 

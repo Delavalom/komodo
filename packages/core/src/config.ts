@@ -35,6 +35,41 @@ const ModuleToggleSchema = z.object({
   defaultOpen: z.boolean().default(false),
 });
 
+/**
+ * Narrows a shared context source or an individual file within it.
+ *
+ * Both `repos` and `clusters` are optional narrowings, not a required choice
+ * between them: a file can be scoped by repository, by cluster, by both, or by
+ * neither (applies everywhere). Matching is picomatch against `owner/name` for
+ * `repos` and case-insensitive name equality for `clusters`.
+ */
+const ContextScopeFields = {
+  repos: z.array(z.string().min(1)).default([]),
+  clusters: z.array(z.string().min(1)).default([]),
+};
+
+/**
+ * A folder on disk — typically a checkout of an org-wide review-rules
+ * repository — whose markdown files are handed to every reviewer.
+ *
+ * `type` is explicit rather than inferred from which key is present so a
+ * future `github` variant (fetched by the server rather than read off a local
+ * checkout) can be added as a sibling without touching this one.
+ */
+export const PathContextSourceSchema = z.object({
+  type: z.literal("path"),
+  /** Defaults to the folder's basename when omitted. */
+  name: z.string().min(1).optional(),
+  /** Relative to the komodo.yaml that declared it; `~` is expanded. */
+  path: z.string().min(1),
+  /** Globs, relative to this source's root, to skip. */
+  ignore: z.array(z.string()).default([]),
+  ...ContextScopeFields,
+});
+
+export const ContextSourceSchema = z.discriminatedUnion("type", [PathContextSourceSchema]);
+export type ContextSource = z.infer<typeof ContextSourceSchema>;
+
 export const KomodoConfigSchema = z.object({
   provider: z.enum(["auto", "claude", "codex", "openrouter"]).default("auto"),
   model: z.string().optional(),
@@ -58,6 +93,37 @@ export const KomodoConfigSchema = z.object({
     .array(z.object({ path: z.string(), instructions: z.string() }))
     .default([]),
   instructions: z.string().optional(),
+  /**
+   * The house voice is not configured here — it lives in `VOICE_STYLE.md` and
+   * applies to every deployment, the same way it applies to every reviewer on
+   * the team it was modelled on. `extra` is the one thing a team adds: its
+   * own vocabulary, appended after the house voice rather than replacing it.
+   * See `voiceSection` in `voice.ts`.
+   */
+  voice: z
+    .object({
+      extra: z.string().optional(),
+    })
+    .prefault({}),
+  /**
+   * Company-wide review guidance that lives outside any one repository —
+   * how to review, how to gather context, how the AI should use specific
+   * tools. Read fresh on every review rather than once at boot, because the
+   * usual case is a checkout someone `git pull`s.
+   *
+   * Not a memory rule: `settings.memoryEnabled` does not gate this. Memory
+   * rules are a per-repository, database-backed screen; this is a deployment
+   * fact declared in the same file as `voice.extra` and `path_instructions`,
+   * and it has no settings-screen control for the same reason `voice.extra`
+   * doesn't — see docs/architecture/voice-style.md.
+   */
+  context: z
+    .object({
+      sources: z.array(ContextSourceSchema).default([]),
+      /** Cap across every shared document handed to one review. */
+      max_total_chars: z.number().int().min(1000).default(32_000),
+    })
+    .prefault({}),
   /**
    * Which pull requests are worth a review at all.
    *

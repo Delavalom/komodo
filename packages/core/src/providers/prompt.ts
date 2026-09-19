@@ -1,4 +1,5 @@
 import { annotatePatch } from "../diff.js";
+import { voiceSection } from "../voice.js";
 import type { ReviewInput } from "./types.js";
 
 export function buildReviewPrompt(input: ReviewInput): string {
@@ -27,6 +28,16 @@ export function buildReviewPrompt(input: ReviewInput): string {
         .join("\n")}`
     : "";
 
+  // Company-wide review guidance from `context.sources` in komodo.yaml,
+  // already narrowed to what applies here. Its own section rather than a
+  // bullet under `memories`: these documents run to thousands of characters
+  // each, and a bullet would either truncate one or bury the diff under it.
+  const sharedContext = input.sharedContext?.length
+    ? `\n## Shared context\nThese documents are the organisation's review guidance, kept outside this repository and already narrowed to what applies here. Treat them like repository instructions. When a judgement rests on one, name it in \`sources\` exactly as it is headed below.\n${input.sharedContext
+        .map((d) => `\n### ${d.label}\n${d.text}`)
+        .join("\n")}`
+    : "";
+
   const diffs = files
     .map((f) => {
       const header = `### ${f.path} (${f.status}, +${f.additions}/-${f.deletions})`;
@@ -50,7 +61,7 @@ ${profileNote}
 
 ### Description
 ${pr.body || "(empty)"}
-${custom}${memories}${pathInstructions}
+${custom}${memories}${sharedContext}${pathInstructions}
 
 ## Diff
 Each diff line is prefixed with its line number in the NEW version of the file. Source-visible findings should cite an added line. Cross-cutting architecture, scope, and missing-test concerns may use an empty path and line 0 when no single changed line owns the problem.
@@ -65,7 +76,12 @@ ${diffs}
    - confidence: 0-5 confidence that this review brief has enough context (5 = well grounded) + one-line coverage note. This is not merge confidence.
    - effort: 1-5 estimated human review effort
    - verificationChecks: the smallest set of concrete results a human must exercise. Name the action, expected observation, acceptable evidence kinds, and whether it is required. A changed UI normally needs a preview or screenshot check. A changed command, migration, integration, or background job normally needs a real run or command-output check. Do not say a check passed; you did not run it.
-   - diagram: mermaid sequenceDiagram ONLY if the PR changes a multi-component flow
+   - diagram: a structured diagram ONLY if the PR's change fits one of these shapes — omit otherwise:
+     - \`sequence\`: a multi-actor request/response or protocol change (max 5 actors, 12 messages)
+     - \`flowchart\`: branching/decision logic changed (max 9 nodes, decisions ≤3 exits)
+     - \`state\`: a state machine's states or transitions changed (max 9 states)
+     - \`er\`: a schema or data-model change (max 8 entities)
+     Never invent one to fill the slot — most PRs get none. Emit structured nodes/edges/fields, not markup or Mermaid text.
    - judgements: see below
 
 ## Judgements
@@ -85,35 +101,17 @@ Do not create a code judgement merely because code looks unusual. Do not create 
 - \`Domain\` — the consequences reach past this pull request (retention, privacy, another team's promise).
 - \`Unsure\` — you could not read enough to be confident. Say so rather than guessing.
 
-**How to write:**
-- Plain language. No jargon, no severity words, no "consider refactoring". If a sentence needs the reader to know the codebase, rewrite it.
-- Consequence first, mechanism second. What breaks, then why.
+**Field shapes:**
 - \`title\`: one complete sentence stating what is true, ending in a period.
 - \`lede\`: two or three sentences — what this does and what it costs.
 - \`detail\`: the alternative, or why it was probably done this way.
 - \`ask\`: the one question the reader answers. It must be answerable by someone who has not read the code. Never "is this ok?" or "should we fix this?".
-- \`sources\`: only what you were actually given — the diff, the PR description, and any repository instructions above. Do NOT invent tickets, ADRs or documents. If the diff is all you had, that is \`["the diff"]\`.
+- \`sources\`: only what you were actually given — the diff, the PR description, any repository instructions above, and any shared context documents above. Do NOT invent tickets, ADRs or documents. If the diff is all you had, that is \`["the diff"]\`.
 - \`sourceNote\`: what those sources say, and why that makes this a blocker or merely a preference.
 - \`code\`: two or three plain lines of \`path:line   what is there\`. No fences.
 - \`options\`: exactly four. The first two are the real, opposed answers for THIS judgement — never generic. The third is "I have a question first" (bucket \`Asked\`). The fourth hands it off, e.g. "Not my call — hand it to someone who knows" (bucket \`Passed on\`). Buckets: \`Blocks\` stops the merge, \`Agreed\` accepts it.
 
-Two examples of the voice:
-
-> kind: Risk · tag: "touches how logging out works"
-> focus: code
-> title: "Renewal tokens are saved in a form that can be read back."
-> lede: "Anyone who can read the database — a leaked backup, a bad query, a stolen credential — can act as any logged-in user, for as long as that user's session would have lasted."
-> detail: "The alternative is to store a one-way fingerprint and compare fingerprints instead of tokens. It costs one line and nothing at runtime."
-> ask: "Do we accept a database read being equivalent to every user's password?"
-> options: ["No — this must be a fingerprint before merge" (Blocks), "Yes — accepted, and written down as a decision" (Agreed), "I have a question first" (Asked), "Not my call — hand it to someone who knows" (Passed on)]
-
-> kind: Choice · tag: "housekeeping"
-> focus: architecture
-> title: "Session length is defined in three separate places."
-> lede: "Fifteen minutes is written into the token service, the auth route, and a test helper. Changing it means remembering all three."
-> detail: "Small, but it is the kind of thing that quietly drifts apart and then argues with itself in production."
-> ask: "Worth one constant, or leave it?"
-> options: ["One constant, please" (Agreed), "Leave it — not worth the churn" (Agreed), "I have a question first" (Asked), "Not my call — hand it to someone who knows" (Passed on)]
+${voiceSection(config.voice?.extra)}
 
 3. Report only judgements at or above severity "${config.min_severity}". Do not pad. An empty list is valid, but it never means approved. Never invent observations, line numbers, tickets, documents, test runs, screenshots, or preview results.`;
 }

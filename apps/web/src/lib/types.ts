@@ -10,6 +10,8 @@
  * These are types, erased at compile time, so importing them into a client
  * component pulls in nothing from the store package at runtime.
  */
+export type { DiagramSpec } from "@komodo/diagram";
+
 export type {
   Answer,
   AIReviewJob,

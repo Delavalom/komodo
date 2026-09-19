@@ -154,6 +154,39 @@ Connect Linear or Jira under **Integrations** and a pull request whose title
 names an issue gets that issue's text alongside the diff — which is usually
 where the answer to "is this the right change" actually lives.
 
+### Shared context sources
+
+Rules above live in one repository's database. `context.sources` in
+`komodo.yaml` points at guidance that applies across the whole organisation —
+how to review, how to gather context, how the AI should use specific tools —
+typically a checkout of a rules repository everyone shares:
+
+```yaml
+context:
+  sources:
+    - type: path
+      name: Company review rules
+      path: ../review-guidelines   # relative to this file; ~ is expanded
+```
+
+Every `*.md` under the folder is handed to the reviewer. A file can carry
+frontmatter to narrow when it applies:
+
+```markdown
+---
+description: How we review Temporal workflows
+repos: [org/service-a, org/service-b]
+globs: ["app/workflows/**"]
+---
+```
+
+This reaches every reviewer — `komodo pr`, `komodo serve`/`komodo dev`, and a
+Claude Code session running the plugin skill — because it is declared in the
+file, not on a settings screen. Run `komodo context` to see what a given
+configuration resolves to, and `komodo context --repo owner/name` to check
+what would apply to one repository. **Custom context → Cross-repo context**
+shows the same thing, read-only.
+
 ## HTTP API
 
 Create a key under **Settings → API keys**. It is shown once and stored as a
