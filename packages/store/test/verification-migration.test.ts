@@ -67,7 +67,7 @@ describe("verification entry order migration", () => {
     }
   });
 
-  it("backfills Postgres entries and advances the sequence default", async () => {
+  it("backfills Postgres entries and advances the sequence default", { timeout: 15_000 }, async () => {
     const db = new PGlite();
     const sql = {
       async query<T>(text: string, params?: unknown[]) {

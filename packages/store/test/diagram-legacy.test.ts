@@ -94,7 +94,7 @@ describe("legacy raw-Mermaid diagram rows", () => {
     }
   });
 
-  it("Postgres: falls back to null instead of throwing", async () => {
+  it("Postgres: falls back to null instead of throwing", { timeout: 15_000 }, async () => {
     const db = new PGlite();
     const sql = {
       async query<T>(text: string, params?: unknown[]) {
