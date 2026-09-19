@@ -269,3 +269,35 @@ export function reviewResultJsonSchema(): Record<string, unknown> {
   delete schema.$schema;
   return schema;
 }
+
+/**
+ * What the PR-watcher's triage call produces for one comment.
+ *
+ * Deliberately not `ReviewResult`: a triage is a verdict on one comment, not a
+ * whole-diff review, and forcing it through the review shape would mean
+ * either faking most of the review fields or bloating the review schema for
+ * one caller. `draftResponse`/`draftPatchSummary` are prose only — never a
+ * diff, since nothing downstream of this call is allowed to apply one.
+ */
+export const WatchTriageResultSchema = z.object({
+  verdict: z
+    .enum(["worth_addressing", "not_worth_addressing"])
+    .describe("Whether this comment asks for something a person should act on."),
+  reasoning: z.string().min(1).describe("One or two sentences justifying the verdict."),
+  draftResponse: z
+    .string()
+    .nullable()
+    .describe("A suggested reply, in the comment's own voice. Null when nothing is worth drafting."),
+  draftPatchSummary: z
+    .string()
+    .nullable()
+    .describe("Prose description of what a fix would change. Never a diff. Null when no code change is implied."),
+});
+
+export type WatchTriageResult = z.infer<typeof WatchTriageResultSchema>;
+
+export function watchTriageResultJsonSchema(): Record<string, unknown> {
+  const schema = z.toJSONSchema(WatchTriageResultSchema, { target: "draft-7" }) as Record<string, unknown>;
+  delete schema.$schema;
+  return schema;
+}

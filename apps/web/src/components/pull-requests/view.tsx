@@ -185,6 +185,14 @@ export function PullRequestsView() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[1216px] px-5 py-6">
+      <div className="flex items-center justify-end pb-3">
+        <Link
+          href={`/${org.slug}/-/pull-requests/watchers`}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          PR Watchers →
+        </Link>
+      </div>
       <FilterInput
         facets={facets}
         active={active}

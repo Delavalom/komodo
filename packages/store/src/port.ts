@@ -27,6 +27,8 @@ import type {
   PullRequestChecks,
   PullRequestComment,
   PullRequestConversation,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   Repository,
   Review,
   ReviewDetail,
@@ -46,6 +48,7 @@ import type {
   ImpactLevel,
   ReviewStatus,
   ReviewTrigger,
+  WatchMode,
 } from "./types.js";
 
 /** Everything one page of the app needs, in one round trip. */
@@ -77,6 +80,10 @@ export interface QueueSnapshot {
   githubIdentities: MemberGithubIdentity[];
   /** Derived from requirements and the newest verification entry for each. */
   verificationSummaries: VerificationSummary[];
+  /** Every PR-watcher subscription. Small by construction — opt-in per PR. */
+  watches: PullRequestWatch[];
+  /** Every triaged comment across every watch, newest first. */
+  watchEvents: PullRequestWatchEvent[];
 }
 
 export interface StoreReader {
@@ -188,6 +195,20 @@ export interface StoreReader {
   loadPullRequestConversation(
     prId: string,
   ): Promise<PullRequestConversation | null>;
+
+  /**
+   * Every PR-watcher subscription. Also on the snapshot — see
+   * `QueueSnapshot.watches`.
+   */
+  listPullRequestWatches(): Promise<PullRequestWatch[]>;
+
+  /**
+   * Triaged comments, newest first — every one, or one watch's history.
+   *
+   * Unfiltered is what the "PR Watchers" queue renders from; scoped is what a
+   * single pull request's watch control shows without paying for the rest.
+   */
+  listWatchEvents(watchId?: string): Promise<PullRequestWatchEvent[]>;
 
   /** Connected trackers, without their tokens. */
   listIntegrations(): Promise<Integration[]>;
@@ -306,6 +327,21 @@ export interface FindingInput {
    * exactly what the seeder did.
    */
   judgementId?: string | null;
+}
+
+/** What the ingester writes once it has triaged one new comment. */
+export interface WatchEventInput {
+  watchId: string;
+  prId: string;
+  commentExternalId: number;
+  commentKind: PullRequestComment["kind"];
+  commentAuthor: string;
+  commentBody: string;
+  commentUrl: string;
+  verdict: PullRequestWatchEvent["verdict"];
+  reasoning: string;
+  draftResponse?: string | null;
+  draftPatchSummary?: string | null;
 }
 
 export interface StoreWriter {
@@ -478,6 +514,39 @@ export interface StoreWriter {
   }): Promise<ApiKey>;
 
   deleteApiKey(keyId: string): Promise<void>;
+
+  /**
+   * Starts or updates one person's watch on a pull request. Idempotent on
+   * `(prId, memberId)` — watching again does not duplicate the row.
+   */
+  saveWatch(input: {
+    prId: string;
+    memberId: string;
+    mode: WatchMode;
+  }): Promise<string>;
+
+  deleteWatch(watchId: string): Promise<void>;
+
+  updateWatchMode(watchId: string, mode: WatchMode): Promise<void>;
+
+  /**
+   * Advances a watch's high-water mark after a pass has triaged everything
+   * newer than it. Separate from `recordWatchEvent` because a pass with no
+   * new comments still has to move this forward, or an empty pass would look
+   * identical to one that has never run and get retried forever.
+   */
+  markWatchChecked(
+    watchId: string,
+    lastSeenExternalId: number,
+    lastSeenAt: number,
+  ): Promise<void>;
+
+  /** Appends one triaged comment. Never edited or replaced. */
+  recordWatchEvent(input: WatchEventInput): Promise<void>;
+
+  markWatchEventSeen(eventId: string): Promise<void>;
+
+  dismissWatchEvent(eventId: string): Promise<void>;
 
   /** Connects a tracker, or replaces the credentials of one already there. */
   saveIntegration(input: {

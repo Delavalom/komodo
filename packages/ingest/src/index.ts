@@ -59,3 +59,9 @@ export {
   type SelectMemoriesInput,
   type SelectedMemories,
 } from "./memory.js";
+export {
+  pollWatches,
+  WATCH_INTERVAL_MS,
+  type WatchPollOptions,
+  type WatchPollResult,
+} from "./watch.js";

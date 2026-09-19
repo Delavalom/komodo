@@ -4,11 +4,20 @@ import { isAbsolute } from "node:path";
 import type { KomodoConfig } from "../config.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider, codexLoggedIn } from "./codex.js";
+import { ClaudeWatchTriage } from "./watch-triage.js";
 import type { ReviewProvider } from "./types.js";
+import type { WatchTriageProvider } from "./watch-triage.js";
 
 export { ClaudeProvider } from "./claude.js";
 export { CodexProvider, codexLoggedIn } from "./codex.js";
 export { OpenRouterProvider, type OpenRouterUsage } from "./openrouter.js";
+export {
+  ClaudeWatchTriage,
+  type WatchTriageComment,
+  type WatchTriageInput,
+  type WatchTriagePr,
+  type WatchTriageProvider,
+} from "./watch-triage.js";
 export { buildReviewPrompt } from "./prompt.js";
 export {
   RereadResultSchema,
@@ -59,6 +68,21 @@ export function createProvider(config: KomodoConfig, override?: string): ReviewP
   throw new Error(
     "No AI provider available. Sign in to Claude Code (`claude`) or Codex (`codex login`) yourself, or set ANTHROPIC_API_KEY.",
   );
+}
+
+/**
+ * The PR watcher's triage call, when Claude is available. Undefined rather
+ * than a thrown error: no triage provider just means the watcher polls
+ * comments and records nothing, the same shape as `createProvider` failing
+ * to find a review provider — a normal state on a machine with no Claude
+ * login, not a startup failure.
+ */
+export function createWatchTriage(config: KomodoConfig): WatchTriageProvider | undefined {
+  if (!detectProviders(config).claude) return undefined;
+  return new ClaudeWatchTriage({
+    model: config.model,
+    executable: resolveClaudeExecutable(config),
+  });
 }
 
 /**

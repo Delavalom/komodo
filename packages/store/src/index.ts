@@ -44,6 +44,8 @@ export type {
   PullRequestCommentKind,
   PullRequestConversation,
   PullRequestState,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   RepoCluster,
   Repository,
   Review,
@@ -65,6 +67,8 @@ export type {
   Team,
   Verdict,
   WalkthroughEntry,
+  WatchMode,
+  WatchTriageVerdict,
 } from "./types.js";
 
 export type {
@@ -76,6 +80,7 @@ export type {
   QueueSnapshot,
   ReviewInput,
   VerificationInput,
+  WatchEventInput,
   StoreReader,
   StoreWriter,
 } from "./port.js";
@@ -98,5 +103,6 @@ export {
   META_LAST_POLL_AT,
   META_LAST_POLL_ERROR,
   META_SETTINGS_INITIALIZED,
+  META_WATCH_LAST_CHECKED_AT,
 } from "./meta.js";
 export { DEFAULT_ORG_SETTINGS, mergeSettings } from "./settings.js";

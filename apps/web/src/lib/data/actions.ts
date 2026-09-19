@@ -39,6 +39,7 @@ const HUMAN_REVIEW_EVENTS: HumanReviewEvent[] = [
 import { BUCKET_ORDER } from "@/components/review/labels";
 import {
   ACTOR_COOKIE,
+  resolveActor,
   resolveActorLogin,
   resolveDeclaredActor,
 } from "@/lib/data/actor";
@@ -56,6 +57,7 @@ import type {
   MemoryRule,
   OrgSettings,
   ReviewJudgement,
+  WatchMode,
 } from "@/lib/types";
 
 export async function setRepoEnabled(
@@ -406,6 +408,51 @@ export async function voteJudgement(input: {
     ...input,
     actorLogin: await resolveActorLogin(members),
   });
+  revalidatePath("/", "layout");
+}
+
+/**
+ * Starts (or updates) this device's watch on a pull request.
+ *
+ * Attributed with `resolveActor`'s fallback, the same as a vote or an answer
+ * — this never reaches GitHub, so there is no credential to protect, and a
+ * fresh browser should behave like the deployment always has rather than
+ * refuse to watch anything until someone picks a name.
+ */
+export async function watchPullRequest(
+  prId: string,
+  mode: WatchMode = "notify",
+): Promise<void> {
+  const store = await getStore();
+  const { members } = await store.snapshot();
+  const actor = await resolveActor(members);
+  if (!actor) throw new Error("No roster member is configured for this deployment.");
+
+  await store.saveWatch({ prId, memberId: actor.id, mode });
+  revalidatePath("/", "layout");
+}
+
+export async function unwatchPullRequest(watchId: string): Promise<void> {
+  const store = await getStore();
+  await store.deleteWatch(watchId);
+  revalidatePath("/", "layout");
+}
+
+export async function updateWatchMode(watchId: string, mode: WatchMode): Promise<void> {
+  const store = await getStore();
+  await store.updateWatchMode(watchId, mode);
+  revalidatePath("/", "layout");
+}
+
+export async function markWatchEventSeen(eventId: string): Promise<void> {
+  const store = await getStore();
+  await store.markWatchEventSeen(eventId);
+  revalidatePath("/", "layout");
+}
+
+export async function dismissWatchEvent(eventId: string): Promise<void> {
+  const store = await getStore();
+  await store.dismissWatchEvent(eventId);
   revalidatePath("/", "layout");
 }
 

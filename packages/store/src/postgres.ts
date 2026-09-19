@@ -21,6 +21,7 @@ import type {
   QueueSnapshot,
   ReviewInput,
   VerificationInput,
+  WatchEventInput,
 } from "./port.js";
 import { newId } from "./ids.js";
 import { verificationRequirementId } from "./verification.js";
@@ -48,6 +49,8 @@ import type {
   PullRequestChecks,
   PullRequestComment,
   PullRequestConversation,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   RepoCluster,
   Repository,
   Review,
@@ -162,6 +165,39 @@ CREATE TABLE IF NOT EXISTS pr_comments (
   "updatedAt"   BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS pr_comments_pr ON pr_comments ("prId", "createdAt");
+
+-- id is derived, "prId:memberId" — see PullRequestWatch. Watching again is an
+-- upsert onto the same row rather than a second subscription.
+CREATE TABLE IF NOT EXISTS pr_watches (
+  id                    TEXT PRIMARY KEY,
+  "prId"                TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "memberId"            TEXT NOT NULL REFERENCES members (id) ON DELETE CASCADE,
+  mode                  TEXT NOT NULL,
+  "createdAt"           BIGINT NOT NULL,
+  "lastSeenExternalId"  BIGINT,
+  "lastSeenAt"          BIGINT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pr_watches_pr_member ON pr_watches ("prId", "memberId");
+
+-- Append-only, unlike the watch it belongs to — see PullRequestWatchEvent.
+CREATE TABLE IF NOT EXISTS pr_watch_events (
+  id                    TEXT PRIMARY KEY,
+  "watchId"             TEXT NOT NULL REFERENCES pr_watches (id) ON DELETE CASCADE,
+  "prId"                TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "commentExternalId"   BIGINT NOT NULL,
+  "commentKind"         TEXT NOT NULL,
+  "commentAuthor"       TEXT NOT NULL,
+  "commentBody"         TEXT NOT NULL,
+  "commentUrl"          TEXT NOT NULL,
+  verdict               TEXT NOT NULL,
+  reasoning             TEXT NOT NULL,
+  "draftResponse"       TEXT,
+  "draftPatchSummary"   TEXT,
+  "createdAt"           BIGINT NOT NULL,
+  "seenAt"              BIGINT,
+  "dismissedAt"         BIGINT
+);
+CREATE INDEX IF NOT EXISTS pr_watch_events_watch ON pr_watch_events ("watchId", "createdAt");
 
 CREATE TABLE IF NOT EXISTS github_identities (
   "memberId"    TEXT PRIMARY KEY REFERENCES members (id) ON DELETE CASCADE,
@@ -546,6 +582,8 @@ export class PostgresStore implements KomodoStore {
       integrations,
       githubIdentities,
       verificationSummaries,
+      watches,
+      watchEvents,
     ] = await Promise.all([
       this.readOrganization(),
       this.loadSettings(),
@@ -562,6 +600,8 @@ export class PostgresStore implements KomodoStore {
       this.listIntegrations(),
       this.listGithubIdentities(),
       this.readVerificationSummaries(),
+      this.listPullRequestWatches(),
+      this.listWatchEvents(),
     ]);
     return {
       organization,
@@ -579,6 +619,8 @@ export class PostgresStore implements KomodoStore {
       integrations,
       githubIdentities,
       verificationSummaries,
+      watches,
+      watchEvents,
     };
   }
 
@@ -1491,6 +1533,104 @@ export class PostgresStore implements KomodoStore {
     });
   }
 
+  async listPullRequestWatches(): Promise<PullRequestWatch[]> {
+    const { rows } = await this.sql.query<Row>(
+      `SELECT * FROM pr_watches ORDER BY "createdAt"`,
+    );
+    return rows.map(toPullRequestWatch);
+  }
+
+  async listWatchEvents(watchId?: string): Promise<PullRequestWatchEvent[]> {
+    const { rows } = watchId
+      ? await this.sql.query<Row>(
+          `SELECT * FROM pr_watch_events WHERE "watchId" = $1 ORDER BY "createdAt" DESC`,
+          [watchId],
+        )
+      : await this.sql.query<Row>(
+          `SELECT * FROM pr_watch_events ORDER BY "createdAt" DESC`,
+        );
+    return rows.map(toWatchEvent);
+  }
+
+  async saveWatch(input: {
+    prId: string;
+    memberId: string;
+    mode: PullRequestWatch["mode"];
+  }): Promise<string> {
+    const id = `${input.prId}:${input.memberId}`;
+    await this.sql.query(
+      `INSERT INTO pr_watches (id, "prId", "memberId", mode, "createdAt")
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (id) DO UPDATE SET mode = EXCLUDED.mode`,
+      [id, input.prId, input.memberId, input.mode, Date.now()],
+    );
+    return id;
+  }
+
+  async deleteWatch(watchId: string): Promise<void> {
+    await this.sql.query(`DELETE FROM pr_watches WHERE id = $1`, [watchId]);
+  }
+
+  async updateWatchMode(
+    watchId: string,
+    mode: PullRequestWatch["mode"],
+  ): Promise<void> {
+    await this.sql.query(`UPDATE pr_watches SET mode = $1 WHERE id = $2`, [
+      mode,
+      watchId,
+    ]);
+  }
+
+  async markWatchChecked(
+    watchId: string,
+    lastSeenExternalId: number,
+    lastSeenAt: number,
+  ): Promise<void> {
+    await this.sql.query(
+      `UPDATE pr_watches SET "lastSeenExternalId" = $1, "lastSeenAt" = $2 WHERE id = $3`,
+      [lastSeenExternalId, lastSeenAt, watchId],
+    );
+  }
+
+  async recordWatchEvent(input: WatchEventInput): Promise<void> {
+    await this.sql.query(
+      `INSERT INTO pr_watch_events
+         (id, "watchId", "prId", "commentExternalId", "commentKind",
+          "commentAuthor", "commentBody", "commentUrl", verdict, reasoning,
+          "draftResponse", "draftPatchSummary", "createdAt")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [
+        newId("wevt"),
+        input.watchId,
+        input.prId,
+        input.commentExternalId,
+        input.commentKind,
+        input.commentAuthor,
+        input.commentBody,
+        input.commentUrl,
+        input.verdict,
+        input.reasoning,
+        input.draftResponse ?? null,
+        input.draftPatchSummary ?? null,
+        Date.now(),
+      ],
+    );
+  }
+
+  async markWatchEventSeen(eventId: string): Promise<void> {
+    await this.sql.query(
+      `UPDATE pr_watch_events SET "seenAt" = $1 WHERE id = $2`,
+      [Date.now(), eventId],
+    );
+  }
+
+  async dismissWatchEvent(eventId: string): Promise<void> {
+    await this.sql.query(
+      `UPDATE pr_watch_events SET "dismissedAt" = $1 WHERE id = $2`,
+      [Date.now(), eventId],
+    );
+  }
+
   async requestAIReview(input: {
     prId: string;
     headSha: string;
@@ -2063,6 +2203,40 @@ function toPullRequestComment(r: Row): PullRequestComment {
     url: str(r.url),
     createdAt: num(r.createdAt),
     updatedAt: num(r.updatedAt),
+  };
+}
+
+function toPullRequestWatch(r: Row): PullRequestWatch {
+  return {
+    id: str(r.id),
+    prId: str(r.prId),
+    memberId: str(r.memberId),
+    mode: str(r.mode) as PullRequestWatch["mode"],
+    createdAt: num(r.createdAt),
+    lastSeenExternalId:
+      r.lastSeenExternalId == null ? null : num(r.lastSeenExternalId),
+    lastSeenAt: r.lastSeenAt == null ? null : num(r.lastSeenAt),
+  };
+}
+
+function toWatchEvent(r: Row): PullRequestWatchEvent {
+  return {
+    id: str(r.id),
+    watchId: str(r.watchId),
+    prId: str(r.prId),
+    commentExternalId: num(r.commentExternalId),
+    commentKind: str(r.commentKind) as PullRequestWatchEvent["commentKind"],
+    commentAuthor: str(r.commentAuthor),
+    commentBody: str(r.commentBody),
+    commentUrl: str(r.commentUrl),
+    verdict: str(r.verdict) as PullRequestWatchEvent["verdict"],
+    reasoning: str(r.reasoning),
+    draftResponse: r.draftResponse == null ? null : str(r.draftResponse),
+    draftPatchSummary:
+      r.draftPatchSummary == null ? null : str(r.draftPatchSummary),
+    createdAt: num(r.createdAt),
+    seenAt: r.seenAt == null ? null : num(r.seenAt),
+    dismissedAt: r.dismissedAt == null ? null : num(r.dismissedAt),
   };
 }
 

@@ -45,6 +45,8 @@ import type {
   PersonalSettings,
   QueueQuery,
   QueueRow,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   RepoCluster,
   Repository,
   SeriesPoint,
@@ -52,6 +54,7 @@ import type {
   Team,
   Timeframe,
   UsageDay,
+  WatchMode,
 } from "@/lib/types";
 
 /* ── Org ────────────────────────────────────────────────────────────────── */
@@ -135,6 +138,72 @@ export function useGithubIdentity() {
 export function useMe(): Member | null {
   const members = useSnapshot().members;
   return useMemo(() => members.find((m) => m.isYou) ?? null, [members]);
+}
+
+/* ── PR watcher ─────────────────────────────────────────────────────────── */
+
+/** This device's watch on one pull request, or null if nobody here is watching it. */
+export function usePullRequestWatch(prId: string): PullRequestWatch | null {
+  const { watches } = useSnapshot();
+  const me = useMe();
+  return useMemo(
+    () =>
+      me
+        ? watches.find((w) => w.prId === prId && w.memberId === me.id) ?? null
+        : null,
+    [watches, prId, me],
+  );
+}
+
+export interface WatchEventRow extends PullRequestWatchEvent {
+  prTitle: string;
+  prNumber: number;
+  prUrl: string;
+  repoFullName: string;
+  watchMode: WatchMode;
+}
+
+/**
+ * Every triaged comment across every watch, newest first, joined with enough
+ * of the pull request to render a row without a second fetch.
+ *
+ * This is also the seam a desktop-notification feature would hook into later
+ * (deferred for now — see the PR watcher plan): watch how many rows here have
+ * `seenAt === null` across renders, and fire the browser's `Notification` API
+ * when that count grows. Nothing here polls on its own — AGENTS.md rule 7 —
+ * a notifier would add its own interval the same way `useMountEffect` does,
+ * via `useSyncExternalStore`, not a raw `useEffect`.
+ */
+export function useWatchEvents(): WatchEventRow[] {
+  const { watchEvents, watches, pullRequests } = useSnapshot();
+  const repoIndex = useRepoIndex();
+  return useMemo(() => {
+    const watchById = new Map(watches.map((w) => [w.id, w]));
+    const prById = new Map(pullRequests.map((p) => [p.id, p]));
+    return watchEvents
+      .map((event): WatchEventRow | null => {
+        const watch = watchById.get(event.watchId);
+        const pr = prById.get(event.prId);
+        if (!watch || !pr) return null;
+        const repo = repoIndex.get(pr.repoId);
+        return {
+          ...event,
+          prTitle: pr.title,
+          prNumber: pr.number,
+          prUrl: pr.url,
+          repoFullName: repo ? fullName(repo) : pr.repoId,
+          watchMode: watch.mode,
+        };
+      })
+      .filter((row): row is WatchEventRow => row !== null);
+  }, [watchEvents, watches, pullRequests, repoIndex]);
+}
+
+/** Watch events nobody has looked at or cleared yet — the notifier's count. */
+export function useUnseenWatchEventCount(): number {
+  return useWatchEvents().filter(
+    (e) => e.seenAt === null && e.dismissedAt === null,
+  ).length;
 }
 
 /**

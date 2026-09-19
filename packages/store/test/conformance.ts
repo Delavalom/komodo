@@ -1481,6 +1481,167 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       });
     });
 
+    /* ── PR watches ────────────────────────────────────────────────────── */
+
+    describe("pull request watches", () => {
+      let memberId: string;
+
+      beforeEach(async () => {
+        await store.upsertPullRequest(pr());
+        memberId = await store.saveMember({
+          email: "renata@acme.com",
+          name: "Renata",
+          githubLogin: "renata",
+          role: "member",
+          avatarSeed: "renata",
+          isYou: false,
+        });
+      });
+
+      it("watching twice upserts rather than duplicating", async () => {
+        const first = await store.saveWatch({
+          prId: "acme/api#1",
+          memberId,
+          mode: "notify",
+        });
+        const second = await store.saveWatch({
+          prId: "acme/api#1",
+          memberId,
+          mode: "notify",
+        });
+
+        expect(second).toBe(first);
+        expect(await store.listPullRequestWatches()).toHaveLength(1);
+      });
+
+      it("is on the shared snapshot", async () => {
+        await store.saveWatch({ prId: "acme/api#1", memberId, mode: "notify" });
+        const snapshot = await store.snapshot();
+        expect(snapshot.watches).toHaveLength(1);
+        expect(snapshot.watches[0].memberId).toBe(memberId);
+      });
+
+      it("changes mode without touching the watermark", async () => {
+        const watchId = await store.saveWatch({
+          prId: "acme/api#1",
+          memberId,
+          mode: "notify",
+        });
+        await store.markWatchChecked(watchId, 42, T0);
+
+        await store.updateWatchMode(watchId, "notify_and_draft");
+
+        const [watch] = await store.listPullRequestWatches();
+        expect(watch.mode).toBe("notify_and_draft");
+        expect(watch.lastSeenExternalId).toBe(42);
+      });
+
+      it("deleting a watch removes its events too", async () => {
+        const watchId = await store.saveWatch({
+          prId: "acme/api#1",
+          memberId,
+          mode: "notify",
+        });
+        await store.recordWatchEvent({
+          watchId,
+          prId: "acme/api#1",
+          commentExternalId: 1,
+          commentKind: "issue",
+          commentAuthor: "renata",
+          commentBody: "Does this handle the empty case?",
+          commentUrl: "https://github.com/acme/api/pull/1#issuecomment-1",
+          verdict: "worth_addressing",
+          reasoning: "Asks a direct question the diff doesn't answer.",
+        });
+
+        await store.deleteWatch(watchId);
+
+        expect(await store.listPullRequestWatches()).toHaveLength(0);
+        expect(await store.listWatchEvents()).toHaveLength(0);
+      });
+
+      it("records triaged comments append-only, newest first", async () => {
+        const watchId = await store.saveWatch({
+          prId: "acme/api#1",
+          memberId,
+          mode: "notify_and_draft",
+        });
+
+        await store.recordWatchEvent({
+          watchId,
+          prId: "acme/api#1",
+          commentExternalId: 1,
+          commentKind: "issue",
+          commentAuthor: "renata",
+          commentBody: "Does this handle the empty case?",
+          commentUrl: "https://github.com/acme/api/pull/1#issuecomment-1",
+          verdict: "worth_addressing",
+          reasoning: "Asks a direct question the diff doesn't answer.",
+          draftResponse: "Yes — see the guard on line 12.",
+          draftPatchSummary: null,
+        });
+        await store.recordWatchEvent({
+          watchId,
+          prId: "acme/api#1",
+          commentExternalId: 2,
+          commentKind: "issue",
+          commentAuthor: "dev",
+          commentBody: "LGTM",
+          commentUrl: "https://github.com/acme/api/pull/1#issuecomment-2",
+          verdict: "not_worth_addressing",
+          reasoning: "An acknowledgement, not a request.",
+        });
+
+        const events = await store.listWatchEvents(watchId);
+        expect(events.map((e) => e.commentExternalId)).toEqual([2, 1]);
+        expect(events[1].draftResponse).toBe("Yes — see the guard on line 12.");
+        expect(events[0].draftResponse).toBeNull();
+        expect(events.every((e) => e.seenAt === null)).toBe(true);
+      });
+
+      it("marks and dismisses one event without touching its siblings", async () => {
+        const watchId = await store.saveWatch({
+          prId: "acme/api#1",
+          memberId,
+          mode: "notify",
+        });
+        await store.recordWatchEvent({
+          watchId,
+          prId: "acme/api#1",
+          commentExternalId: 1,
+          commentKind: "issue",
+          commentAuthor: "renata",
+          commentBody: "First",
+          commentUrl: "https://github.com/acme/api/pull/1#issuecomment-1",
+          verdict: "worth_addressing",
+          reasoning: "r1",
+        });
+        await store.recordWatchEvent({
+          watchId,
+          prId: "acme/api#1",
+          commentExternalId: 2,
+          commentKind: "issue",
+          commentAuthor: "renata",
+          commentBody: "Second",
+          commentUrl: "https://github.com/acme/api/pull/1#issuecomment-2",
+          verdict: "worth_addressing",
+          reasoning: "r2",
+        });
+        const [newer, older] = await store.listWatchEvents(watchId);
+
+        await store.markWatchEventSeen(newer.id);
+        await store.dismissWatchEvent(older.id);
+
+        const after = await store.listWatchEvents(watchId);
+        const gotNewer = after.find((e) => e.id === newer.id)!;
+        const gotOlder = after.find((e) => e.id === older.id)!;
+        expect(gotNewer.seenAt).not.toBeNull();
+        expect(gotNewer.dismissedAt).toBeNull();
+        expect(gotOlder.dismissedAt).not.toBeNull();
+        expect(gotOlder.seenAt).toBeNull();
+      });
+    });
+
     /* ── Personal GitHub credentials ──────────────────────────────────── */
 
     describe("member github identities", () => {

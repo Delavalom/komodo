@@ -57,6 +57,12 @@ export const useRecordVerification = () => actions.recordVerification;
 
 export const useVoteJudgement = () => actions.voteJudgement;
 
+export const useWatchPullRequest = () => actions.watchPullRequest;
+export const useUnwatchPullRequest = () => actions.unwatchPullRequest;
+export const useUpdateWatchMode = () => actions.updateWatchMode;
+export const useMarkWatchEventSeen = () => actions.markWatchEventSeen;
+export const useDismissWatchEvent = () => actions.dismissWatchEvent;
+
 /** Re-reads one pull request's conversation from GitHub, on demand. */
 export const useRefreshConversation = () => actions.refreshConversation;
 

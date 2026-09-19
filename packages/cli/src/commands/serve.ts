@@ -12,8 +12,8 @@
  */
 import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
-import { createProvider, GitHubClient, loadConfig, resolveContextSources, resolveGithubToken } from "@komodo/core";
-import type { ReviewProvider } from "@komodo/core";
+import { createProvider, createWatchTriage, GitHubClient, loadConfig, resolveContextSources, resolveGithubToken } from "@komodo/core";
+import type { ReviewProvider, WatchTriageProvider } from "@komodo/core";
 import {
   applyTeamConfig,
   createCheckout,
@@ -186,6 +186,12 @@ function startIngest(args: {
     dim("No review provider configured; polling without reviewing.");
   }
 
+  // The PR watcher is Claude-only in v1 and independent of the review
+  // provider above — a deployment reviewing with Codex can still watch
+  // comments with Claude, if it is the one available on this machine.
+  const watchTriage: WatchTriageProvider | undefined = createWatchTriage(config);
+  if (!watchTriage) dim("No Claude login found; the PR watcher will not triage comments.");
+
   // `komodo pr` reviews with the repository on disk and the server did not,
   // which made the same review weaker here for no reason anyone chose.
   const checkout = opts.checkout
@@ -201,6 +207,7 @@ function startIngest(args: {
     store,
     github,
     provider,
+    watchTriage,
     config,
     configDir,
     intervalMs: parseInt(opts.interval, 10) * 1000,

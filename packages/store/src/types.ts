@@ -281,6 +281,70 @@ export interface PullRequestConversation {
   comments: PullRequestComment[];
 }
 
+/**
+ * Whether watching a pull request just surfaces new comments, or also asks
+ * Claude to draft a response.
+ *
+ * Never a third option that pushes or posts anything: the reviewer prepares,
+ * it does not act — see AGENTS.md rule 15. A draft is text a person reads and
+ * decides what to do with, the same as any other judgement.
+ */
+export type WatchMode = "notify" | "notify_and_draft";
+
+/**
+ * One person's subscription to one pull request's conversation.
+ *
+ * `id` is derived from `(prId, memberId)` rather than generated, the same
+ * reason a pull request's id is `${repoId}#${number}`: watching again is then
+ * an upsert instead of a second row, and a restart cannot duplicate one.
+ *
+ * `lastSeenExternalId` is the watermark the ingester checks new comments
+ * against — GitHub's own comment id, not a count, because a count says
+ * nothing about which comments are already accounted for.
+ */
+export interface PullRequestWatch {
+  id: string;
+  prId: string;
+  memberId: string;
+  mode: WatchMode;
+  createdAt: number;
+  lastSeenExternalId: number | null;
+  lastSeenAt: number | null;
+}
+
+/** Whether a triaged comment was worth a person's attention. */
+export type WatchTriageVerdict = "worth_addressing" | "not_worth_addressing";
+
+/**
+ * One comment on a watched pull request, and what Claude made of it.
+ *
+ * Append-only, unlike the watch it belongs to: a watch is a preference and is
+ * edited in place, but a triaged comment is a thing that happened, and the
+ * queue built from these is a history a person clears one row at a time
+ * rather than a single mutable "latest" fact.
+ *
+ * `draftResponse` and `draftPatchSummary` are prose only — a suggested reply
+ * and a description of a fix, never a diff and never posted anywhere. Nothing
+ * in this row can reach GitHub on its own; only a person acting on it can.
+ */
+export interface PullRequestWatchEvent {
+  id: string;
+  watchId: string;
+  prId: string;
+  commentExternalId: number;
+  commentKind: PullRequestCommentKind;
+  commentAuthor: string;
+  commentBody: string;
+  commentUrl: string;
+  verdict: WatchTriageVerdict;
+  reasoning: string;
+  draftResponse: string | null;
+  draftPatchSummary: string | null;
+  createdAt: number;
+  seenAt: number | null;
+  dismissedAt: number | null;
+}
+
 /** One issue raised inside a judgment. */
 export interface Finding {
   id: string;

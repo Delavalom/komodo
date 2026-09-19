@@ -9,13 +9,64 @@
  * answers given against it.
  */
 import Link from "next/link";
+import { Eye } from "lucide-react";
 
 import { Avatar, GithubIcon } from "@/components/ui/display";
 import { Select } from "@/components/ui/controls";
 import { useUrlState } from "@/lib/use-url-state";
 import { cn, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
-import type { PullRequest, Review } from "@/lib/types";
+import { usePullRequestWatch } from "@/lib/data/queries";
+import {
+  useUnwatchPullRequest,
+  useUpdateWatchMode,
+  useWatchPullRequest,
+} from "@/lib/data/mutations";
+import type { PullRequest, Review, WatchMode } from "@/lib/types";
+
+const WATCH_MODE_OPTIONS: { value: WatchMode; label: string }[] = [
+  { value: "notify", label: "Notify only" },
+  { value: "notify_and_draft", label: "Notify + draft reply" },
+];
+
+/**
+ * Watch this pull request for new comments, and choose how far Komodo goes
+ * when one lands — see AGENTS.md rule 15: even in "draft" mode this only
+ * writes a suggestion into the PR Watchers queue, never a GitHub comment.
+ */
+function WatchControl({ prId }: { prId: string }) {
+  const watch = usePullRequestWatch(prId);
+  const startWatching = useWatchPullRequest();
+  const stopWatching = useUnwatchPullRequest();
+  const changeMode = useUpdateWatchMode();
+
+  return (
+    <div className="flex items-center gap-2">
+      {watch ? (
+        <Select
+          value={watch.mode}
+          onChange={(mode) => changeMode(watch.id, mode)}
+          options={WATCH_MODE_OPTIONS}
+        />
+      ) : null}
+      <button
+        type="button"
+        onClick={() => (watch ? stopWatching(watch.id) : startWatching(prId, "notify"))}
+        aria-pressed={!!watch}
+        title={watch ? "Stop watching this pull request" : "Watch for new comments"}
+        className={cn(
+          "flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs transition-colors",
+          watch
+            ? "border-[hsl(var(--accent))] text-[hsl(var(--accent))]"
+            : "border-border text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <Eye className="size-3.5" />
+        {watch ? "Watching" : "Watch"}
+      </button>
+    </div>
+  );
+}
 
 export function ReviewHeader({
   pr,
@@ -100,6 +151,7 @@ export function ReviewHeader({
               }))}
             />
           ) : null}
+          <WatchControl prId={pr.id} />
           <a
             href={pr.url}
             target="_blank"
