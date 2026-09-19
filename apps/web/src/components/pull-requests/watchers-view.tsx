@@ -1,34 +1,31 @@
 "use client";
 
 /**
- * The PR Watchers queue: every comment Komodo has triaged on a watched pull
- * request, newest first. A history a person clears one row at a time — see
- * PullRequestWatchEvent in @komodo/store — not a single mutable "latest"
- * fact, so re-opening this page after a week away still shows what was
- * missed rather than only the most recent thing.
+ * Which pull requests the poller is watching.
+ *
+ * A comment's verdict and draft reply live on the pull request itself now —
+ * see the Conversation tab, `review/conversation.tsx` — because a reader
+ * deciding what to say next wants that next to the comment it answers, not in
+ * a second queue they have to cross-reference by title. What this page
+ * answers instead is the question that view can't: which pull requests are
+ * being watched at all, in what mode, and whether anything on them is still
+ * unresolved.
  */
 import Link from "next/link";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 
-import { Avatar } from "@/components/ui/display";
+import { Avatar, Badge } from "@/components/ui/display";
 import { DataTable, EmptyRow, TD, TH, THead, TR } from "@/components/ui/table";
-import { useOrganization, useWatchEvents } from "@/lib/data/queries";
-import { useDismissWatchEvent, useMarkWatchEventSeen } from "@/lib/data/mutations";
+import { useOrganization, useWatchedPullRequests } from "@/lib/data/queries";
+import { useUnwatchPullRequest } from "@/lib/data/mutations";
 import { useNow } from "@/lib/data/provider";
-import { cn, relativeTime } from "@/lib/utils";
-import type { WatchTriageVerdict } from "@/lib/types";
-
-const VERDICT_LABEL: Record<WatchTriageVerdict, string> = {
-  worth_addressing: "Worth addressing",
-  not_worth_addressing: "Not worth addressing",
-};
+import { relativeTime } from "@/lib/utils";
 
 export function WatchersView() {
   const now = useNow();
   const org = useOrganization();
-  const events = useWatchEvents().filter((e) => e.dismissedAt === null);
-  const markSeen = useMarkWatchEventSeen();
-  const dismiss = useDismissWatchEvent();
+  const rows = useWatchedPullRequests();
+  const unwatch = useUnwatchPullRequest();
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -37,9 +34,9 @@ export function WatchersView() {
           <div>
             <h1 className="text-[17px]">PR Watchers</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              New comments on the pull requests you&rsquo;re watching, and
-              whether Claude thinks they&rsquo;re worth a look. Watch a pull
-              request from its review page.
+              Pull requests being checked for new comments every few minutes.
+              Verdicts and draft replies show up on each pull request&rsquo;s
+              own Conversation tab.
             </p>
           </div>
         </div>
@@ -48,98 +45,72 @@ export function WatchersView() {
           <THead>
             <tr>
               <TH>Pull request</TH>
-              <TH className="w-[420px]">Comment</TH>
-              <TH className="w-[160px]">Verdict</TH>
-              <TH className="w-[140px]">When</TH>
-              <TH className="w-[96px]">Actions</TH>
+              <TH className="w-[160px]">Mode</TH>
+              <TH className="w-[160px]">Watched by</TH>
+              <TH className="w-[140px]">Since</TH>
+              <TH className="w-[120px]">Triaged</TH>
+              <TH className="w-[72px]">Actions</TH>
             </tr>
           </THead>
           <tbody>
-            {events.length === 0 ? (
-              <EmptyRow colSpan={5}>
-                Nothing triaged yet. Watched pull requests are checked every
-                few minutes for new comments.
+            {rows.length === 0 ? (
+              <EmptyRow colSpan={6}>
+                Nobody is watching a pull request. Watch one from its review
+                page to see it listed here.
               </EmptyRow>
             ) : (
-              events.map((event) => (
-                <TR key={event.id} className={event.seenAt === null ? "bg-muted-accent/20" : undefined}>
+              rows.map((row) => (
+                <TR key={row.id}>
                   <TD className="py-3">
                     <div className="flex items-start gap-2">
                       <Avatar
-                        seed={event.repoFullName}
-                        label={event.repoFullName}
+                        seed={row.repoFullName}
+                        label={row.repoFullName}
                         size={16}
                         className="mt-0.5"
                       />
                       <div className="min-w-0">
                         <Link
-                          href={`/${org.slug}/-/pull-requests/${event.repoFullName}/${event.prNumber}`}
+                          href={`/${org.slug}/-/pull-requests/${row.repoFullName}/${row.prNumber}?view=conversation`}
                           className="block truncate text-[15px] transition-colors hover:text-[hsl(var(--accent))]"
                         >
-                          {event.prTitle}
+                          {row.prTitle}
                         </Link>
                         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                          <span>{event.repoFullName}</span>
+                          <span>{row.repoFullName}</span>
                           <span>·</span>
-                          <span>#{event.prNumber}</span>
-                          <span>·</span>
-                          <span>
-                            {event.watchMode === "notify_and_draft"
-                              ? "Notify + draft"
-                              : "Notify only"}
-                          </span>
+                          <span>#{row.prNumber}</span>
                         </div>
                       </div>
                     </div>
                   </TD>
-                  <TD>
-                    <p className="line-clamp-2 text-sm">
-                      <span className="text-muted-foreground">{event.commentAuthor}: </span>
-                      {event.commentBody}
-                    </p>
-                    {event.draftResponse ? (
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                        Draft reply: {event.draftResponse}
-                      </p>
-                    ) : null}
+                  <TD className="text-sm text-muted-foreground">
+                    {row.mode === "notify_and_draft" ? "Notify + draft" : "Notify only"}
+                  </TD>
+                  <TD className="text-sm text-muted-foreground">{row.memberName}</TD>
+                  <TD title={new Date(row.createdAt).toLocaleString()}>
+                    {relativeTime(row.createdAt, now)}
                   </TD>
                   <TD>
-                    <span
-                      className={cn(
-                        "text-sm",
-                        event.verdict === "worth_addressing"
-                          ? "text-[hsl(var(--accent))]"
-                          : "text-muted-foreground",
-                      )}
-                      title={event.reasoning}
+                    {row.totalCount === 0 ? (
+                      <span className="text-sm text-muted-foreground">Nothing yet</span>
+                    ) : row.unresolvedCount > 0 ? (
+                      <Badge tone="brand">{row.unresolvedCount} unresolved</Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        {row.totalCount} triaged
+                      </span>
+                    )}
+                  </TD>
+                  <TD>
+                    <button
+                      type="button"
+                      onClick={() => unwatch(row.id)}
+                      title="Stop watching"
+                      className="p-1 text-muted-foreground hover:text-foreground"
                     >
-                      {VERDICT_LABEL[event.verdict]}
-                    </span>
-                  </TD>
-                  <TD title={new Date(event.createdAt).toLocaleString()}>
-                    {relativeTime(event.createdAt, now)}
-                  </TD>
-                  <TD>
-                    <div className="flex items-center gap-1">
-                      {event.seenAt === null ? (
-                        <button
-                          type="button"
-                          onClick={() => markSeen(event.id)}
-                          title="Mark seen"
-                          className="p-1 text-muted-foreground hover:text-foreground"
-                        >
-                          <Check className="size-4" />
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => dismiss(event.id)}
-                        title="Dismiss"
-                        className="p-1 text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="size-4" />
-                      </button>
-                    </div>
+                      <X className="size-4" />
+                    </button>
                   </TD>
                 </TR>
               ))

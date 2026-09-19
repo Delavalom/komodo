@@ -14,6 +14,7 @@ export type { DiagramSpec } from "@komodo/diagram";
 
 export type {
   Answer,
+  AiState,
   AIReviewJob,
   AIReviewJobState,
   ApiKey,

@@ -16,7 +16,7 @@
  */
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { MessageSquare, RefreshCw } from "lucide-react";
+import { Eye, MessageSquare, RefreshCw } from "lucide-react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkGemoji from "remark-gemoji";
@@ -25,7 +25,13 @@ import { Avatar, Badge } from "@/components/ui/display";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { useNow } from "@/lib/data/provider";
-import { usePostConversationComment, useRefreshConversation } from "@/lib/data/mutations";
+import {
+  useDismissWatchEvent,
+  useMarkWatchEventSeen,
+  usePostConversationComment,
+  useRefreshConversation,
+} from "@/lib/data/mutations";
+import { useWatchEvents, type WatchEventRow } from "@/lib/data/queries";
 import { cn, relativeTime } from "@/lib/utils";
 import type { PullRequestComment } from "@/lib/types";
 
@@ -70,6 +76,7 @@ export function ConversationView({
   const problem = refreshError ?? error;
 
   const threads = React.useMemo(() => buildThreads(comments), [comments]);
+  const watchEventByCommentId = useWatchEventsByCommentId(prId);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -129,7 +136,7 @@ export function ConversationView({
           <ol className="flex flex-col gap-6">
             {threads.map((thread) => (
               <li key={thread.key}>
-                <ThreadBlock prId={prId} thread={thread} />
+                <ThreadBlock prId={prId} thread={thread} watchEvents={watchEventByCommentId} />
               </li>
             ))}
           </ol>
@@ -146,7 +153,15 @@ export function ConversationView({
   );
 }
 
-function ThreadBlock({ prId, thread }: { prId: string; thread: Thread }) {
+function ThreadBlock({
+  prId,
+  thread,
+  watchEvents,
+}: {
+  prId: string;
+  thread: Thread;
+  watchEvents: Map<string, WatchEventRow>;
+}) {
   const [replying, setReplying] = React.useState(false);
 
   return (
@@ -165,10 +180,10 @@ function ThreadBlock({ prId, thread }: { prId: string; thread: Thread }) {
         </div>
       ) : null}
 
-      <CommentBody comment={thread.root} />
+      <CommentBody comment={thread.root} watchEvent={watchEvents.get(thread.root.id)} />
       {thread.replies.map((reply) => (
         <div key={reply.id} className="border-t border-border pl-6">
-          <CommentBody comment={reply} />
+          <CommentBody comment={reply} watchEvent={watchEvents.get(reply.id)} />
         </div>
       ))}
 
@@ -288,7 +303,13 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
 };
 
-function CommentBody({ comment }: { comment: PullRequestComment }) {
+function CommentBody({
+  comment,
+  watchEvent,
+}: {
+  comment: PullRequestComment;
+  watchEvent?: WatchEventRow;
+}) {
   const now = useNow();
   const state = comment.state ? REVIEW_STATE[comment.state] : undefined;
 
@@ -322,8 +343,92 @@ function CommentBody({ comment }: { comment: PullRequestComment }) {
           {comment.body}
         </Markdown>
       </div>
+      {watchEvent ? <WatchAnnotation event={watchEvent} /> : null}
     </article>
   );
+}
+
+/**
+ * What Komodo made of a comment on a pull request being watched — the
+ * verdict a person asked for, plus a draft reply they can copy into the box
+ * below and edit. It never posts on its own; see AGENTS.md rule 15.
+ */
+function WatchAnnotation({ event }: { event: WatchEventRow }) {
+  const now = useNow();
+  const markSeen = useMarkWatchEventSeen();
+  const dismiss = useDismissWatchEvent();
+
+  return (
+    <div className="mt-2 border-l-2 border-[hsl(var(--komodo-brand-green))] bg-muted-accent/30 py-1.5 pl-3 pr-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Eye className="size-3 text-muted-foreground" />
+        <span className="text-muted-foreground">Komodo watch</span>
+        <span
+          className={
+            event.verdict === "worth_addressing"
+              ? "text-[hsl(var(--accent))]"
+              : "text-muted-foreground"
+          }
+        >
+          {event.verdict === "worth_addressing" ? "Worth addressing" : "Not worth addressing"}
+        </span>
+        <span className="text-muted-foreground">{relativeTime(event.createdAt, now)}</span>
+        <div className="ml-auto flex items-center gap-2">
+          {event.seenAt === null ? (
+            <button
+              type="button"
+              onClick={() => markSeen(event.id)}
+              className="text-muted-foreground underline hover:text-foreground"
+            >
+              Mark seen
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => dismiss(event.id)}
+            className="text-muted-foreground underline hover:text-foreground"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+      <p className="mt-1 text-muted-foreground">{event.reasoning}</p>
+      {event.draftResponse ? (
+        <p className="mt-1.5">
+          <span className="text-muted-foreground">Draft reply: </span>
+          {event.draftResponse}
+        </p>
+      ) : null}
+      {event.draftPatchSummary ? (
+        <p className="mt-1.5">
+          <span className="text-muted-foreground">Suggested change: </span>
+          {event.draftPatchSummary}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The most recent, undismissed watch event for each comment on this pull
+ * request, keyed the same way `buildThreads` keys a comment: `kind` and
+ * `externalId` together, never `externalId` alone — GitHub numbers issue
+ * comments, review comments and reviews from three separate counters, so a
+ * bare id collides across kinds. A comment can pick up more than one triage
+ * attempt (a retry after a failure); the newest one is what is worth reading.
+ */
+function useWatchEventsByCommentId(prId: string): Map<string, WatchEventRow> {
+  const events = useWatchEvents();
+  return React.useMemo(() => {
+    const map = new Map<string, WatchEventRow>();
+    for (const event of events) {
+      if (event.prId !== prId || event.dismissedAt !== null) continue;
+      const key = `${event.prId}:${event.commentKind}:${event.commentExternalId}`;
+      const existing = map.get(key);
+      if (!existing || event.createdAt > existing.createdAt) map.set(key, event);
+    }
+    return map;
+  }, [events, prId]);
 }
 
 function ReplyBox({
