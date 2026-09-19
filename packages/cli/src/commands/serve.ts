@@ -12,12 +12,13 @@
  */
 import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
-import { createProvider, GitHubClient, loadConfig, resolveGithubToken } from "@komodo/core";
-import type { ReviewProvider } from "@komodo/core";
+import { createProvider, createWatchTriage, GitHubClient, loadConfig, resolveContextSources, resolveGithubToken } from "@komodo/core";
+import type { ReviewProvider, WatchTriageProvider } from "@komodo/core";
 import {
   applyTeamConfig,
   createCheckout,
   initializeSettings,
+  recordContextSources,
   runIngestLoop,
 } from "@komodo/ingest";
 import { connectStore, isPostgresUrl } from "@komodo/store/connect";
@@ -55,6 +56,7 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   // the web server, which runs from its own directory, opens the same file.
   const dbTarget = isPostgresUrl(target) ? target : resolve(target);
   const { config, path: configPath } = loadConfig();
+  const configDir = configPath ? dirname(configPath) : process.cwd();
 
   const store = await connectStore(dbTarget);
   const dim = (msg: string) => console.log(pc.dim(`• ${msg}`));
@@ -69,24 +71,40 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   const team = await applyTeamConfig(store, config);
   if (team.teamId) {
     dim(`Watching ${team.repositories} repos for ${team.members} teammates.`);
-  } else if (opts.seed) {
-    const { repositories } = await store.snapshot();
-    if (repositories.length === 0) {
-      dim("No team configured — seeding a sample queue.");
-      await seedStore(store);
+  }
+
+  // Resolved once here so the Cross-repo context screen has something to
+  // show before the first review runs, and again every review after this —
+  // see packages/ingest/src/review.ts.
+  if (config.context.sources.length) {
+    const resolved = resolveContextSources(config, configDir);
+    await recordContextSources(store, resolved);
+    const files = resolved.reduce((n, r) => n + r.files.length, 0);
+    const broken = resolved.filter((r) => !r.ok);
+    dim(`Shared context: ${files} file(s) from ${resolved.length} source(s).`);
+    for (const b of broken) dim(`  ${b.name}: ${b.error}`);
+  }
+
+  if (!team.teamId) {
+    if (opts.seed) {
+      const { repositories } = await store.snapshot();
+      if (repositories.length === 0) {
+        dim("No team configured — seeding a sample queue.");
+        await seedStore(store);
+      }
+    } else {
+      console.log(
+        pc.yellow(
+          "No team configured. Add a `team:` block to komodo.yaml with the " +
+            "GitHub logins and repos to watch, or the queue stays empty.",
+        ),
+      );
     }
-  } else {
-    console.log(
-      pc.yellow(
-        "No team configured. Add a `team:` block to komodo.yaml with the " +
-          "GitHub logins and repos to watch, or the queue stays empty.",
-      ),
-    );
   }
 
   const controller = new AbortController();
   const ingest = opts.poll
-    ? startIngest({ store, config, opts, dim, signal: controller.signal })
+    ? startIngest({ store, config, configDir, opts, dim, signal: controller.signal })
     : Promise.resolve();
 
   const web = startWebServer({
@@ -94,7 +112,7 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
     dbTarget,
     // The app posts receipts, and a receipt carries a link back here. Only
     // this process knows where komodo.yaml was found.
-    configDir: configPath ? dirname(configPath) : process.cwd(),
+    configDir,
     // The app used to seed itself whenever the store was empty. On a
     // deployment that invents repositories and pull requests the team does
     // not have, so the decision is made here and passed down.
@@ -137,11 +155,12 @@ function redact(target: string): string {
 function startIngest(args: {
   store: KomodoStore;
   config: ReturnType<typeof loadConfig>["config"];
+  configDir: string;
   opts: ServeOptions;
   dim: (msg: string) => void;
   signal: AbortSignal;
 }): Promise<void> {
-  const { store, config, opts, dim, signal } = args;
+  const { store, config, configDir, opts, dim, signal } = args;
 
   let github: GitHubClient;
   let token: string;
@@ -167,6 +186,12 @@ function startIngest(args: {
     dim("No review provider configured; polling without reviewing.");
   }
 
+  // The PR watcher is Claude-only in v1 and independent of the review
+  // provider above — a deployment reviewing with Codex can still watch
+  // comments with Claude, if it is the one available on this machine.
+  const watchTriage: WatchTriageProvider | undefined = createWatchTriage(config);
+  if (!watchTriage) dim("No Claude login found; the PR watcher will not triage comments.");
+
   // `komodo pr` reviews with the repository on disk and the server did not,
   // which made the same review weaker here for no reason anyone chose.
   const checkout = opts.checkout
@@ -182,7 +207,9 @@ function startIngest(args: {
     store,
     github,
     provider,
+    watchTriage,
     config,
+    configDir,
     intervalMs: parseInt(opts.interval, 10) * 1000,
     post: opts.post,
     checkout,

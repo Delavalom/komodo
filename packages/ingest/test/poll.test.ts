@@ -38,8 +38,10 @@ function fakeGitHub(
     state: "closed",
     mergedAt: null,
   },
+  /** Check rollups per repository, or an Error the query should throw. */
+  rollups: Record<string, any[] | Error> = {},
 ) {
-  const calls = { list: 0, size: 0, reviews: 0, state: 0 };
+  const calls = { list: 0, size: 0, reviews: 0, state: 0, checks: 0, details: 0 };
   const client = {
     async getPRState() {
       calls.state++;
@@ -57,9 +59,34 @@ function fakeGitHub(
       calls.reviews++;
       return { approvals: ["kai"], changesRequested: [] };
     },
+    async checkRollups(owner: string, repo: string) {
+      calls.checks++;
+      const forRepo = rollups[`${owner}/${repo}`];
+      if (forRepo instanceof Error) throw forRepo;
+      return new Map((forRepo ?? []).map((r) => [r.number, r]));
+    },
+    async failingChecks() {
+      calls.details++;
+      return {
+        state: "failing",
+        total: 4,
+        passed: 2,
+        failed: 2,
+        pending: 0,
+        failing: ["build", "lint"],
+      };
+    },
   } as unknown as GitHubClient;
   return { client, calls };
 }
+
+const rollup = (over: Record<string, unknown> = {}) => ({
+  number: 1,
+  headSha: "aaa111",
+  state: "passing" as const,
+  failing: [] as string[],
+  ...over,
+});
 
 function listed(over: Record<string, unknown> = {}) {
   return {
@@ -387,6 +414,153 @@ describe("pollRepositories", () => {
 
     expect(result.unreachable).toBe(1);
     expect(result.seen).toBe(1);
+  });
+
+  /* ── Check rollups ──────────────────────────────────────────────────── */
+
+  it("records the rollup for a pull request's current head", async () => {
+    const { client, calls } = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup()],
+    });
+    const result = await pollRepositories(client, store);
+
+    expect(result.checksObserved).toBe(1);
+    const [pr] = await store.listPullRequests();
+    expect(pr.checks?.state).toBe("passing");
+    // One query for the whole repository, not one per pull request — and no
+    // detail query at all, because nothing is failing.
+    expect(calls.checks).toBe(1);
+    expect(calls.details).toBe(0);
+  });
+
+  it("does not invent counts for a rollup whose detail it never fetched", async () => {
+    const { client } = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup()],
+    });
+    await pollRepositories(client, store);
+
+    const [pr] = await store.listPullRequests();
+    // The cheap query returns a state and nothing else. "0 checks passed" for
+    // a commit nobody counted would be a number made up on the way past.
+    expect(pr.checks?.total).toBeNull();
+    expect(pr.checks?.passed).toBeNull();
+  });
+
+  it("buys the failing check names, and only for a failing commit", async () => {
+    const { client, calls } = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup({ state: "failing" })],
+    });
+    await pollRepositories(client, store);
+
+    expect(calls.details).toBe(1);
+    const [pr] = await store.listPullRequests();
+    expect(pr.checks?.failing).toEqual(["build", "lint"]);
+    expect(pr.checks?.total).toBe(4);
+  });
+
+  it("reads checks on a pass where nothing else changed", async () => {
+    // GitHub does not move a pull request's updatedAt when a check finishes,
+    // so the activity gate that spares the size and review-decision calls
+    // cannot be applied here. A red build must be able to turn green without
+    // anybody pushing.
+    const first = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup({ state: "pending" })],
+    });
+    await pollRepositories(first.client, store, { checksIntervalMs: 0 });
+    expect((await store.listPullRequests())[0].checks?.state).toBe("pending");
+
+    const second = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup()],
+    });
+    const result = await pollRepositories(second.client, store, { checksIntervalMs: 0 });
+
+    expect(result.checksObserved).toBe(1);
+    expect(second.calls.size).toBe(0);
+    expect(second.calls.reviews).toBe(0);
+    expect((await store.listPullRequests())[0].checks?.state).toBe("passing");
+  });
+
+  it("does not re-read a repository's checks on every pass", async () => {
+    // The listing is a conditional REST request a 304 makes free. The rollup
+    // query is GraphQL, scored in points against a fixed hourly allowance —
+    // one repository on a one-minute poll would have spent the lot.
+    const first = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup()],
+    });
+    await pollRepositories(first.client, store);
+
+    const second = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup()],
+    });
+    const result = await pollRepositories(second.client, store);
+
+    expect(second.calls.checks).toBe(0);
+    expect(second.calls.list).toBe(1);
+    expect(result.checksObserved).toBe(0);
+  });
+
+  it("asks again on the next pass when the check query failed", async () => {
+    // The interval is stamped on success only, so an unreadable repository is
+    // retried rather than marked done for five minutes.
+    const first = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": new Error("GitHub GraphQL: API rate limit exceeded"),
+    });
+    await pollRepositories(first.client, store);
+
+    const second = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup()],
+    });
+    await pollRepositories(second.client, store);
+
+    expect(second.calls.checks).toBe(1);
+    expect((await store.listPullRequests())[0].checks?.state).toBe("passing");
+  });
+
+  it("spends nothing on a repository with no open pull requests", async () => {
+    const { client, calls } = fakeGitHub({ "acme/api": [] });
+    await pollRepositories(client, store);
+    expect(calls.checks).toBe(0);
+  });
+
+  it("will not write a rollup read from a commit the head has moved past", async () => {
+    // The listing and the rollup query are two requests, and a push can land
+    // between them. Writing the older commit's answer would put a green build
+    // against code nobody has built.
+    const { client } = fakeGitHub({ "acme/api": [listed({ headSha: "bbb222" })] }, undefined, {
+      "acme/api": [rollup({ headSha: "aaa111" })],
+    });
+    const result = await pollRepositories(client, store);
+
+    expect(result.checksObserved).toBe(0);
+    expect((await store.listPullRequests())[0].checks).toBeNull();
+  });
+
+  it("keeps polling when the check query fails", async () => {
+    const { client } = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": new Error("GitHub GraphQL: API rate limit exceeded"),
+    });
+    const result = await pollRepositories(client, store);
+
+    // The inventory is the job; the column is not worth losing a pass over.
+    expect(result.seen).toBe(1);
+    expect(result.checksObserved).toBe(0);
+    expect((await store.listPullRequests())[0].state).toBe("open");
+  });
+
+  it("leaves the last rollup alone when a later pass cannot read one", async () => {
+    const first = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": [rollup()],
+    });
+    await pollRepositories(first.client, store);
+
+    const second = fakeGitHub({ "acme/api": [listed()] }, undefined, {
+      "acme/api": new Error("GitHub GraphQL: Resource not accessible"),
+    });
+    await pollRepositories(second.client, store, { checksIntervalMs: 0 });
+
+    // Still shown, because the head has not moved and the observation is
+    // minutes old — readChecks stops showing it once it is a day old.
+    expect((await store.listPullRequests())[0].checks?.state).toBe("passing");
   });
 
   it("leaves an unreachable repository's pull requests open, not closed", async () => {

@@ -10,6 +10,7 @@
  * is: the web app loads through a server component but mutates through server
  * actions, so only half of this is ever reachable from a client component.
  */
+import type { DiagramSpec } from "@komodo/diagram";
 import type {
   Answer,
   AIReviewJob,
@@ -19,9 +20,15 @@ import type {
   Integration,
   Judgment,
   Member,
+  MemberGithubIdentity,
   Organization,
   OrgSettings,
   PullRequest,
+  PullRequestChecks,
+  PullRequestComment,
+  PullRequestConversation,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   Repository,
   Review,
   ReviewDetail,
@@ -41,6 +48,7 @@ import type {
   ImpactLevel,
   ReviewStatus,
   ReviewTrigger,
+  WatchMode,
 } from "./types.js";
 
 /** Everything one page of the app needs, in one round trip. */
@@ -68,8 +76,14 @@ export interface QueueSnapshot {
   apiKeys: ApiKey[];
   /** Never with a token — see Integration. */
   integrations: Integration[];
+  /** Who on the roster can act on GitHub as themselves. Never with a token. */
+  githubIdentities: MemberGithubIdentity[];
   /** Derived from requirements and the newest verification entry for each. */
   verificationSummaries: VerificationSummary[];
+  /** Every PR-watcher subscription. Small by construction — opt-in per PR. */
+  watches: PullRequestWatch[];
+  /** Every triaged comment across every watch, newest first. */
+  watchEvents: PullRequestWatchEvent[];
 }
 
 export interface StoreReader {
@@ -170,8 +184,54 @@ export interface StoreReader {
    */
   findApiKeyByHash(keyHash: string): Promise<ApiKey | null>;
 
+  /**
+   * A pull request's cached conversation, or null if it has never been read.
+   *
+   * Null and "read, and there was nothing" are different answers: the first
+   * means fetch it, the second means do not. Only a stored `observedAt` can
+   * tell them apart, which is why this returns the wrapper rather than a bare
+   * list of comments.
+   */
+  loadPullRequestConversation(
+    prId: string,
+  ): Promise<PullRequestConversation | null>;
+
+  /**
+   * Every PR-watcher subscription. Also on the snapshot — see
+   * `QueueSnapshot.watches`.
+   */
+  listPullRequestWatches(): Promise<PullRequestWatch[]>;
+
+  /**
+   * Triaged comments, newest first — every one, or one watch's history.
+   *
+   * Unfiltered is what the "PR Watchers" queue renders from; scoped is what a
+   * single pull request's watch control shows without paying for the rest.
+   */
+  listWatchEvents(watchId?: string): Promise<PullRequestWatchEvent[]>;
+
   /** Connected trackers, without their tokens. */
   listIntegrations(): Promise<Integration[]>;
+
+  /**
+   * Who on the roster has connected their own GitHub account. Never a token.
+   *
+   * On the snapshot as well, because every screen offering a GitHub review has
+   * to know whether the button can work before it renders one.
+   */
+  listGithubIdentities(): Promise<MemberGithubIdentity[]>;
+
+  /**
+   * One member's GitHub token, for acting on GitHub as that person.
+   *
+   * The single path out of the store for this secret, separate from
+   * `listGithubIdentities` for exactly the reason `loadIntegrationToken` is
+   * separate from `listIntegrations`: a token must not be reachable from the
+   * call the UI makes.
+   */
+  loadGithubToken(
+    memberId: string,
+  ): Promise<{ identity: MemberGithubIdentity; token: string } | null>;
 
   /**
    * One integration with its token, for the ingester alone.
@@ -196,7 +256,7 @@ export interface ReviewInput {
   confidence: number;
   effort: number;
   verdictLine: string;
-  diagram?: string | null;
+  diagram?: DiagramSpec | null;
   recordId: string;
   /** In the order they should be answered. Ordinals are assigned here. */
   judgements: Omit<ReviewJudgement, "id" | "reviewId" | "ordinal">[];
@@ -227,9 +287,16 @@ export interface AnswerInput {
   blocking?: boolean;
 }
 
-/** What the poller writes. Git facts only. */
+/**
+ * What the poller writes. Git facts only.
+ *
+ * `checks` is not here on purpose. The listing pass writes this row and knows
+ * nothing about a rollup, so including it would mean every inventory upsert
+ * blanked the check state a separate call had just observed —
+ * `recordPullRequestChecks` owns that field alone.
+ */
 export interface PullRequestInput
-  extends Omit<PullRequest, "id"> {
+  extends Omit<PullRequest, "id" | "checks"> {
   /** Stable across polls: `${repoId}#${number}`. */
   id?: string;
 }
@@ -262,6 +329,21 @@ export interface FindingInput {
   judgementId?: string | null;
 }
 
+/** What the ingester writes once it has triaged one new comment. */
+export interface WatchEventInput {
+  watchId: string;
+  prId: string;
+  commentExternalId: number;
+  commentKind: PullRequestComment["kind"];
+  commentAuthor: string;
+  commentBody: string;
+  commentUrl: string;
+  verdict: PullRequestWatchEvent["verdict"];
+  reasoning: string;
+  draftResponse?: string | null;
+  draftPatchSummary?: string | null;
+}
+
 export interface StoreWriter {
   /** Replaces the single organization row. */
   setOrganization(org: Organization): Promise<void>;
@@ -270,6 +352,37 @@ export interface StoreWriter {
 
   /** Idempotent on (repoId, number). Never touches the PR's judgment. */
   upsertPullRequest(pr: PullRequestInput): Promise<string>;
+
+  /**
+   * Records the check rollup observed for one pull request.
+   *
+   * Separate from the listing upsert because it comes from a separate call
+   * against a separate API, on a separate cadence: GitHub does not move a pull
+   * request's `updatedAt` when a check completes, so this is written on every
+   * pass while the listing fields are written only when something moved.
+   *
+   * `null` erases the rollup — what a caller writes when the token stopped
+   * being able to read one. Silence is the honest answer there; the previous
+   * observation describes a moment that has passed.
+   */
+  recordPullRequestChecks(
+    prId: string,
+    checks: PullRequestChecks | null,
+  ): Promise<void>;
+
+  /**
+   * Replaces a pull request's cached conversation, and stamps the read.
+   *
+   * Wholesale rather than incremental: GitHub is the truth, comments are
+   * edited and deleted there, and merging would leave this holding rows that
+   * no longer exist anywhere. Records `observedAt` even for an empty list, so
+   * "nobody has commented" is a fact rather than a reason to ask again.
+   */
+  replacePullRequestComments(
+    prId: string,
+    comments: Omit<PullRequestComment, "id" | "prId">[],
+    observedAt: number,
+  ): Promise<void>;
 
   /** Idempotent on the immutable `(prId, headSha)` job id. */
   requestAIReview(input: {
@@ -286,6 +399,21 @@ export interface StoreWriter {
     now: number;
     leaseMs: number;
   }): Promise<{ job: AIReviewJob; pr: PullRequest } | null>;
+
+  /**
+   * Settles a job whose work was done somewhere else.
+   *
+   * `finishAIReviewJob` deliberately refuses everything but its own lease
+   * holder, which is right for a worker reporting on itself and wrong for the
+   * one case where nobody holds the lease: a person reviewed the head by hand
+   * and submitted the result, and the job queued for that same head is now
+   * moot. Leaving it queued means the headless worker reviews the commit again
+   * and overwrites a human's run with its own.
+   *
+   * Returns false when there was nothing to settle — an already-finished job,
+   * or no job at all.
+   */
+  supersedeAIReviewJob(jobId: string, finishedAt: number): Promise<boolean>;
 
   /** Settles a lease only when it is still owned by this worker. */
   finishAIReviewJob(input: {
@@ -387,6 +515,39 @@ export interface StoreWriter {
 
   deleteApiKey(keyId: string): Promise<void>;
 
+  /**
+   * Starts or updates one person's watch on a pull request. Idempotent on
+   * `(prId, memberId)` — watching again does not duplicate the row.
+   */
+  saveWatch(input: {
+    prId: string;
+    memberId: string;
+    mode: WatchMode;
+  }): Promise<string>;
+
+  deleteWatch(watchId: string): Promise<void>;
+
+  updateWatchMode(watchId: string, mode: WatchMode): Promise<void>;
+
+  /**
+   * Advances a watch's high-water mark after a pass has triaged everything
+   * newer than it. Separate from `recordWatchEvent` because a pass with no
+   * new comments still has to move this forward, or an empty pass would look
+   * identical to one that has never run and get retried forever.
+   */
+  markWatchChecked(
+    watchId: string,
+    lastSeenExternalId: number,
+    lastSeenAt: number,
+  ): Promise<void>;
+
+  /** Appends one triaged comment. Never edited or replaced. */
+  recordWatchEvent(input: WatchEventInput): Promise<void>;
+
+  markWatchEventSeen(eventId: string): Promise<void>;
+
+  dismissWatchEvent(eventId: string): Promise<void>;
+
   /** Connects a tracker, or replaces the credentials of one already there. */
   saveIntegration(input: {
     provider: Integration["provider"];
@@ -396,6 +557,24 @@ export interface StoreWriter {
   }): Promise<string>;
 
   disconnectIntegration(integrationId: string): Promise<void>;
+
+  /**
+   * Connects one member's own GitHub account, or replaces their credential.
+   *
+   * `login` is what GitHub said the token authenticates as, established by the
+   * caller before it gets here. Storing a claimed login instead would let a
+   * mistyped connection file one person's approvals under another's name.
+   */
+  saveGithubIdentity(input: {
+    memberId: string;
+    login: string;
+    token: string;
+  }): Promise<void>;
+
+  deleteGithubIdentity(memberId: string): Promise<void>;
+
+  /** Records that acting as this member failed — a revoked token, usually. */
+  setGithubIdentityError(memberId: string, error: string | null): Promise<void>;
 
   /** Records that a fetch failed, so the screen can say so. */
   setIntegrationError(

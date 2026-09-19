@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { effectivePathFilters, type KomodoConfig } from "./config.js";
+import { selectSharedContext, type ResolvedContextSource } from "./context-sources.js";
 import { commentableLines, filterPaths } from "./diff.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
 import {
@@ -37,6 +38,21 @@ export interface RunReviewOptions {
    * packages/ingest/src/memory.ts.
    */
   memories?: ReviewMemory[];
+  /**
+   * Shared context sources already resolved off disk by the caller, via
+   * `resolveContextSources`. Resolution (filesystem I/O) is kept out of this
+   * function so a caller that already resolved once — e.g. once at boot — can
+   * reuse the result across many reviews.
+   */
+  contextSources?: ResolvedContextSource[];
+  /**
+   * Which repository (and, when the caller has a store, which clusters it
+   * belongs to) to select shared context for. Omit `clusterNames` when the
+   * caller cannot resolve clusters (e.g. `komodo pr`, which has no store) —
+   * cluster-scoped documents are then reported as needing one rather than
+   * silently dropped.
+   */
+  contextScope?: { repoId: string; clusterNames?: string[] };
   /** Post to GitHub (default true). false = local-only dry run. */
   post?: boolean;
   /** Directory where review JSON records are written (default <cwd>/.komodo/reviews). */
@@ -50,6 +66,10 @@ export interface RunReviewOutcome {
   recordPath: string;
   reviewUrl?: string;
   droppedJudgements: Judgement[];
+  /** Shared context documents actually handed to the provider, for a caller that wants to say so. */
+  sharedContext: { label: string }[];
+  /** Documents scoped to a repo cluster the caller had no way to resolve (e.g. `komodo pr`, which has no store). */
+  sharedContextNeedsClusters: { label: string }[];
 }
 
 /**
@@ -75,8 +95,24 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   onProgress?.(`Reviewing ${files.length}/${allFiles.length} files with ${provider.name}…`);
   if (!files.length) throw new Error("No reviewable files after path filters.");
 
+  const shared = selectSharedContext(opts.contextSources ?? [], {
+    repoId: opts.contextScope?.repoId,
+    clusterNames: opts.contextScope?.clusterNames,
+    changedPaths: files.map((f) => f.path),
+    maxTotalChars: config.context.max_total_chars,
+  });
+  if (shared.docs.length) {
+    onProgress?.(`  applying ${shared.docs.length} shared context document(s).`);
+  }
+  if (shared.overflow.length) {
+    onProgress?.(`  ${shared.overflow.length} shared context document(s) skipped: over the ${config.context.max_total_chars}-character cap.`);
+  }
+  if (shared.needsClusters.length) {
+    onProgress?.(`  ${shared.needsClusters.length} shared context document(s) skipped: scoped to a repo cluster, which this caller cannot resolve.`);
+  }
+
   const result = await provider.review(
-    { pr, files, config, repoDir: opts.repoDir, memories: opts.memories },
+    { pr, files, config, repoDir: opts.repoDir, memories: opts.memories, sharedContext: shared.docs },
     onProgress,
   );
 
@@ -161,7 +197,14 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     writeFileSync(recordPath, JSON.stringify(record, null, 2));
   }
 
-  return { record, recordPath, reviewUrl, droppedJudgements: dropped };
+  return {
+    record,
+    recordPath,
+    reviewUrl,
+    droppedJudgements: dropped,
+    sharedContext: shared.docs.map((d) => ({ label: d.label })),
+    sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
+  };
 }
 
 /**

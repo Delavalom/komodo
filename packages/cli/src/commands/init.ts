@@ -17,6 +17,15 @@ min_severity: minor   # critical | major | minor | trivial
 #   - path: "src/api/**"
 #     instructions: "Check authorization and input validation on every handler."
 
+# Company-wide review guidance that lives outside any one repository. Every
+# *.md under a source is handed to the reviewer, narrowed by its own
+# frontmatter (\`repos:\`, \`clusters:\`, \`globs:\`) if it has any. Run
+# \`komodo context\` to see what this resolves to.
+# context:
+#   sources:
+#     - type: path
+#       path: ../review-guidelines   # relative to this file; ~ is expanded
+
 post:
   mode: receipt               # receipt | full | none — what GitHub gets
   update_description: false   # inject "Summary by Komodo" into the PR description (mode: full)

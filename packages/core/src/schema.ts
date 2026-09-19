@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DiagramSpecSchema } from "@komodo/diagram";
 
 export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
 
@@ -168,8 +169,14 @@ export const WalkthroughEntrySchema = z.object({
 });
 
 export const ReviewResultSchema = z.object({
+  // Non-empty, and this is the reason: a result that validates with an empty
+  // summary and no verdict line is a review that says nothing, and storing one
+  // marks a commit as reviewed. `verificationChecks` may legitimately be empty
+  // — a documentation change has no runtime result to observe — but a review
+  // with nothing written in it is not a review of anything.
   summary: z
     .string()
+    .min(1)
     .describe(
       "High-level PR summary as GitHub markdown bullets grouped by change type (New Features / Bug Fixes / Refactors / Tests / Docs). No heading.",
     ),
@@ -182,6 +189,7 @@ export const ReviewResultSchema = z.object({
     .describe("Review-coverage confidence from 0 (material context missing) to 5 (the review brief is well grounded)"),
   verdict: z
     .string()
+    .min(1)
     .describe("One short line explaining what the review could and could not establish; never a merge recommendation"),
   effort: z.number().int().min(1).max(5).describe("Estimated human review effort 1-5"),
   verificationChecks: z
@@ -190,10 +198,11 @@ export const ReviewResultSchema = z.object({
     .describe(
       "Checks a human must perform against the running result. Empty only when the change has no observable runtime, generated, or operational result.",
     ),
-  diagram: z
-    .string()
-    .optional()
-    .describe("Mermaid sequenceDiagram source (no fences) when the PR changes a flow/interaction; else omit"),
+  diagram: DiagramSpecSchema.optional().describe(
+    "Structured diagram — sequence (multi-actor request/response), flowchart (branching/decision logic), " +
+      "state (state-machine changes), or er (schema/migration changes) — when the PR's change fits one of " +
+      "those shapes; omit if none fit. Emit structured nodes/edges, never markup or Mermaid text.",
+  ),
   judgements: z.array(JudgementSchema),
 });
 
@@ -203,33 +212,92 @@ export type VerificationCheck = z.infer<typeof VerificationCheckSchema>;
 export type WalkthroughEntry = z.infer<typeof WalkthroughEntrySchema>;
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 
-/** A stored review run: result + the metadata the UI needs to render it. */
-export interface ReviewRecord {
-  version: 3;
-  id: string;
-  createdAt: string;
-  provider: string;
-  model?: string;
-  pr: {
-    owner: string;
-    repo: string;
-    number: number;
-    title: string;
-    author: string;
-    url: string;
-    baseRef: string;
-    headRef: string;
-    headSha: string;
-  };
-  files: { path: string; additions: number; deletions: number; status: string; patch?: string }[];
-  result: ReviewResult;
-  posted: boolean;
-}
+/**
+ * A stored review run: result + the metadata the UI needs to render it.
+ *
+ * A schema rather than an interface because this shape now crosses a network.
+ * An agent reviewing on a laptop builds the record there — it is the side with
+ * the checkout — and posts it to a Komodo deployment that has no working tree
+ * and no reason to trust the sender. Everything that arrives by that route is
+ * parsed through here first.
+ */
+export const ReviewRecordSchema = z.object({
+  version: z.literal(3),
+  id: z.string().min(1),
+  createdAt: z.string().min(1),
+  provider: z.string().min(1),
+  model: z.string().optional(),
+  pr: z.object({
+    owner: z.string().min(1),
+    repo: z.string().min(1),
+    number: z.number().int(),
+    title: z.string(),
+    author: z.string(),
+    url: z.string(),
+    baseRef: z.string(),
+    headRef: z.string(),
+    headSha: z.string().min(1),
+  }),
+  files: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        additions: z.number().int(),
+        deletions: z.number().int(),
+        status: z.string(),
+        patch: z.string().optional(),
+      }),
+    )
+    // One row per path, because the store derives a review file's id from the
+    // path and a duplicate raises a constraint violation halfway through
+    // saving the run. Refused here, where the caller is told what is wrong,
+    // rather than there, where it leaves a half-written review behind.
+    .refine(
+      (files) => new Set(files.map((file) => file.path)).size === files.length,
+      { message: "Two files in this record have the same path." },
+    ),
+  result: ReviewResultSchema,
+  posted: z.boolean(),
+});
+
+export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
 
 export function reviewResultJsonSchema(): Record<string, unknown> {
   // draft-07 + no $schema key: the Claude Code CLI's validator rejects the
   // draft/2020-12 meta-schema reference zod v4 emits by default.
   const schema = z.toJSONSchema(ReviewResultSchema, { target: "draft-7" }) as Record<string, unknown>;
+  delete schema.$schema;
+  return schema;
+}
+
+/**
+ * What the PR-watcher's triage call produces for one comment.
+ *
+ * Deliberately not `ReviewResult`: a triage is a verdict on one comment, not a
+ * whole-diff review, and forcing it through the review shape would mean
+ * either faking most of the review fields or bloating the review schema for
+ * one caller. `draftResponse`/`draftPatchSummary` are prose only — never a
+ * diff, since nothing downstream of this call is allowed to apply one.
+ */
+export const WatchTriageResultSchema = z.object({
+  verdict: z
+    .enum(["worth_addressing", "not_worth_addressing"])
+    .describe("Whether this comment asks for something a person should act on."),
+  reasoning: z.string().min(1).describe("One or two sentences justifying the verdict."),
+  draftResponse: z
+    .string()
+    .nullable()
+    .describe("A suggested reply, in the comment's own voice. Null when nothing is worth drafting."),
+  draftPatchSummary: z
+    .string()
+    .nullable()
+    .describe("Prose description of what a fix would change. Never a diff. Null when no code change is implied."),
+});
+
+export type WatchTriageResult = z.infer<typeof WatchTriageResultSchema>;
+
+export function watchTriageResultJsonSchema(): Record<string, unknown> {
+  const schema = z.toJSONSchema(WatchTriageResultSchema, { target: "draft-7" }) as Record<string, unknown>;
   delete schema.$schema;
   return schema;
 }

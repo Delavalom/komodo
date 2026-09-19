@@ -9,6 +9,24 @@ min_severity: minor   # critical | major | minor | trivial
 #   - path: "src/api/**"
 #     instructions: "Check authorization and input validation on every handler."
 
+# Every judgement, summary and comment is written in one house voice — see
+# VOICE_STYLE.md at the repository root. `voice.extra` adds a team's own
+# vocabulary after it; it does not replace it.
+# voice:
+#   extra: |
+#     We call the Temporal side "workflows" and "activities", never "jobs".
+
+# Company-wide review guidance that lives outside any one repository — how to
+# review, how to gather context, how the AI should use specific tools. Every
+# *.md under a source is handed to the reviewer, narrowed by its own
+# frontmatter (`repos:`, `clusters:`, `globs:`) if it has any. Run
+# `komodo context` to see what this resolves to.
+# context:
+#   sources:
+#     - type: path
+#       name: Company review rules
+#       path: ../review-guidelines   # relative to this file; ~ is expanded
+
 # What the poller reviews without being asked. Both are off: the first pass over
 # a repository observes every open pull request as new, and a queue is cheaper to
 # fill than a subscription is to refill. Each row has "Review with AI", and
@@ -38,13 +56,17 @@ post:
 # under Settings → Manage Repositories, switched off until someone enables them
 # (or on, with Repo Settings → Auto-enable new repos).
 #
-# team:
-#   name: Core Infra
-#   you: your-github-login
-#   members:
-#     - your-github-login
-#   repos:
-#     - your-org/your-repo
+team:
+  name: Integrations
+  you: Delavalom
+  members:
+    - MiguelSilva1997
+    - Delavalom
+    - neildowgun-ff
+  repos:
+    - ForwardFinancing/third_party_integrations
+    - ForwardFinancing/integration_dispatcher
+    - ForwardFinancing/ml_data_provider
 
 local:
   url: http://localhost:4400  # where the queue is reachable; the receipt links here

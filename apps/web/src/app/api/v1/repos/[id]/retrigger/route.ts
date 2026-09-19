@@ -8,6 +8,7 @@
  * should not.
  */
 import { authenticate, unauthorized } from "@/lib/api/auth";
+import { routeParam } from "@/lib/api/request";
 import { getStore } from "@/lib/data/server";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +20,9 @@ export async function POST(
   const auth = await authenticate(request);
   if (!auth.ok) return unauthorized(auth);
 
-  // `owner/name`, so it arrives percent-encoded.
+  // `owner/name`. Already decoded by Next — see lib/api/request.ts.
   const { id } = await params;
-  const repoId = decodeURIComponent(id);
+  const repoId = routeParam(id);
 
   const store = await getStore();
   const { repositories, judgments } = await store.snapshot();

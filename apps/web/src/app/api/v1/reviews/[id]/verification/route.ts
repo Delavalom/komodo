@@ -6,6 +6,7 @@
  * review remains a separate authority.
  */
 import { authenticate, unauthorized } from "@/lib/api/auth";
+import { routeParam } from "@/lib/api/request";
 import { getStore } from "@/lib/data/server";
 import {
   recordVerificationForActor,
@@ -21,8 +22,9 @@ export async function POST(
   const auth = await authenticate(request);
   if (!auth.ok) return unauthorized(auth);
 
+  // Already decoded by Next — see lib/api/request.ts.
   const { id } = await params;
-  const reviewId = decodeURIComponent(id);
+  const reviewId = routeParam(id);
   const detail = await (await getStore()).loadReview(reviewId);
   if (!detail) {
     return Response.json({ error: "No such review run." }, { status: 404 });

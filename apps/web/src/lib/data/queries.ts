@@ -14,7 +14,7 @@
  */
 import { useMemo } from "react";
 
-import { needsReviewFrom } from "@komodo/store";
+import { easyWin, needsReviewFrom } from "@komodo/store";
 
 import { useNow, useSnapshot } from "@/lib/data/provider";
 import { useDataStore } from "@/lib/data/store";
@@ -45,6 +45,8 @@ import type {
   PersonalSettings,
   QueueQuery,
   QueueRow,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   RepoCluster,
   Repository,
   SeriesPoint,
@@ -52,6 +54,7 @@ import type {
   Team,
   Timeframe,
   UsageDay,
+  WatchMode,
 } from "@/lib/types";
 
 /* ── Org ────────────────────────────────────────────────────────────────── */
@@ -115,10 +118,92 @@ function sizeLabel(lines: number): QueueRow["sizeLabel"] {
   return "XL";
 }
 
+/**
+ * This person's own GitHub credential, if they have connected one.
+ *
+ * Never the token — the snapshot does not carry it, by design. Enough for a
+ * screen to know whether the review buttons can work before it draws them.
+ */
+export function useGithubIdentity() {
+  const { githubIdentities } = useSnapshot();
+  const me = useMe();
+  return useMemo(
+    () =>
+      me ? githubIdentities.find((identity) => identity.memberId === me.id) ?? null : null,
+    [githubIdentities, me],
+  );
+}
+
 /** The signed-in member, or null when nobody on the roster is marked. */
 export function useMe(): Member | null {
   const members = useSnapshot().members;
   return useMemo(() => members.find((m) => m.isYou) ?? null, [members]);
+}
+
+/* ── PR watcher ─────────────────────────────────────────────────────────── */
+
+/** This device's watch on one pull request, or null if nobody here is watching it. */
+export function usePullRequestWatch(prId: string): PullRequestWatch | null {
+  const { watches } = useSnapshot();
+  const me = useMe();
+  return useMemo(
+    () =>
+      me
+        ? watches.find((w) => w.prId === prId && w.memberId === me.id) ?? null
+        : null,
+    [watches, prId, me],
+  );
+}
+
+export interface WatchEventRow extends PullRequestWatchEvent {
+  prTitle: string;
+  prNumber: number;
+  prUrl: string;
+  repoFullName: string;
+  watchMode: WatchMode;
+}
+
+/**
+ * Every triaged comment across every watch, newest first, joined with enough
+ * of the pull request to render a row without a second fetch.
+ *
+ * This is also the seam a desktop-notification feature would hook into later
+ * (deferred for now — see the PR watcher plan): watch how many rows here have
+ * `seenAt === null` across renders, and fire the browser's `Notification` API
+ * when that count grows. Nothing here polls on its own — AGENTS.md rule 7 —
+ * a notifier would add its own interval the same way `useMountEffect` does,
+ * via `useSyncExternalStore`, not a raw `useEffect`.
+ */
+export function useWatchEvents(): WatchEventRow[] {
+  const { watchEvents, watches, pullRequests } = useSnapshot();
+  const repoIndex = useRepoIndex();
+  return useMemo(() => {
+    const watchById = new Map(watches.map((w) => [w.id, w]));
+    const prById = new Map(pullRequests.map((p) => [p.id, p]));
+    return watchEvents
+      .map((event): WatchEventRow | null => {
+        const watch = watchById.get(event.watchId);
+        const pr = prById.get(event.prId);
+        if (!watch || !pr) return null;
+        const repo = repoIndex.get(pr.repoId);
+        return {
+          ...event,
+          prTitle: pr.title,
+          prNumber: pr.number,
+          prUrl: pr.url,
+          repoFullName: repo ? fullName(repo) : pr.repoId,
+          watchMode: watch.mode,
+        };
+      })
+      .filter((row): row is WatchEventRow => row !== null);
+  }, [watchEvents, watches, pullRequests, repoIndex]);
+}
+
+/** Watch events nobody has looked at or cleared yet — the notifier's count. */
+export function useUnseenWatchEventCount(): number {
+  return useWatchEvents().filter(
+    (e) => e.seenAt === null && e.dismissedAt === null,
+  ).length;
 }
 
 /**
@@ -255,6 +340,17 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
               (finding.severity === "P0" || finding.severity === "P1"),
           ),
         isStale: waitingDays >= STALE_DAYS,
+        // Derived here, never stored — see easyWin in @komodo/store, where the
+        // rule lives so it can be tested without a browser.
+        easyWin: easyWin({
+          isDraft: pr.isDraft,
+          checks: pr.checks,
+          changesRequested: humanChangesRequested,
+          changedLines,
+          changedFiles: pr.changedFiles,
+          concerns: allFindings.filter((finding) => finding.status === "open").length,
+          briefReady: judgment?.status === "completed",
+        }),
         topFindings: allFindings
           .filter((f) => f.status === "open")
           .sort((a, b) => bySeverity[a.severity] - bySeverity[b.severity])
@@ -267,6 +363,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
       if (lens === "mine" && !r.needsMyReview) return false;
       if (lens === "blocked" && !r.isBlocked) return false;
       if (lens === "stale" && !r.isStale) return false;
+      if (lens === "easy" && !r.easyWin) return false;
       if (author && r.author !== author) return false;
       if (repo && r.repoFullName !== repo) return false;
       if (q) {
@@ -278,8 +375,19 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
       return true;
     });
 
-    // Longest wait first: the queue's job is to surface what is going stale,
-    // not what landed most recently.
+    // Easy wins are the one lens that is not about waiting: it exists to be
+    // worked from the top down, so it sorts by how cheap the review is and
+    // falls back to the longest wait between equals.
+    if (lens === "easy") {
+      return filtered.sort(
+        (a, b) =>
+          (b.easyWin?.score ?? 0) - (a.easyWin?.score ?? 0) ||
+          a.updatedAt - b.updatedAt,
+      );
+    }
+
+    // Everywhere else, longest wait first: the queue's job is to surface what
+    // is going stale, not what landed most recently.
     return filtered.sort((a, b) => a.updatedAt - b.updatedAt);
   }, [pullRequests, aiReviewJobs, judgments, findings, members, verificationSummaries, repoIndex, login, now, lens, search, author, repo]);
 }
@@ -293,6 +401,7 @@ export function useQueueCounts(query: Omit<QueueQuery, "lens"> = {}) {
       mine: all.filter((r) => r.needsMyReview).length,
       blocked: all.filter((r) => r.isBlocked).length,
       stale: all.filter((r) => r.isStale).length,
+      easy: all.filter((r) => r.easyWin).length,
     }),
     [all],
   );

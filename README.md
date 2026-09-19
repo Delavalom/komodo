@@ -77,6 +77,24 @@ driver; anything else is a SQLite path), `GITHUB_TOKEN`, and one provider
 credential. Point `local.url` in komodo.yaml at the deployment's real hostname
 so review receipts link back to it.
 
+### Reviewing a deployment's queue from your own Claude session
+
+A deployment does not have to run the model itself. Mint a key under
+**Settings → API Keys**, point a machine at the queue once, and the Claude
+session already open on that machine can take jobs off it:
+
+```bash
+npx komodo-review login --host https://komodo.acme.com --api-key kmd_…
+npx komodo-review claim          # leases one job for two hours
+npx komodo-review submit <claim> <result>
+```
+
+The review runs where the code is: the checkout, the diff and the prompt never
+leave that machine, and what crosses the network is the finished record. A
+review of a branch you were already working on goes the same way, with
+`komodo-review push`. Over plain `http://` this refuses any host but your own
+machine — use `https://`, or tunnel to localhost.
+
 The reviewer fetches a shallow working tree per repository so it reads the
 code around a change rather than the patch alone — the same context
 `komodo-review pr` gets from your checkout. Trees live under `.komodo/repos`
@@ -135,6 +153,39 @@ a reviewer reading a CSS change.
 Connect Linear or Jira under **Integrations** and a pull request whose title
 names an issue gets that issue's text alongside the diff — which is usually
 where the answer to "is this the right change" actually lives.
+
+### Shared context sources
+
+Rules above live in one repository's database. `context.sources` in
+`komodo.yaml` points at guidance that applies across the whole organisation —
+how to review, how to gather context, how the AI should use specific tools —
+typically a checkout of a rules repository everyone shares:
+
+```yaml
+context:
+  sources:
+    - type: path
+      name: Company review rules
+      path: ../review-guidelines   # relative to this file; ~ is expanded
+```
+
+Every `*.md` under the folder is handed to the reviewer. A file can carry
+frontmatter to narrow when it applies:
+
+```markdown
+---
+description: How we review Temporal workflows
+repos: [org/service-a, org/service-b]
+globs: ["app/workflows/**"]
+---
+```
+
+This reaches every reviewer — `komodo pr`, `komodo serve`/`komodo dev`, and a
+Claude Code session running the plugin skill — because it is declared in the
+file, not on a settings screen. Run `komodo context` to see what a given
+configuration resolves to, and `komodo context --repo owner/name` to check
+what would apply to one repository. **Custom context → Cross-repo context**
+shows the same thing, read-only.
 
 ## HTTP API
 

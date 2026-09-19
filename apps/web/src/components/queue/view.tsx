@@ -18,10 +18,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ChevronRight,
   GitBranch,
   RefreshCw,
   ShieldAlert,
   User,
+  XCircle,
 } from "lucide-react";
 
 import { Avatar, Badge, StatusPill } from "@/components/ui/display";
@@ -42,7 +44,7 @@ import { useUrlState } from "@/lib/use-url-state";
 import { useRequestAIReview } from "@/lib/data/mutations";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
-import type { QueueLens, QueueRow } from "@/lib/types";
+import type { ChecksState, EasyWinSignal, QueueLens, QueueRow } from "@/lib/types";
 
 const LENSES: { key: QueueLens; label: string; hint: string }[] = [
   {
@@ -50,10 +52,39 @@ const LENSES: { key: QueueLens; label: string; hint: string }[] = [
     label: "Needs my review",
     hint: "Open pull requests by a teammate, or that GitHub has asked you to review",
   },
+  {
+    key: "easy",
+    label: "Easy wins",
+    hint: "A green build, a finished brief, and nothing outstanding — cheapest first",
+  },
   { key: "all", label: "All open", hint: "Every open pull request" },
   { key: "blocked", label: "Needs action", hint: "Human changes requested, or major AI concerns remain" },
   { key: "stale", label: "Stale", hint: "Untouched for three days or more" },
 ];
+
+/**
+ * What the checks column says.
+ *
+ * `neutral` is not "fine" and must not read like it: a repository with no CI
+ * has not passed anything. Null is a fourth state again — nobody has read a
+ * rollup for this head — and calling that "no checks" would be inventing a
+ * fact about the repository out of a fact about Komodo.
+ */
+const CHECKS_LABEL: Record<ChecksState, string> = {
+  passing: "Passing",
+  failing: "Failing",
+  pending: "Running",
+  neutral: "No checks",
+};
+
+/** Why a row is on the easy-wins list, in the words the screen uses. */
+const SIGNAL_LABEL: Record<EasyWinSignal, string> = {
+  small: "small",
+  few_files: "few files",
+  checks_green: "checks green",
+  brief_ready: "brief ready",
+  no_concerns: "no open concerns",
+};
 
 const AI_STATE_LABEL: Record<QueueRow["aiState"], string> = {
   not_requested: "Not requested",
@@ -94,6 +125,9 @@ export function QueueView() {
 
   const [search, setSearch] = React.useState("");
   const lens = (get("lens") as QueueLens | null) ?? "mine";
+  // In the URL like every other view state, so a link opens on the row being
+  // discussed rather than on a collapsed table. AGENTS.md rule 8.
+  const openRow = get("open");
   const active: Record<string, string> = {};
   for (const key of ["author", "repo"]) {
     const value = get(key);
@@ -197,16 +231,17 @@ export function QueueView() {
           <THead>
             <tr>
               <TH>Pull request</TH>
-              <TH className="w-[140px]">AI preflight</TH>
-              <TH className="w-[140px]">Verification</TH>
-              <TH className="w-[150px]">Human review</TH>
-              <TH className="w-[104px]">Size</TH>
-              <TH className="w-[132px]">Waiting</TH>
+              <TH className="w-[124px]">Checks</TH>
+              <TH className="w-[132px]">AI preflight</TH>
+              <TH className="w-[132px]">Verification</TH>
+              <TH className="w-[144px]">Human review</TH>
+              <TH className="w-[96px]">Size</TH>
+              <TH className="w-[124px]">Waiting</TH>
             </tr>
           </THead>
           <tbody>
             {rows.length === 0 ? (
-              <EmptyRow colSpan={6}>
+              <EmptyRow colSpan={7}>
                 {emptyMessage(lens, {
                   identified: me !== null,
                   teammates: members.length,
@@ -214,8 +249,14 @@ export function QueueView() {
               </EmptyRow>
             ) : (
               rows.map((row) => (
-                  <QueueRowCells key={row.id} row={row} orgSlug={org.slug} />
-                ))
+                <QueueRowCells
+                  key={row.id}
+                  row={row}
+                  orgSlug={org.slug}
+                  expanded={openRow === row.id}
+                  onToggle={() => set({ open: openRow === row.id ? null : row.id })}
+                />
+              ))
             )}
           </tbody>
         </DataTable>
@@ -256,6 +297,11 @@ function emptyMessage(
         return "This shows pull requests by a teammate, or ones GitHub asked you to review. The roster is just you — add your team under Settings → Team Members.";
       }
       return "Nothing is waiting on you.";
+    case "easy":
+      // Deliberately does not enumerate why. The list is filtered as well as
+      // gated, so "every open pull request has a failing build" is a sentence
+      // that can be flatly untrue while this message is on screen.
+      return "Nothing here is a quick win. This lens only shows pull requests with a green build, a finished brief, and nothing outstanding.";
     case "blocked":
       return "Nothing is blocked.";
     case "stale":
@@ -265,15 +311,38 @@ function emptyMessage(
   }
 }
 
-function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
+function QueueRowCells({
+  row,
+  orgSlug,
+  expanded,
+  onToggle,
+}: {
+  row: QueueRow;
+  orgSlug: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const now = useNow();
   const requestAIReview = useRequestAIReview();
   const [requesting, startRequest] = React.useTransition();
 
   return (
+    <>
     <TR>
       <TD className="py-3">
         <div className="flex items-start gap-2">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-controls={`queue-detail-${row.id}`}
+            aria-label={expanded ? "Hide details" : "Show details"}
+            className="mt-0.5 rounded-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--accent))]"
+          >
+            <ChevronRight
+              className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")}
+            />
+          </button>
           <Avatar seed={row.author} label={row.author} size={16} className="mt-0.5" />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -323,6 +392,9 @@ function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
             ) : null}
           </div>
         </div>
+      </TD>
+      <TD>
+        <ChecksCell row={row} />
       </TD>
       <TD>
         {row.aiState === "completed" ? (
@@ -421,6 +493,147 @@ function QueueRowCells({ row, orgSlug }: { row: QueueRow; orgSlug: string }) {
         </span>
         <div className="mt-1 text-xs text-muted-foreground">
           {plural(row.changedFiles, "file")}
+        </div>
+      </TD>
+    </TR>
+    {expanded ? <QueueRowDetail row={row} /> : null}
+    </>
+  );
+}
+
+/**
+ * The checks cell.
+ *
+ * Four states and a null, and the null is the one that matters: nobody has
+ * read a rollup for this head. Rendering that as "no checks" would turn a fact
+ * about Komodo into a claim about the repository, and rendering it as anything
+ * green would be worse. So it says nothing at all.
+ *
+ * The second line carries the age, not a count. Counts only exist for a commit
+ * whose individual checks somebody paid to look up, and a queue that printed
+ * "0 passed" for the rest would be inventing numbers — while "how long ago was
+ * this true" is a question every row can answer and every reader needs.
+ */
+function ChecksCell({ row }: { row: QueueRow }) {
+  const now = useNow();
+  const checks = row.checks;
+  if (!checks) {
+    return (
+      <span className="text-xs text-muted-foreground" title="No check rollup has been read for this commit">
+        —
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <StatusPill
+        tone={
+          checks.state === "passing"
+            ? "success"
+            : checks.state === "failing"
+              ? "error"
+              : checks.state === "pending"
+                ? "warn"
+                : "default"
+        }
+      >
+        {CHECKS_LABEL[checks.state]}
+      </StatusPill>
+      <div className="mt-1 text-xs text-muted-foreground">
+        {checks.failing.length > 0
+          ? `${plural(checks.failing.length, "check")} failing`
+          : relativeTime(checks.observedAt, now)}
+      </div>
+    </>
+  );
+}
+
+/**
+ * What is behind the row.
+ *
+ * The queue's columns answer "which one do I pick up". This answers the next
+ * question — "what is actually wrong with it" — without making somebody open
+ * GitHub in another tab to find out which check went red.
+ */
+function QueueRowDetail({ row }: { row: QueueRow }) {
+  const now = useNow();
+
+  return (
+    <TR>
+      <TD colSpan={7} id={`queue-detail-${row.id}`} className="bg-muted-accent/30 py-3">
+        <div className="flex flex-wrap gap-x-10 gap-y-4 pl-6 text-xs">
+          <section>
+            <h3 className="label-mono mb-1.5 text-[10px] text-muted-foreground">
+              Checks
+            </h3>
+            {!row.checks ? (
+              <p className="text-muted-foreground">
+                No check rollup has been read for {row.headSha.slice(0, 7)} yet.
+              </p>
+            ) : row.checks.failing.length > 0 ? (
+              <ul className="space-y-0.5">
+                {row.checks.failing.map((name) => (
+                  <li key={name} className="flex items-center gap-1.5">
+                    <XCircle className="h-3 w-3 shrink-0 text-[hsl(var(--error))]" />
+                    <span>{name}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground">
+                {/* "this commit", not "this repository": the rollup describes
+                    one commit, and a commit can have no checks because the
+                    workflows have not dispatched yet or its paths filters
+                    excluded it. */}
+                {row.checks.state === "neutral"
+                  ? `Nothing ran against ${row.headSha.slice(0, 7)}.`
+                  : row.checks.state === "failing"
+                    ? "Failing. The names of the failing checks have not been read."
+                    : `${CHECKS_LABEL[row.checks.state]}${
+                        row.checks.total === null ? "" : ` · ${row.checks.total} checks`
+                      }`}{" "}
+                · read {relativeTime(row.checks.observedAt, now)}
+              </p>
+            )}
+          </section>
+
+          <section>
+            <h3 className="label-mono mb-1.5 text-[10px] text-muted-foreground">
+              Verification
+            </h3>
+            <p className="text-muted-foreground">
+              {row.verificationSummary?.required
+                ? `${row.verificationSummary.requiredVerified} of ${row.verificationSummary.required} required checks verified.`
+                : VERIFICATION_LABEL[row.verificationState]}
+            </p>
+          </section>
+
+          <section>
+            <h3 className="label-mono mb-1.5 text-[10px] text-muted-foreground">
+              Reviewers
+            </h3>
+            <p className="text-muted-foreground">
+              {row.humanApprovals.length > 0
+                ? `Approved by ${row.humanApprovals.join(", ")}.`
+                : row.requestedReviewers.length > 0
+                  ? `Asked: ${row.requestedReviewers.join(", ")}.`
+                  : "Nobody has been asked yet."}
+            </p>
+          </section>
+
+          {row.easyWin ? (
+            <section>
+              <h3 className="label-mono mb-1.5 text-[10px] text-muted-foreground">
+                Why this is a quick one
+              </h3>
+              <p className="text-muted-foreground">
+                {row.easyWin.signals.length > 0
+                  ? row.easyWin.signals.map((s) => SIGNAL_LABEL[s]).join(" · ")
+                  : "Nothing is blocking it."}
+              </p>
+            </section>
+          ) : null}
         </div>
       </TD>
     </TR>

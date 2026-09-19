@@ -108,6 +108,76 @@ export interface InlineComment {
   body: string;
 }
 
+/** A comment on the pull request itself, rather than on a line of the diff. */
+export interface IssueComment {
+  id: number;
+  author: string;
+  body: string;
+  html_url: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * A submitted review, with the body `listReviewDecisions` throws away.
+ *
+ * That method answers "who has signed off"; this one answers "what did they
+ * say", which is what a reader in Komodo actually wants to see.
+ */
+export interface SubmittedReview {
+  id: number;
+  author: string;
+  state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED" | "PENDING";
+  body: string;
+  html_url: string;
+  /** Null while a review is still a pending draft. */
+  submittedAt: number | null;
+}
+
+/**
+ * What a commit's checks add up to.
+ *
+ * `neutral` is not "fine" — it is "this commit has no checks", which is a
+ * different thing from every check passing and must not be shown as green.
+ */
+export type ChecksState = "passing" | "failing" | "pending" | "neutral";
+
+/**
+ * One pull request's check rollup: the state, and nothing that costs extra.
+ *
+ * `failing` starts empty and is filled in by `failingChecks` for the pull
+ * requests this says are red — see CHECK_ROLLUP_QUERY for why the names are
+ * not part of the same request.
+ */
+export interface CheckRollup {
+  number: number;
+  /** The commit the rollup describes. A rollup outlives the head it read. */
+  headSha: string;
+  state: ChecksState;
+  /** Names of the failing checks, once somebody has paid to look them up. */
+  failing: string[];
+}
+
+/** A commit's checks counted one by one — the expensive answer. */
+export interface CheckDetail {
+  state: ChecksState;
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  failing: string[];
+}
+
+/**
+ * The three things a human review can be.
+ *
+ * Deliberately not accepted by `postReview`: that method is what the automated
+ * pipeline calls and it hardcodes COMMENT, so no amount of caller confusion
+ * can make Komodo's reviewer approve a pull request. This vocabulary exists
+ * only for `submitHumanReview`, which a person drives with their own token.
+ */
+export type HumanReviewEvent = "COMMENT" | "REQUEST_CHANGES" | "APPROVE";
+
 const API = "https://api.github.com";
 
 export function resolveGithubToken(): string {
@@ -139,6 +209,18 @@ export function parsePRRef(input: string, cwd = process.cwd()): PRRef {
 
 /** Attempts per request, including the first. */
 const MAX_ATTEMPTS = 4;
+
+/**
+ * How long one HTTP call may take before it is abandoned.
+ *
+ * Undici's default header timeout is five minutes, and four attempts of that is
+ * twenty minutes for a single request — which is fine for a poller nobody is
+ * watching and intolerable for a page render, where it means a reader clicks a
+ * tab and the previous screen simply stays there. Ten seconds is longer than
+ * any healthy GitHub call and short enough that a hung socket is an error
+ * rather than a hang.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
 
 /**
  * The longest this will sit on a rate limit before giving up on the request.
@@ -211,6 +293,7 @@ export class GitHubClient {
       try {
         res = await fetch(`${API}${path}`, {
           method,
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
           headers: {
             Authorization: `Bearer ${this.token}`,
             Accept: "application/vnd.github+json",
@@ -507,6 +590,220 @@ export class GitHubClient {
     return out;
   }
 
+  /** Every comment on the pull request that is not anchored to the diff. */
+  async listIssueComments(ref: PRRef): Promise<IssueComment[]> {
+    const out: IssueComment[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const batch = await this.request<any[]>(
+        "GET",
+        `/repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments?per_page=100&page=${page}`,
+      );
+      out.push(
+        ...batch.map((c) => ({
+          id: c.id as number,
+          author: (c.user?.login ?? "unknown") as string,
+          body: (c.body ?? "") as string,
+          html_url: c.html_url as string,
+          createdAt: Date.parse(c.created_at),
+          updatedAt: Date.parse(c.updated_at ?? c.created_at),
+        })),
+      );
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  /** Every submitted review, with its body and state. */
+  async listReviews(ref: PRRef): Promise<SubmittedReview[]> {
+    const out: SubmittedReview[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const batch = await this.request<any[]>(
+        "GET",
+        `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews?per_page=100&page=${page}`,
+      );
+      out.push(
+        ...batch.map((r) => ({
+          id: r.id as number,
+          author: (r.user?.login ?? "unknown") as string,
+          state: r.state as SubmittedReview["state"],
+          body: (r.body ?? "") as string,
+          html_url: r.html_url as string,
+          submittedAt: r.submitted_at ? Date.parse(r.submitted_at) : null,
+        })),
+      );
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  /**
+   * What every open pull request's checks add up to, for one repository.
+   *
+   * Two points per page — see CHECK_ROLLUP_QUERY, where the arithmetic is
+   * spelled out, because an earlier version of this cost fifty times more and
+   * would have taken a deployment's whole GraphQL budget on one repository.
+   *
+   * The rollup carries a state and nothing else. `failingChecks` fills in the
+   * names for the pull requests this says are red, and the caller decides how
+   * many of those it is willing to pay for.
+   *
+   * Returns an empty map for a repository the token cannot see — no
+   * information, so the caller writes no rollup rather than a wrong one.
+   * Anything else throws, and the caller decides whether one broken repository
+   * is worth abandoning a pass over.
+   *
+   * A GraphQL response can carry good data and an error together — a
+   * repository readable but one pull request in it not — and this keeps what it
+   * was given. Discarding sixty rollups because the sixty-first was forbidden
+   * would be throwing away the answer to the question.
+   */
+  async checkRollups(owner: string, repo: string): Promise<Map<number, CheckRollup>> {
+    const out = new Map<number, CheckRollup>();
+    let cursor: string | null = null;
+
+    for (let page = 0; page < 10; page++) {
+      const answer: { data?: any; errors?: GraphqlError[] } =
+        await this.graphqlPartial<any>(CHECK_ROLLUP_QUERY, {
+          owner,
+          name: repo,
+          cursor,
+        });
+      const errors = answer.errors;
+      const connection: any = answer.data?.repository?.pullRequests;
+      if (!connection) {
+        // Nothing usable came back. A missing or invisible repository is the
+        // expected case and answers with an empty map; anything else is a
+        // failure the caller has to hear about.
+        if (errors?.length && !errors.some(isMissingRepository)) {
+          throw new Error(`GitHub GraphQL: ${errors.map((e) => e.message).join("; ")}`);
+        }
+        break;
+      }
+
+      for (const node of connection.nodes ?? []) {
+        const commit = node?.commits?.nodes?.[0]?.commit;
+        if (!commit?.oid || typeof node.number !== "number") continue;
+        const rollupState = commit.statusCheckRollup?.state;
+        out.set(node.number, {
+          number: node.number,
+          headSha: commit.oid,
+          // No rollup at all means the commit has no checks, which is a
+          // different fact from every check passing and must never render as
+          // one. A state GitHub has added and this client has not met is
+          // pending: guessing the alarming answer is still guessing.
+          state: commit.statusCheckRollup
+            ? ROLLUP_STATE[rollupState] ?? "pending"
+            : "neutral",
+          failing: [],
+        });
+      }
+
+      // `endCursor` can be null while `hasNextPage` is true. Following it
+      // re-requests page one — ten times, at full price, making no progress.
+      const next = connection.pageInfo?.hasNextPage
+        ? connection.pageInfo.endCursor
+        : null;
+      if (!next) break;
+      cursor = next;
+    }
+    return out;
+  }
+
+  /**
+   * The names of the checks failing on one commit, and how many there are.
+   *
+   * One point, and only worth spending on a commit the rollup already called
+   * red. Returns null when the detail could not be read, which the caller shows
+   * as a failure with no names rather than as a failure that has none.
+   */
+  async failingChecks(
+    owner: string,
+    repo: string,
+    oid: string,
+  ): Promise<CheckDetail | null> {
+    const answer = await this.graphqlPartial<any>(FAILING_CHECKS_QUERY, {
+      owner,
+      name: repo,
+      oid,
+    });
+    const contexts = answer.data?.repository?.object?.statusCheckRollup?.contexts;
+    if (!contexts) return null;
+    return tallyContexts(contexts.nodes ?? [], contexts.totalCount);
+  }
+
+  /**
+   * Submit a review as the token's own account.
+   *
+   * The counterpart to `postReview`, and separate from it on purpose. That one
+   * is what the automated pipeline calls and it can only ever COMMENT. This one
+   * takes the event as an argument because a person chose it, and it is only
+   * reachable from a surface that has that person's own credentials — an
+   * approval on GitHub has to name whoever actually approved.
+   */
+  async submitHumanReview(
+    ref: PRRef,
+    input: { event: HumanReviewEvent; body: string; headSha?: string },
+  ): Promise<{ html_url: string; state: string; id: number }> {
+    return this.request(
+      "POST",
+      `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
+      {
+        ...(input.headSha ? { commit_id: input.headSha } : {}),
+        body: input.body,
+        event: input.event,
+      },
+    );
+  }
+
+  /** Add a comment to the pull request conversation. */
+  async createIssueComment(ref: PRRef, body: string): Promise<IssueComment> {
+    const c = await this.request<any>(
+      "POST",
+      `/repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`,
+      { body },
+    );
+    return {
+      id: c.id,
+      author: c.user?.login ?? "unknown",
+      body: c.body ?? "",
+      html_url: c.html_url,
+      createdAt: Date.parse(c.created_at),
+      updatedAt: Date.parse(c.updated_at ?? c.created_at),
+    };
+  }
+
+  /** Reply to an existing inline comment, keeping the thread together. */
+  async replyToReviewComment(
+    ref: PRRef,
+    commentId: number,
+    body: string,
+  ): Promise<ReviewComment> {
+    return this.request(
+      "POST",
+      `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/comments/${commentId}/replies`,
+      { body },
+    );
+  }
+
+  /**
+   * One GraphQL query, with whatever it answered.
+   *
+   * GraphQL replies 200 with an `errors` array rather than a status code, and —
+   * unlike REST — it can put data and errors in the same response. Throwing on
+   * any error at all would discard perfectly good rows because one node in the
+   * result was forbidden, so the decision belongs to the caller, which is the
+   * only place that knows whether a partial answer is worth having.
+   */
+  private async graphqlPartial<T>(
+    query: string,
+    variables: Record<string, unknown>,
+  ): Promise<{ data?: T; errors?: GraphqlError[] }> {
+    return this.request<{ data?: T; errors?: GraphqlError[] }>("POST", "/graphql", {
+      query,
+      variables,
+    });
+  }
+
   /** Create or update the marker-tagged walkthrough comment. */
   async upsertWalkthroughComment(ref: PRRef, marker: string, body: string): Promise<{ html_url: string }> {
     const comments = await this.request<any[]>(
@@ -543,6 +840,212 @@ export class GitHubClient {
       description: description.slice(0, 140),
     });
   }
+}
+
+interface GraphqlError {
+  message: string;
+  type?: string;
+}
+
+/**
+ * A repository this token cannot see, as opposed to a query that went wrong.
+ *
+ * GitHub says the same thing for "does not exist" and "exists, and you may not
+ * know that" — deliberately, and the distinction is not one a poller needs.
+ * Either way there is nothing to read and no rollup to write.
+ */
+function isMissingRepository(error: GraphqlError): boolean {
+  return error.type === "NOT_FOUND" || /Could not resolve to a Repository/i.test(error.message);
+}
+
+/**
+ * Every open pull request's head commit and the one word its checks add up to.
+ *
+ * The shape of this query is the whole cost story, so it is worth being exact.
+ * GitHub prices a GraphQL query from the `first`/`last` arguments on its
+ * connections, before it runs: the node count is the product down each path,
+ * divided by 100. An earlier version of this asked for each commit's hundred
+ * check contexts —
+ *
+ *     pullRequests(first:100)                  →     100
+ *       commits(last:1)          100 × 1       →     100
+ *         contexts(first:100)    100 × 1 × 100 →  10,000
+ *                                  10,200 / 100 = 102 points
+ *
+ * — against an hourly budget of 5,000. One repository on a one-minute poll
+ * would have spent 6,120 points an hour: the entire budget, for one repository,
+ * every hour, forever. That is not a tuning problem, it is the wrong query.
+ *
+ * `statusCheckRollup { state }` is a single object with a scalar on it, so it
+ * adds no nodes at all:
+ *
+ *     pullRequests(first:100)                  →     100
+ *       commits(last:1)          100 × 1       →     100
+ *                                     200 / 100 = 2 points
+ *
+ * That answers the only question the queue column asks — is this green, red, or
+ * still running. The names of the failing checks cost more, so they are fetched
+ * separately and only for the pull requests that are actually red, which is a
+ * small minority of any repository. See `failingChecks`.
+ *
+ * Ordered by CREATED_AT descending. Descending because the ten-page cap means a
+ * repository with more than a thousand open pull requests gets partial
+ * coverage, and the newest are the ones under review — ascending spent the
+ * whole budget on the stalest half. CREATED_AT rather than UPDATED_AT because
+ * this pages with a cursor, and a sort key that changes while the pages are
+ * being read moves rows between them.
+ */
+const CHECK_ROLLUP_QUERY = `
+query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        commits(last: 1) {
+          nodes { commit { oid statusCheckRollup { state } } }
+        }
+      }
+    }
+  }
+}`;
+
+/**
+ * The failing checks on one commit, by name.
+ *
+ * A second query, for the pull requests the cheap one said were red. It costs
+ * 1 point — one commit, one contexts connection of 100 — and it only runs for
+ * a failing pull request, which is a handful per repository rather than all of
+ * them.
+ */
+const FAILING_CHECKS_QUERY = `
+query($owner: String!, $name: String!, $oid: GitObjectID!) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $oid) {
+      ... on Commit {
+        statusCheckRollup {
+          contexts(first: 100) {
+            totalCount
+            nodes {
+              __typename
+              ... on CheckRun { name conclusion status }
+              ... on StatusContext { context state }
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+/**
+ * GitHub's rollup vocabulary, folded into Komodo's.
+ *
+ * `EXPECTED` is a status somebody declared and no system has answered yet, so
+ * it is pending in the sense the column means. A rollup that is absent entirely
+ * — no checks on this commit — is handled by the caller, because null is not a
+ * state.
+ */
+const ROLLUP_STATE: Record<string, ChecksState> = {
+  SUCCESS: "passing",
+  FAILURE: "failing",
+  ERROR: "failing",
+  PENDING: "pending",
+  EXPECTED: "pending",
+};
+
+/**
+ * Conclusions that finished without blocking anything.
+ *
+ * Skipped and neutral runs count as passed: they are not going to stop a merge,
+ * and calling them pending would leave a queue row spinning forever on a check
+ * that already finished.
+ */
+const PASSING_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
+
+/**
+ * Conclusions that are a real failure, named exhaustively.
+ *
+ * Listed rather than inferred as "everything else" — see `tallyContexts` for
+ * why the difference matters. `CANCELLED` is here because a required check that
+ * was cancelled did not pass, and a merge waits on it either way.
+ */
+const FAILING_CONCLUSIONS = new Set([
+  "FAILURE",
+  "TIMED_OUT",
+  "CANCELLED",
+  "ACTION_REQUIRED",
+  "STARTUP_FAILURE",
+]);
+
+/**
+ * Fold a commit's check contexts into one answer.
+ *
+ * A check run and a commit status say the same thing in two vocabularies, and
+ * both appear in the same list.
+ *
+ * Both the passing and the failing sets are named exhaustively, and anything in
+ * neither is counted as pending. That asymmetry is deliberate. The obvious
+ * shape — "these pass, everything else fails" — means GitHub adding one enum
+ * value, or Komodo meeting a `STALE` run it had not thought about, puts a red
+ * build on a queue row and names a check as broken that is not. Guessing the
+ * alarming answer is still guessing, and the store's own rule for this data
+ * (see readChecks) is that an unknown state is admitted rather than invented.
+ * A wrongly-pending check reads as "not finished yet", which is the honest
+ * description of a value nobody here understands.
+ */
+function tallyContexts(nodes: any[], totalCount?: number): CheckDetail {
+  let passed = 0;
+  let failed = 0;
+  let pending = 0;
+  const failing: string[] = [];
+
+  for (const node of nodes) {
+    if (node?.__typename === "CheckRun") {
+      const name = (node.name ?? "check") as string;
+      // A run GitHub has superseded describes a commit state that no longer
+      // applies. GitHub leaves it out of its own rollup; so does this.
+      if (node.conclusion === "STALE") continue;
+      // Not finished. `status` is the authority on that, and a run can carry a
+      // status of QUEUED or IN_PROGRESS with no conclusion at all.
+      if (node.conclusion == null || node.status !== "COMPLETED") {
+        pending++;
+        continue;
+      }
+      if (PASSING_CONCLUSIONS.has(node.conclusion)) passed++;
+      else if (FAILING_CONCLUSIONS.has(node.conclusion)) {
+        failed++;
+        failing.push(name);
+      } else pending++;
+    } else if (node?.__typename === "StatusContext") {
+      const name = (node.context ?? "status") as string;
+      if (node.state === "SUCCESS") passed++;
+      else if (node.state === "FAILURE" || node.state === "ERROR") {
+        failed++;
+        failing.push(name);
+      } else pending++;
+    } else {
+      // A union member this client does not know. Counting it would be a
+      // guess; skipping it is worse than a guess, because a commit whose only
+      // context is unrecognised would then come back as `neutral` — which this
+      // vocabulary defines as "no checks at all".
+      pending++;
+    }
+  }
+
+  // More contexts than the page returned. Nothing here can say what is in the
+  // part that was not read, and the one answer that must never be given on
+  // incomplete information is "passing".
+  const truncated = typeof totalCount === "number" && totalCount > nodes.length;
+  if (truncated) pending += totalCount - nodes.length;
+
+  const total = passed + failed + pending;
+  const state: ChecksState =
+    total === 0 ? "neutral" : failed > 0 ? "failing" : pending > 0 ? "pending" : "passing";
+  // Deduplicated: GitHub genuinely repeats a context name — two workflows with
+  // the same job name, or a re-run — and a list with repeats is a list a UI
+  // cannot key on.
+  return { state, total, passed, failed, pending, failing: [...new Set(failing)] };
 }
 
 export function judgementToComment(j: Judgement, body: string): InlineComment {

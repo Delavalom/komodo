@@ -1,4 +1,5 @@
 export { applyTeamConfig, type TeamSyncResult } from "./config-sync.js";
+export { recordContextSources, toSharedContextRecord } from "./context-sync.js";
 export {
   createCheckout,
   type CheckoutOptions,
@@ -42,6 +43,10 @@ export {
   toReview,
   toSkippedJudgment,
 } from "./map.js";
+export {
+  fetchConversation,
+  type ConversationEntry,
+} from "./conversation.js";
 export { recordReview, type RecordReviewResult } from "./record.js";
 export {
   fetchIssueContext,
@@ -54,3 +59,9 @@ export {
   type SelectMemoriesInput,
   type SelectedMemories,
 } from "./memory.js";
+export {
+  pollWatches,
+  WATCH_INTERVAL_MS,
+  type WatchPollOptions,
+  type WatchPollResult,
+} from "./watch.js";

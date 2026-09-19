@@ -8,6 +8,7 @@
  * Timestamps are epoch milliseconds. They survive JSON and the RSC boundary
  * unchanged, and `date-fns` in the UI takes them directly.
  */
+import type { DiagramSpec } from "@komodo/diagram";
 
 export type ImpactLevel = "low" | "medium" | "high" | "critical";
 
@@ -112,6 +113,50 @@ export interface Repository {
 }
 
 /**
+ * What a commit's checks add up to.
+ *
+ * `neutral` means the commit has no checks at all, which is a different fact
+ * from every check passing. Rendering the two the same way would tell a
+ * reviewer a repository with no CI has a green build.
+ */
+export type ChecksState = "passing" | "failing" | "pending" | "neutral";
+
+/**
+ * One observation of a pull request's check rollup.
+ *
+ * Carries the commit it describes, because a rollup outlives the head it was
+ * read from: a push lands, the row's `headSha` moves, and the last rollup now
+ * describes a commit that is no longer what would merge. Readers drop it
+ * rather than show it — an unknown build state is honest, and a stale green
+ * one is the single most dangerous thing this column could say.
+ */
+export interface PullRequestChecks {
+  headSha: string;
+  /**
+   * What the checks add up to, as GitHub said it.
+   *
+   * Observed rather than derived: the cheap query that answers this for a whole
+   * repository at once returns the rollup's own state and no counts, because
+   * asking for the individual checks costs fifty times more. So this is the
+   * fact, and the counts below are the elaboration.
+   */
+  state: ChecksState;
+  /**
+   * Names of the failing checks, when somebody has paid to look them up.
+   *
+   * Empty for a passing commit, and empty for a failing one whose detail has
+   * not been fetched — which is why a row says "failing" without names rather
+   * than claiming there are none.
+   */
+  failing: string[];
+  /** How many checks there are, once counted. Null until the detail is read. */
+  total: number | null;
+  passed: number | null;
+  pending: number | null;
+  observedAt: number;
+}
+
+/**
  * Git facts about the pull request under judgment. Never Komodo's opinion —
  * the poller owns every field here, and a re-review never rewrites them.
  *
@@ -137,6 +182,15 @@ export interface PullRequest {
   createdAt: number;
   updatedAt: number;
   mergedAt: number | null;
+  /**
+   * The last check rollup observed for this pull request's current head.
+   *
+   * Null when none has been observed, when the token could not read one, or
+   * when the head has moved past the one the rollup describes. Written by
+   * `recordPullRequestChecks` rather than by the listing upsert, so a poller
+   * pass that only re-reads inventory cannot blank it.
+   */
+  checks: PullRequestChecks | null;
 }
 
 /**
@@ -175,6 +229,120 @@ export interface Judgment {
   createdAt: number;
   updatedAt: number;
   mergedAt: number | null;
+}
+
+/**
+ * Where a comment sits on the pull request.
+ *
+ * `issue` is the conversation tab, `review` is anchored to a line of the diff,
+ * and `review_summary` is the body someone typed when they submitted a review.
+ * Three GitHub endpoints, one reading order.
+ */
+export type PullRequestCommentKind = "issue" | "review" | "review_summary";
+
+/**
+ * One comment GitHub holds, cached so Komodo can show the conversation.
+ *
+ * Not Komodo's data and never edited here: the cache is replaced wholesale on
+ * each fetch, so an edited or deleted comment on GitHub stops existing here
+ * too rather than living on as a row nothing can reconcile.
+ */
+export interface PullRequestComment {
+  /** `${prId}:${kind}:${externalId}` — derived, so a refetch replaces. */
+  id: string;
+  prId: string;
+  kind: PullRequestCommentKind;
+  /** GitHub's own id. What threading and replies are keyed on. */
+  externalId: number;
+  /** The inline comment this replies to, when it is a reply. */
+  inReplyToId: number | null;
+  author: string;
+  body: string;
+  /** Inline comments only. */
+  path: string | null;
+  line: number | null;
+  /** APPROVED, CHANGES_REQUESTED, COMMENTED — for a review summary only. */
+  state: string | null;
+  url: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * A pull request's cached conversation, and when it was read.
+ *
+ * The timestamp is the point of the row: a pull request with no comments still
+ * has to record that somebody looked, or every empty conversation is re-fetched
+ * from GitHub on every view forever.
+ */
+export interface PullRequestConversation {
+  prId: string;
+  observedAt: number;
+  comments: PullRequestComment[];
+}
+
+/**
+ * Whether watching a pull request just surfaces new comments, or also asks
+ * Claude to draft a response.
+ *
+ * Never a third option that pushes or posts anything: the reviewer prepares,
+ * it does not act — see AGENTS.md rule 15. A draft is text a person reads and
+ * decides what to do with, the same as any other judgement.
+ */
+export type WatchMode = "notify" | "notify_and_draft";
+
+/**
+ * One person's subscription to one pull request's conversation.
+ *
+ * `id` is derived from `(prId, memberId)` rather than generated, the same
+ * reason a pull request's id is `${repoId}#${number}`: watching again is then
+ * an upsert instead of a second row, and a restart cannot duplicate one.
+ *
+ * `lastSeenExternalId` is the watermark the ingester checks new comments
+ * against — GitHub's own comment id, not a count, because a count says
+ * nothing about which comments are already accounted for.
+ */
+export interface PullRequestWatch {
+  id: string;
+  prId: string;
+  memberId: string;
+  mode: WatchMode;
+  createdAt: number;
+  lastSeenExternalId: number | null;
+  lastSeenAt: number | null;
+}
+
+/** Whether a triaged comment was worth a person's attention. */
+export type WatchTriageVerdict = "worth_addressing" | "not_worth_addressing";
+
+/**
+ * One comment on a watched pull request, and what Claude made of it.
+ *
+ * Append-only, unlike the watch it belongs to: a watch is a preference and is
+ * edited in place, but a triaged comment is a thing that happened, and the
+ * queue built from these is a history a person clears one row at a time
+ * rather than a single mutable "latest" fact.
+ *
+ * `draftResponse` and `draftPatchSummary` are prose only — a suggested reply
+ * and a description of a fix, never a diff and never posted anywhere. Nothing
+ * in this row can reach GitHub on its own; only a person acting on it can.
+ */
+export interface PullRequestWatchEvent {
+  id: string;
+  watchId: string;
+  prId: string;
+  commentExternalId: number;
+  commentKind: PullRequestCommentKind;
+  commentAuthor: string;
+  commentBody: string;
+  commentUrl: string;
+  verdict: WatchTriageVerdict;
+  reasoning: string;
+  draftResponse: string | null;
+  draftPatchSummary: string | null;
+  createdAt: number;
+  seenAt: number | null;
+  dismissedAt: number | null;
 }
 
 /** One issue raised inside a judgment. */
@@ -338,8 +506,8 @@ export interface Review {
   effort: number;
   /** One line justifying the confidence score. */
   verdictLine: string;
-  /** Mermaid sequenceDiagram source, when the run produced one. */
-  diagram: string | null;
+  /** Structured diagram (sequence/flowchart/state/er), when the run produced one. */
+  diagram: DiagramSpec | null;
   /** The `.komodo/reviews/<id>.json` this row was built from. */
   recordId: string;
   /**
@@ -504,6 +672,32 @@ export interface Integration {
   lastError: string | null;
 }
 
+/* ── Personal GitHub credentials ─────────────────────────────────────────── */
+
+/**
+ * One roster member's own GitHub token, minus the token.
+ *
+ * Komodo's deployment token posts Komodo's own comments, and that is right for
+ * them: they are Komodo's. A human review is not. An approval submitted with a
+ * shared token names the shared account on GitHub's record, and "the bot
+ * approved it" is not an audit trail anybody can use — so a person who wants
+ * to review from this UI connects their own credential and GitHub records the
+ * person.
+ *
+ * `login` is read back from GitHub at connect time rather than typed: a token
+ * that belongs to a different account than the member claims would file that
+ * person's reviews under someone else's name, and only GitHub can settle which
+ * account a token is.
+ */
+export interface MemberGithubIdentity {
+  memberId: string;
+  /** The account the token authenticates as, per GET /user. */
+  login: string;
+  connectedAt: number;
+  /** Why the last use failed — a revoked or expired token, typically. */
+  lastError: string | null;
+}
+
 /* ── API keys ────────────────────────────────────────────────────────────── */
 
 /**
@@ -568,6 +762,48 @@ export interface RepoCluster {
   name: string;
   memberRepoIds: string[];
   createdAt: number;
+}
+
+/**
+ * One markdown file read out of a shared context source, as recorded for the
+ * Cross-repo context screen. No body: the screen shows what was read, not the
+ * text itself, the same way `MemoryRuleUse.paths` names files without their
+ * contents.
+ */
+export interface SharedContextFileRecord {
+  path: string;
+  label: string;
+  description: string | null;
+  repos: string[];
+  clusters: string[];
+  globs: string[];
+  chars: number;
+  truncated: boolean;
+  warning: string | null;
+}
+
+/** One `context.sources` entry from komodo.yaml, as last resolved. */
+export interface SharedContextSourceRecord {
+  type: "path";
+  name: string;
+  configuredPath: string;
+  root: string;
+  repos: string[];
+  clusters: string[];
+  ok: boolean;
+  error: string | null;
+  files: SharedContextFileRecord[];
+}
+
+/**
+ * What `context.sources` resolved to on the last pass. Stored whole under one
+ * meta key — see `META_CONTEXT_SOURCES` — and replaced wholesale every time,
+ * the same as `lastDiscoveryError`.
+ */
+export interface SharedContextRecord {
+  version: 1;
+  resolvedAt: number;
+  sources: SharedContextSourceRecord[];
 }
 
 /**

@@ -44,7 +44,7 @@ export function DecisionQueue({
   judgements,
   answers,
   votes,
-  prUrl,
+  currentHeadSha,
   verificationRequirements,
   verifications,
 }: {
@@ -52,7 +52,8 @@ export function DecisionQueue({
   judgements: ReviewJudgement[];
   answers: Answer[];
   votes: JudgementVote[];
-  prUrl: string;
+  /** The pull request's head now — a run may have been read from an older one. */
+  currentHeadSha: string;
   verificationRequirements: VerificationRequirement[];
   verifications: VerificationEntry[];
 }) {
@@ -100,14 +101,22 @@ export function DecisionQueue({
   const surface = useRef<HTMLDivElement>(null);
   useMountEffect(useCallback(() => surface.current?.focus(), []));
 
+  // A run with no judgements still ends somewhere, and that somewhere is the
+  // closing screen — it holds the verification tally and the GitHub review
+  // button. Returning a dead end here meant the cleanest pull requests, the
+  // ones a person most wants to open and approve, were the only ones with no
+  // way to submit a review from Komodo at all.
   if (!judgements.length) {
     return (
-      <div className="p-8 text-sm text-muted-foreground">
-        This run raised nothing to judge.{" "}
-        <a href={prUrl} target="_blank" rel="noreferrer" className="underline">
-          Open the pull request
-        </a>
-      </div>
+      <ClosingScreen
+        review={review}
+        judgements={judgements}
+        answers={answers}
+        verificationRequirements={verificationRequirements}
+        verifications={verifications}
+        currentHeadSha={currentHeadSha}
+        onBack={() => set({ j: null })}
+      />
     );
   }
 
@@ -168,7 +177,20 @@ export function DecisionQueue({
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.target instanceof HTMLTextAreaElement) return;
+    // Anything the reader is typing into, or any control they have tabbed to,
+    // owns its own keys. A textarea was the only exemption, which meant one
+    // ArrowLeft on the way to the submit button paged the whole screen away
+    // and took the drafted review body with it.
+    const target = event.target as HTMLElement | null;
+    if (
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLSelectElement ||
+      target?.isContentEditable ||
+      target instanceof HTMLButtonElement
+    ) {
+      return;
+    }
     if (event.key === "ArrowRight") go(ordinal + 1);
     else if (event.key === "ArrowLeft") go(ordinal - 1);
     else if (event.key === "u" && current) void withdraw();
@@ -201,6 +223,7 @@ export function DecisionQueue({
           answers={answers}
           verificationRequirements={verificationRequirements}
           verifications={verifications}
+          currentHeadSha={currentHeadSha}
           onBack={() => go(last - 1)}
         />
       ) : (

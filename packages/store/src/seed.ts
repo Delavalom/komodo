@@ -9,6 +9,7 @@
  * Everything derives from a string-seeded PRNG, so re-seeding twice produces
  * byte-identical rows and two runs stay comparable.
  */
+import type { DiagramSpec } from "@komodo/diagram";
 import { DAY_MS, pick, rng } from "./rand.js";
 import type { FindingInput, KomodoStore, ReviewInput } from "./port.js";
 import type {
@@ -39,6 +40,16 @@ const REPO_NAMES = [
   "7exchange-waitlist",
   "61149",
 ] as const;
+
+/** Names a CI job could plausibly have. Only failing ones are ever shown. */
+const CHECK_NAMES = [
+  "build",
+  "unit tests",
+  "typecheck",
+  "lint",
+  "e2e / chromium",
+  "coverage",
+];
 
 const AUTHORS = [
   "Delavalom",
@@ -427,6 +438,42 @@ export async function seedStore(
       mergedAt: merged ? updatedAt : null,
     });
 
+    // Checks, through the same writer the poller uses. Written for open pull
+    // requests only, because a merged one's rollup describes a commit that is
+    // no longer anybody's problem — and a share of them are left unread, which
+    // is what a real deployment looks like a minute after a push lands.
+    if (state === "open" && next() > 0.12) {
+      const roll = next();
+      // All four states are reachable, and `neutral` deliberately so: a
+      // repository with no CI is the one state every comment in this feature
+      // calls the dangerous one to get wrong, and a dataset that cannot
+      // produce it is a dataset that never shows anybody the bug.
+      const checksState =
+        roll < 0.12 ? "neutral" : roll < 0.3 ? "failing" : roll < 0.46 ? "pending" : "passing";
+      const failed = checksState === "failing" ? 1 + Math.floor(next() * 2) : 0;
+      const pending = checksState === "pending" ? 1 + Math.floor(next() * 2) : 0;
+      const passed = checksState === "neutral" ? 0 : Math.floor(next() * 4);
+      // Names are what the detail fetch returns, and it only runs for a
+      // failing commit — so a passing row has counts and no names, and an
+      // unfetched one would have neither.
+      const failing = [...new Set(
+        Array.from({ length: failed }, () => pick(next, CHECK_NAMES)),
+      )];
+      await store.recordPullRequestChecks(prId, {
+        headSha,
+        state: checksState,
+        failing,
+        total: checksState === "neutral" ? 0 : passed + pending + failing.length,
+        passed: checksState === "neutral" ? 0 : passed,
+        pending: checksState === "neutral" ? 0 : pending,
+        // When Komodo *read* the rollup, not when the pull request last
+        // changed. Stamping it with `updatedAt` looked reasonable and meant
+        // every row older than a day was dropped by the staleness rule — a
+        // seeded queue of fifty-five pull requests showed checks on four.
+        observedAt: now - Math.floor(next() * 4 * 60_000),
+      });
+    }
+
     const judgmentId = await store.upsertJudgment({
       prId,
       headSha,
@@ -592,6 +639,105 @@ function buildJudgements(judgmentId: string): SeededJudgement[] {
   return out;
 }
 
+/**
+ * One representative spec per supported diagram type, so `komodo dev`'s
+ * queue actually exercises the diagram renderer instead of always showing
+ * an empty section. A real reviewer picks a type per change; this dataset
+ * just needs each type to appear at least once across the seeded reviews.
+ */
+const SAMPLE_DIAGRAMS: DiagramSpec[] = [
+  {
+    type: "sequence",
+    actors: [
+      { id: "client", name: "Client" },
+      { id: "api", name: "API" },
+      { id: "auth", name: "Auth" },
+    ],
+    items: [
+      { kind: "message", message: { from: "client", to: "api", kind: "call", label: "GET /orders", headline: false } },
+      {
+        kind: "fragment",
+        fragment: {
+          kind: "alt",
+          regions: [
+            {
+              guard: "token valid",
+              messages: [{ from: "api", to: "client", kind: "return", label: "200 OK", headline: true }],
+            },
+            {
+              guard: "token expired",
+              messages: [
+                { from: "api", to: "auth", kind: "call", label: "refresh()", headline: false },
+                { from: "auth", to: "api", kind: "return", label: "new token", headline: false },
+                { from: "api", to: "client", kind: "return", label: "200 OK", headline: false },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    type: "flowchart",
+    nodes: [
+      { id: "start", kind: "start", label: "Start", headline: false },
+      { id: "check", kind: "decision", label: "Cart valid?", headline: false },
+      { id: "charge", kind: "step", label: "Charge card", headline: true },
+      { id: "reject", kind: "step", label: "Show error", headline: false },
+      { id: "end", kind: "end", label: "End", headline: false },
+    ],
+    edges: [
+      { from: "start", to: "check" },
+      { from: "check", to: "charge", label: "yes" },
+      { from: "check", to: "reject", label: "no" },
+      { from: "charge", to: "end" },
+      { from: "reject", to: "end" },
+    ],
+  },
+  {
+    type: "state",
+    states: [
+      { id: "pending", label: "Pending", initial: true, final: false, headline: false },
+      { id: "settled", label: "Settled", initial: false, final: true, headline: true },
+      { id: "failed", label: "Failed", initial: false, final: true, headline: false },
+    ],
+    transitions: [
+      { from: "pending", to: "settled", label: "capture succeeds" },
+      { from: "pending", to: "failed", label: "capture declines" },
+    ],
+  },
+  {
+    type: "er",
+    entities: [
+      {
+        id: "customer",
+        name: "Customer",
+        headline: false,
+        fields: [
+          { name: "id", type: "uuid", pk: true, fk: false },
+          { name: "email", type: "text", pk: false, fk: false },
+        ],
+      },
+      {
+        id: "order",
+        name: "Order",
+        headline: true,
+        fields: [
+          { name: "id", type: "uuid", pk: true, fk: false },
+          { name: "customer_id", type: "uuid", pk: false, fk: true },
+        ],
+      },
+    ],
+    relationships: [{ from: "customer", to: "order", label: "places", cardinality: "one-to-many" }],
+  },
+];
+
+function buildDiagram(seedKey: string): DiagramSpec | null {
+  const next = rng(`diagram:${seedKey}`);
+  if (next() < 0.5) return null;
+  return SAMPLE_DIAGRAMS[Math.floor(next() * SAMPLE_DIAGRAMS.length)];
+}
+
 function buildReview(args: {
   prId: string;
   headSha: string;
@@ -621,7 +767,7 @@ function buildReview(args: {
     verdictLine: judgements.length
       ? "Ready once the questions below are answered."
       : "Nothing here needs a decision.",
-    diagram: null,
+    diagram: buildDiagram(`${prId}@${headSha}`),
     recordId: `seed-${prId}@${headSha}`,
     files: paths.map((path) => ({
       path,

@@ -33,17 +33,28 @@ export type {
   MemoryStatus,
   JudgementSeverity,
   Member,
+  MemberGithubIdentity,
   MemberRole,
   Organization,
   OrgSettings,
+  ChecksState,
   PullRequest,
+  PullRequestChecks,
+  PullRequestComment,
+  PullRequestCommentKind,
+  PullRequestConversation,
   PullRequestState,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   RepoCluster,
   Repository,
   Review,
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,
+  SharedContextFileRecord,
+  SharedContextRecord,
+  SharedContextSourceRecord,
   VerificationEntry,
   VerificationRequirement,
   VerificationResult,
@@ -56,6 +67,8 @@ export type {
   Team,
   Verdict,
   WalkthroughEntry,
+  WatchMode,
+  WatchTriageVerdict,
 } from "./types.js";
 
 export type {
@@ -67,6 +80,7 @@ export type {
   QueueSnapshot,
   ReviewInput,
   VerificationInput,
+  WatchEventInput,
   StoreReader,
   StoreWriter,
 } from "./port.js";
@@ -74,12 +88,21 @@ export type {
 export { verdictFor } from "./verdict.js";
 export { pickActor } from "./actor.js";
 export { needsReviewFrom, type QueueLensViewer } from "./queue-lens.js";
+export { readChecks, type StoredChecks } from "./checks.js";
 export {
+  easyWin,
+  type EasyWin,
+  type EasyWinInput,
+  type EasyWinSignal,
+} from "./easy-win.js";
+export {
+  META_CONTEXT_SOURCES,
   META_DISCOVERY_REQUESTED_AT,
   META_LAST_DISCOVERY_AT,
   META_LAST_DISCOVERY_ERROR,
   META_LAST_POLL_AT,
   META_LAST_POLL_ERROR,
   META_SETTINGS_INITIALIZED,
+  META_WATCH_LAST_CHECKED_AT,
 } from "./meta.js";
 export { DEFAULT_ORG_SETTINGS, mergeSettings } from "./settings.js";

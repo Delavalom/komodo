@@ -9,7 +9,17 @@ import {
   runSqliteMigrations,
 } from "../src/migrate.js";
 
-const previousMigrations = MIGRATIONS.slice(0, -1);
+/**
+ * The one migration under test, named rather than positioned.
+ *
+ * This used to be `MIGRATIONS.slice(0, -1)` — every step but the last — which
+ * silently stopped testing anything the moment a new migration was appended:
+ * the target got marked as already applied and a later step ran in its place,
+ * against a database shaped for this one. Marking everything *else* as applied
+ * runs exactly one step, and keeps doing so however many are added after it.
+ */
+const TARGET = "012-verification-entry-order";
+const previousMigrations = MIGRATIONS.filter((m) => m.id !== TARGET);
 
 describe("verification entry order migration", () => {
   it("backfills SQLite entries and leaves the next sequence available", () => {
@@ -42,9 +52,16 @@ describe("verification entry order migration", () => {
                  'check', 'review', 100)`,
       ).run();
 
+      // Asserted per entry, not as a sorted list of sequence numbers: the
+      // backfill's whole job is to order by createdAt then id, and a set of
+      // seqs sorted by seq is true whichever entry got which.
       expect(
-        db.prepare("SELECT seq FROM verification_entries ORDER BY seq").all(),
-      ).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
+        db.prepare("SELECT id, seq FROM verification_entries ORDER BY seq").all(),
+      ).toEqual([
+        { id: "entry-10", seq: 1 },
+        { id: "entry-9", seq: 2 },
+        { id: "entry-new", seq: 3 },
+      ]);
     } finally {
       db.close();
     }

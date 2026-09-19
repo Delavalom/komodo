@@ -96,8 +96,35 @@ Inherited by every future session in this repo. These are not suggestions.
     must instead surface architectural fit, inappropriate scope, and test
     adequacy, then name the real results a person must verify. A clean diff or
     an empty finding list is never evidence that behavior works. Verification
-    evidence is append-only and pinned to the reviewed head, and only a human
-    GitHub review can approve a pull request. Komodo must never emit one.
+    evidence is append-only and pinned to the reviewed head.
+
+    **The reviewer can never approve a pull request.** This rule used to end
+    "Komodo must never emit one", which was the right instinct and the wrong
+    sentence: it forbade the product a surface it needs, and it protected
+    nothing the narrower rule does not. What must never approve is the
+    *reviewer* — so `GitHubClient.postReview`, the method the automated
+    pipeline calls, hardcodes `event: "COMMENT"` and takes no argument that
+    could change it. Approving lives on a separate method,
+    `submitHumanReview`, with exactly one caller: a button a person presses.
+    `packages/core/test/human-review.test.ts` asserts both halves, and a second
+    caller of `submitHumanReview` or an event argument on `postReview` undoes
+    this rule whatever the surrounding code says.
+
+    **What that button can and cannot promise.** It submits with a GitHub
+    token some person connected under Personal → Connections, never the
+    deployment's — so a queue with no personal credential cannot approve at
+    all, and GitHub's record never names the deployment for a human decision.
+    It refuses a request that does not declare an actor, a pull request that is
+    closed or in a switched-off repository, a head the review did not read, and
+    an approval over unverified required checks without a written reason.
+
+    It cannot promise that the person GitHub records is the person who pressed
+    it. Rule 11 is why: the actor is a cookie, not a credential, and Komodo has
+    no sign-in — so anyone who can reach the queue can submit as any member who
+    has connected a token. That is stated on the connect screen and again on
+    the button, and it is the honest limit of this feature until real
+    authentication exists. Do not write copy anywhere that implies otherwise,
+    and do not let a future change quietly widen what a cookie is worth.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -403,6 +403,102 @@ CREATE INDEX IF NOT EXISTS verification_entries_review_seq
 CREATE INDEX IF NOT EXISTS verification_entries_requirement_seq
   ON verification_entries ("requirementId", seq)`,
   },
+  {
+    id: "013-pull-request-checks",
+    addColumns: [
+      // Nullable throughout: a database that has never seen a rollup, and a
+      // token that cannot read one, both have to be distinguishable from a
+      // commit whose checks are genuinely all passing.
+      { table: "pull_requests", column: "checksHeadSha", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "pull_requests", column: "checksState", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "pull_requests", column: "checksPassed", sqlite: "INTEGER", postgres: "INTEGER" },
+      { table: "pull_requests", column: "checksPending", sqlite: "INTEGER", postgres: "INTEGER" },
+      {
+        table: "pull_requests",
+        column: "checksFailing",
+        sqlite: "TEXT NOT NULL DEFAULT '[]'",
+        postgres: "JSONB NOT NULL DEFAULT '[]'::jsonb",
+      },
+      {
+        table: "pull_requests",
+        column: "checksObservedAt",
+        sqlite: "INTEGER",
+        postgres: "BIGINT",
+      },
+    ],
+  },
+  {
+    id: "014-pull-request-conversations",
+    sqlite: `-- When a pull request's conversation was last read from GitHub. A row
+-- with no comments is the point: without it, an empty conversation is
+-- indistinguishable from an unread one and gets re-fetched forever.
+CREATE TABLE IF NOT EXISTS pr_conversations (
+  prId       TEXT PRIMARY KEY REFERENCES pull_requests (id) ON DELETE CASCADE,
+  observedAt INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pr_comments (
+  id          TEXT PRIMARY KEY,
+  prId        TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,
+  externalId  INTEGER NOT NULL,
+  inReplyToId INTEGER,
+  author      TEXT NOT NULL,
+  body        TEXT NOT NULL,
+  path        TEXT,
+  line        INTEGER,
+  state       TEXT,
+  url         TEXT NOT NULL,
+  createdAt   INTEGER NOT NULL,
+  updatedAt   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pr_comments_pr ON pr_comments (prId, createdAt)`,
+    postgres: `-- When a pull request's conversation was last read from GitHub. A row
+-- with no comments is the point: without it, an empty conversation is
+-- indistinguishable from an unread one and gets re-fetched forever.
+CREATE TABLE IF NOT EXISTS pr_conversations (
+  "prId"       TEXT PRIMARY KEY REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "observedAt" BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pr_comments (
+  id            TEXT PRIMARY KEY,
+  "prId"        TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL,
+  "externalId"  BIGINT NOT NULL,
+  "inReplyToId" BIGINT,
+  author        TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  path          TEXT,
+  line          INTEGER,
+  state         TEXT,
+  url           TEXT NOT NULL,
+  "createdAt"   BIGINT NOT NULL,
+  "updatedAt"   BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pr_comments_pr ON pr_comments ("prId", "createdAt")`,
+  },
+  {
+    id: "015-member-github-identities",
+    sqlite: `-- One roster member's own GitHub credential, so a review they submit from
+-- Komodo is recorded by GitHub as theirs rather than as the deployment's.
+-- The token leaves through loadGithubToken alone.
+CREATE TABLE IF NOT EXISTS github_identities (
+  memberId    TEXT PRIMARY KEY REFERENCES members (id) ON DELETE CASCADE,
+  login       TEXT NOT NULL,
+  token       TEXT NOT NULL,
+  connectedAt INTEGER NOT NULL,
+  lastError   TEXT
+)`,
+    postgres: `-- One roster member's own GitHub credential, so a review they submit from
+-- Komodo is recorded by GitHub as theirs rather than as the deployment's.
+-- The token leaves through loadGithubToken alone.
+CREATE TABLE IF NOT EXISTS github_identities (
+  "memberId"    TEXT PRIMARY KEY REFERENCES members (id) ON DELETE CASCADE,
+  login         TEXT NOT NULL,
+  token         TEXT NOT NULL,
+  "connectedAt" BIGINT NOT NULL,
+  "lastError"   TEXT
+)`,
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

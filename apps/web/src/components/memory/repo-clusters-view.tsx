@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { GithubIcon, Modal } from "@/components/ui/display";
 import { Checkbox } from "@/components/ui/controls";
 import { Field } from "@/components/memory/add-context-modal";
+import { SharedContextSection } from "@/components/memory/shared-context-view";
 import {
   fullName,
   useRepoClusters,
@@ -16,9 +17,10 @@ import {
   useRepositories,
 } from "@/lib/data/queries";
 import { useCreateRepoCluster, useDeleteRepoCluster } from "@/lib/data/mutations";
+import type { SharedContextStatus } from "@/lib/data/shared-context";
 import { plural } from "@/lib/utils";
 
-export function RepoClustersView() {
+export function RepoClustersView({ sharedContext }: { sharedContext: SharedContextStatus }) {
   const clusters = useRepoClusters();
   const repoIndex = useRepoIndex();
   const [open, setOpen] = React.useState(false);
@@ -53,6 +55,10 @@ export function RepoClustersView() {
       )}
 
       <NewClusterModal open={open} onClose={() => setOpen(false)} />
+
+      <div className="mt-8">
+        <SharedContextSection status={sharedContext} />
+      </div>
     </div>
   );
 }

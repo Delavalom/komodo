@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { Answer, ReviewDetail, ReviewFile } from "@/lib/types";
 
 import { BUCKET_HEADING, BUCKET_ORDER, FOCUS_LABEL, SEVERITY_TONE } from "./labels";
+import { DiagramView } from "./diagram-view";
 
 export function WholeReview({
   detail,
@@ -46,7 +47,7 @@ export function WholeReview({
                   <div className="min-w-0 font-mono text-xs break-all text-muted-foreground">
                     {entry.files.join("\n")}
                   </div>
-                  <div>{entry.summary}</div>
+                  <div>{renderInline(entry.summary)}</div>
                 </div>
               ))}
             </div>
@@ -69,7 +70,7 @@ export function WholeReview({
                     const given = answerFor.get(j.id);
                     return (
                       <li key={j.id} className="text-sm">
-                        {j.title.replace(/\.$/, "")} —{" "}
+                        {renderInline(j.title.replace(/\.$/, ""))} —{" "}
                         <span className="text-muted-foreground">
                           {given?.note ? given.note : given?.optionLabel}
                         </span>
@@ -107,7 +108,7 @@ export function WholeReview({
                   {j.severity}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div>{j.title}</div>
+                  <div>{renderInline(j.title)}</div>
                   <div className="text-xs text-muted-foreground">
                     {FOCUS_LABEL[j.focus]}
                   </div>
@@ -155,13 +156,8 @@ export function WholeReview({
         </Section>
 
         {review.diagram ? (
-          <Section title="Sequence diagram">
-            <pre className="overflow-x-auto border border-border px-3 py-2 font-mono text-xs">
-              {review.diagram}
-            </pre>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Mermaid source. Nothing renders it here yet.
-            </p>
+          <Section title="Diagram">
+            <DiagramView spec={review.diagram} instanceId={`review-${review.id}-diagram`} />
           </Section>
         ) : null}
 
@@ -193,9 +189,10 @@ function Section({
 }
 
 /**
- * The summary arrives as markdown bullets. Rendering the two things that
- * actually appear in it — list items and paragraphs — beats pulling in a
- * markdown parser for a field that is always a short list.
+ * The summary arrives as markdown bullets. Rendering the two levels that
+ * actually appear in it — list items and paragraphs for structure, bold and
+ * inline code within them — beats pulling in a markdown parser for a field
+ * that is always a short list.
  */
 function Bullets({ text }: { text: string }) {
   const lines = text.split("\n").filter((l) => l.trim());
@@ -205,12 +202,34 @@ function Bullets({ text }: { text: string }) {
         line.trimStart().startsWith("-") ? (
           <div key={i} className="flex gap-2">
             <span className="text-muted-foreground">·</span>
-            <span>{line.trimStart().slice(1).trim()}</span>
+            <span>{renderInline(line.trimStart().slice(1).trim())}</span>
           </div>
         ) : (
-          <p key={i}>{line}</p>
+          <p key={i}>{renderInline(line)}</p>
         ),
       )}
     </div>
   );
+}
+
+/** Splits on `**bold**` and `` `code` `` so those two survive as React nodes;
+ * everything else in a judgement or summary field is plain prose. */
+function renderInline(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={i}
+          className="rounded-sm bg-muted-accent px-1 py-0.5 font-mono text-[13px]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
 }

@@ -6,6 +6,7 @@
  * the row rather than the review.
  */
 import { authenticate, unauthorized } from "@/lib/api/auth";
+import { routeParam } from "@/lib/api/request";
 import { getStore } from "@/lib/data/server";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +18,12 @@ export async function GET(
   const auth = await authenticate(request);
   if (!auth.ok) return unauthorized(auth);
 
-  // The id is `owner/name#number@sha`, so it arrives percent-encoded.
+  // The id is `owner/name#number@sha`. Next hands a dynamic segment already
+  // decoded, so decoding it again turned a `%25` into a bare `%` and threw a
+  // URIError out of the handler as a 500 — and quietly turned `%252F` into a
+  // path separator. See lib/api/request.ts.
   const { id } = await params;
-  const detail = await (await getStore()).loadReview(decodeURIComponent(id));
+  const detail = await (await getStore()).loadReview(routeParam(id));
   if (!detail) {
     return Response.json({ error: "No such review run." }, { status: 404 });
   }

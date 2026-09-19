@@ -39,7 +39,6 @@ export function MemorySidebar({ orgSlug }: { orgSlug: string }) {
               href: `${base}/knowledge-base`,
               label: "Knowledge Base",
               icon: <MemoryNavIcon className="h-4 w-4" />,
-              badge: "Beta",
             },
             {
               href: `${base}/integrations`,

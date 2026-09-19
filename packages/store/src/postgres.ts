@@ -11,6 +11,7 @@
  * `${repoId}#${number}`, a judgment is `${prId}@${headSha}` — so idempotency
  * and restart safety fall out of the primary key.
  */
+import { DiagramSpecSchema, type DiagramSpec } from "@komodo/diagram";
 import type {
   AnswerInput,
   FindingInput,
@@ -20,10 +21,13 @@ import type {
   QueueSnapshot,
   ReviewInput,
   VerificationInput,
+  WatchEventInput,
 } from "./port.js";
 import { newId } from "./ids.js";
 import { verificationRequirementId } from "./verification.js";
 import { runPostgresMigrations } from "./migrate.js";
+import { readChecks } from "./checks.js";
+import { dedupeComments } from "./comments.js";
 import { mergeSettings } from "./settings.js";
 import { fromPgPool, type SqlClient } from "./sql-client.js";
 import type {
@@ -35,12 +39,18 @@ import type {
   Judgment,
   JudgementVote,
   Member,
+  MemberGithubIdentity,
   MemoryFile,
   MemoryRule,
   MemoryRuleStats,
   Organization,
   OrgSettings,
   PullRequest,
+  PullRequestChecks,
+  PullRequestComment,
+  PullRequestConversation,
+  PullRequestWatch,
+  PullRequestWatchEvent,
   RepoCluster,
   Repository,
   Review,
@@ -117,10 +127,85 @@ CREATE TABLE IF NOT EXISTS pull_requests (
   "changedFiles"       INTEGER NOT NULL DEFAULT 0,
   "createdAt"          BIGINT NOT NULL,
   "updatedAt"          BIGINT NOT NULL,
-  "mergedAt"           BIGINT
+  "mergedAt"           BIGINT,
+  -- The last observed check rollup, and the commit it describes. Nullable so
+  -- "never looked" stays distinguishable from "nothing is failing", and
+  -- carrying its own sha so a push does not leave a green build on screen for
+  -- a commit that no longer exists.
+  "checksHeadSha"      TEXT,
+  "checksState"        TEXT,
+  -- Only what cannot be counted back: the failure count is checksFailing's
+  -- length and the total is the three added together, so neither is a column.
+  "checksPassed"       INTEGER,
+  "checksPending"      INTEGER,
+  "checksFailing"      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  "checksObservedAt"   BIGINT
 );
 CREATE INDEX IF NOT EXISTS pull_requests_repo ON pull_requests ("repoId");
 CREATE INDEX IF NOT EXISTS pull_requests_updated ON pull_requests ("updatedAt");
+
+CREATE TABLE IF NOT EXISTS pr_conversations (
+  "prId"       TEXT PRIMARY KEY REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "observedAt" BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pr_comments (
+  id            TEXT PRIMARY KEY,
+  "prId"        TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL,
+  "externalId"  BIGINT NOT NULL,
+  "inReplyToId" BIGINT,
+  author        TEXT NOT NULL,
+  body          TEXT NOT NULL,
+  path          TEXT,
+  line          INTEGER,
+  state         TEXT,
+  url           TEXT NOT NULL,
+  "createdAt"   BIGINT NOT NULL,
+  "updatedAt"   BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pr_comments_pr ON pr_comments ("prId", "createdAt");
+
+-- id is derived, "prId:memberId" — see PullRequestWatch. Watching again is an
+-- upsert onto the same row rather than a second subscription.
+CREATE TABLE IF NOT EXISTS pr_watches (
+  id                    TEXT PRIMARY KEY,
+  "prId"                TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "memberId"            TEXT NOT NULL REFERENCES members (id) ON DELETE CASCADE,
+  mode                  TEXT NOT NULL,
+  "createdAt"           BIGINT NOT NULL,
+  "lastSeenExternalId"  BIGINT,
+  "lastSeenAt"          BIGINT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pr_watches_pr_member ON pr_watches ("prId", "memberId");
+
+-- Append-only, unlike the watch it belongs to — see PullRequestWatchEvent.
+CREATE TABLE IF NOT EXISTS pr_watch_events (
+  id                    TEXT PRIMARY KEY,
+  "watchId"             TEXT NOT NULL REFERENCES pr_watches (id) ON DELETE CASCADE,
+  "prId"                TEXT NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE,
+  "commentExternalId"   BIGINT NOT NULL,
+  "commentKind"         TEXT NOT NULL,
+  "commentAuthor"       TEXT NOT NULL,
+  "commentBody"         TEXT NOT NULL,
+  "commentUrl"          TEXT NOT NULL,
+  verdict               TEXT NOT NULL,
+  reasoning             TEXT NOT NULL,
+  "draftResponse"       TEXT,
+  "draftPatchSummary"   TEXT,
+  "createdAt"           BIGINT NOT NULL,
+  "seenAt"              BIGINT,
+  "dismissedAt"         BIGINT
+);
+CREATE INDEX IF NOT EXISTS pr_watch_events_watch ON pr_watch_events ("watchId", "createdAt");
+
+CREATE TABLE IF NOT EXISTS github_identities (
+  "memberId"    TEXT PRIMARY KEY REFERENCES members (id) ON DELETE CASCADE,
+  login         TEXT NOT NULL,
+  token         TEXT NOT NULL,
+  "connectedAt" BIGINT NOT NULL,
+  "lastError"   TEXT
+);
 
 CREATE TABLE IF NOT EXISTS ai_review_jobs (
   id               TEXT PRIMARY KEY,
@@ -495,7 +580,10 @@ export class PostgresStore implements KomodoStore {
       repoClusters,
       apiKeys,
       integrations,
+      githubIdentities,
       verificationSummaries,
+      watches,
+      watchEvents,
     ] = await Promise.all([
       this.readOrganization(),
       this.loadSettings(),
@@ -510,7 +598,10 @@ export class PostgresStore implements KomodoStore {
       this.listRepoClusters(),
       this.listApiKeys(),
       this.listIntegrations(),
+      this.listGithubIdentities(),
       this.readVerificationSummaries(),
+      this.listPullRequestWatches(),
+      this.listWatchEvents(),
     ]);
     return {
       organization,
@@ -526,7 +617,10 @@ export class PostgresStore implements KomodoStore {
       repoClusters,
       apiKeys,
       integrations,
+      githubIdentities,
       verificationSummaries,
+      watches,
+      watchEvents,
     };
   }
 
@@ -668,6 +762,58 @@ export class PostgresStore implements KomodoStore {
        ON CONFLICT ("judgementId", "actorLogin")
        DO UPDATE SET value = EXCLUDED.value, "createdAt" = EXCLUDED."createdAt"`,
       [input.judgementId, input.actorLogin, input.value, Date.now()],
+    );
+  }
+
+  /* ── Personal GitHub credentials ────────────────────────────────────── */
+
+  async listGithubIdentities(): Promise<MemberGithubIdentity[]> {
+    const { rows } = await this.sql.query<Row>(
+      "SELECT * FROM github_identities ORDER BY login",
+    );
+    // The token is selected and dropped by the mapper, for the same reason
+    // toIntegration does it: one place decides what leaves.
+    return rows.map(toGithubIdentity);
+  }
+
+  async loadGithubToken(
+    memberId: string,
+  ): Promise<{ identity: MemberGithubIdentity; token: string } | null> {
+    const { rows } = await this.sql.query<Row>(
+      `SELECT * FROM github_identities WHERE "memberId" = $1`,
+      [memberId],
+    );
+    if (!rows[0]) return null;
+    return { identity: toGithubIdentity(rows[0]), token: str(rows[0].token) };
+  }
+
+  async saveGithubIdentity(input: {
+    memberId: string;
+    login: string;
+    token: string;
+  }): Promise<void> {
+    await this.sql.query(
+      `INSERT INTO github_identities
+         ("memberId", login, token, "connectedAt", "lastError")
+       VALUES ($1, $2, $3, $4, NULL)
+       ON CONFLICT ("memberId") DO UPDATE SET
+         login = EXCLUDED.login, token = EXCLUDED.token,
+         "connectedAt" = EXCLUDED."connectedAt", "lastError" = NULL`,
+      [input.memberId, input.login, input.token, Date.now()],
+    );
+  }
+
+  async deleteGithubIdentity(memberId: string): Promise<void> {
+    await this.sql.query(
+      `DELETE FROM github_identities WHERE "memberId" = $1`,
+      [memberId],
+    );
+  }
+
+  async setGithubIdentityError(memberId: string, error: string | null): Promise<void> {
+    await this.sql.query(
+      `UPDATE github_identities SET "lastError" = $1 WHERE "memberId" = $2`,
+      [error, memberId],
     );
   }
 
@@ -1213,6 +1359,7 @@ export class PostgresStore implements KomodoStore {
       `SELECT f.*,
               CASE
                 WHEN a.bucket = 'Passed on' THEN 'dismissed'
+                WHEN a.bucket = 'Blocks'    THEN 'open'
                 WHEN a.bucket IS NOT NULL   THEN 'addressed'
                 ELSE 'open'
               END AS status
@@ -1297,6 +1444,193 @@ export class PostgresStore implements KomodoStore {
     return id;
   }
 
+  async recordPullRequestChecks(
+    prId: string,
+    checks: PullRequestChecks | null,
+  ): Promise<void> {
+    await this.sql.query(
+      `UPDATE pull_requests SET
+         "checksHeadSha" = $1, "checksState" = $2,
+         "checksPassed" = $3, "checksPending" = $4,
+         "checksFailing" = $5, "checksObservedAt" = $6
+       WHERE id = $7`,
+      [
+        checks?.headSha ?? null,
+        checks?.state ?? null,
+        checks?.passed ?? null,
+        checks?.pending ?? null,
+        JSON.stringify(checks?.failing ?? []),
+        checks?.observedAt ?? null,
+        prId,
+      ],
+    );
+  }
+
+  async loadPullRequestConversation(
+    prId: string,
+  ): Promise<PullRequestConversation | null> {
+    const { rows: head } = await this.sql.query<Row>(
+      `SELECT "observedAt" FROM pr_conversations WHERE "prId" = $1`,
+      [prId],
+    );
+    if (!head[0]) return null;
+
+    const { rows } = await this.sql.query<Row>(
+      `SELECT * FROM pr_comments WHERE "prId" = $1 ORDER BY "createdAt", "externalId"`,
+      [prId],
+    );
+    return {
+      prId,
+      observedAt: num(head[0].observedAt),
+      comments: rows.map(toPullRequestComment),
+    };
+  }
+
+  async replacePullRequestComments(
+    prId: string,
+    comments: Omit<PullRequestComment, "id" | "prId">[],
+    observedAt: number,
+  ): Promise<void> {
+    // One transaction, and not for tidiness. The delete lands first, so a
+    // failure part-way through the inserts would otherwise leave a truncated
+    // conversation behind an unchanged `observedAt` — a cache that has lost
+    // half its rows while still claiming to be a complete read, which is worse
+    // than an empty one because nothing will refetch it.
+    await this.transaction(async () => {
+      await this.sql.query(`DELETE FROM pr_comments WHERE "prId" = $1`, [prId]);
+      for (const c of dedupeComments(prId, comments)) {
+        // A whole-row upsert, not a plain insert. Two people opening the same
+        // pull request run two of these at once, and under READ COMMITTED the
+        // second one's delete cannot see rows the first committed after it
+        // started — so its inserts collide on the primary key and the whole
+        // transaction is lost, which the reader sees as a Postgres constraint
+        // name inside a GitHub-flavoured error. The batch is deduplicated
+        // before it gets here, so a conflict can only be another writer's copy
+        // of the same comment, and replacing it whole is the same answer.
+        await this.sql.query(
+          `INSERT INTO pr_comments
+             (id, "prId", kind, "externalId", "inReplyToId", author, body, path,
+              line, state, url, "createdAt", "updatedAt")
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           ON CONFLICT (id) DO UPDATE SET
+             kind = EXCLUDED.kind, "externalId" = EXCLUDED."externalId",
+             "inReplyToId" = EXCLUDED."inReplyToId", author = EXCLUDED.author,
+             body = EXCLUDED.body, path = EXCLUDED.path, line = EXCLUDED.line,
+             state = EXCLUDED.state, url = EXCLUDED.url,
+             "createdAt" = EXCLUDED."createdAt", "updatedAt" = EXCLUDED."updatedAt"`,
+          [
+            c.id, prId, c.kind, c.externalId,
+            c.inReplyToId, c.author, c.body, c.path, c.line, c.state, c.url,
+            c.createdAt, c.updatedAt,
+          ],
+        );
+      }
+      await this.sql.query(
+        `INSERT INTO pr_conversations ("prId", "observedAt") VALUES ($1, $2)
+         ON CONFLICT ("prId") DO UPDATE SET "observedAt" = EXCLUDED."observedAt"`,
+        [prId, observedAt],
+      );
+    });
+  }
+
+  async listPullRequestWatches(): Promise<PullRequestWatch[]> {
+    const { rows } = await this.sql.query<Row>(
+      `SELECT * FROM pr_watches ORDER BY "createdAt"`,
+    );
+    return rows.map(toPullRequestWatch);
+  }
+
+  async listWatchEvents(watchId?: string): Promise<PullRequestWatchEvent[]> {
+    const { rows } = watchId
+      ? await this.sql.query<Row>(
+          `SELECT * FROM pr_watch_events WHERE "watchId" = $1 ORDER BY "createdAt" DESC`,
+          [watchId],
+        )
+      : await this.sql.query<Row>(
+          `SELECT * FROM pr_watch_events ORDER BY "createdAt" DESC`,
+        );
+    return rows.map(toWatchEvent);
+  }
+
+  async saveWatch(input: {
+    prId: string;
+    memberId: string;
+    mode: PullRequestWatch["mode"];
+  }): Promise<string> {
+    const id = `${input.prId}:${input.memberId}`;
+    await this.sql.query(
+      `INSERT INTO pr_watches (id, "prId", "memberId", mode, "createdAt")
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (id) DO UPDATE SET mode = EXCLUDED.mode`,
+      [id, input.prId, input.memberId, input.mode, Date.now()],
+    );
+    return id;
+  }
+
+  async deleteWatch(watchId: string): Promise<void> {
+    await this.sql.query(`DELETE FROM pr_watches WHERE id = $1`, [watchId]);
+  }
+
+  async updateWatchMode(
+    watchId: string,
+    mode: PullRequestWatch["mode"],
+  ): Promise<void> {
+    await this.sql.query(`UPDATE pr_watches SET mode = $1 WHERE id = $2`, [
+      mode,
+      watchId,
+    ]);
+  }
+
+  async markWatchChecked(
+    watchId: string,
+    lastSeenExternalId: number,
+    lastSeenAt: number,
+  ): Promise<void> {
+    await this.sql.query(
+      `UPDATE pr_watches SET "lastSeenExternalId" = $1, "lastSeenAt" = $2 WHERE id = $3`,
+      [lastSeenExternalId, lastSeenAt, watchId],
+    );
+  }
+
+  async recordWatchEvent(input: WatchEventInput): Promise<void> {
+    await this.sql.query(
+      `INSERT INTO pr_watch_events
+         (id, "watchId", "prId", "commentExternalId", "commentKind",
+          "commentAuthor", "commentBody", "commentUrl", verdict, reasoning,
+          "draftResponse", "draftPatchSummary", "createdAt")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [
+        newId("wevt"),
+        input.watchId,
+        input.prId,
+        input.commentExternalId,
+        input.commentKind,
+        input.commentAuthor,
+        input.commentBody,
+        input.commentUrl,
+        input.verdict,
+        input.reasoning,
+        input.draftResponse ?? null,
+        input.draftPatchSummary ?? null,
+        Date.now(),
+      ],
+    );
+  }
+
+  async markWatchEventSeen(eventId: string): Promise<void> {
+    await this.sql.query(
+      `UPDATE pr_watch_events SET "seenAt" = $1 WHERE id = $2`,
+      [Date.now(), eventId],
+    );
+  }
+
+  async dismissWatchEvent(eventId: string): Promise<void> {
+    await this.sql.query(
+      `UPDATE pr_watch_events SET "dismissedAt" = $1 WHERE id = $2`,
+      [Date.now(), eventId],
+    );
+  }
+
   async requestAIReview(input: {
     prId: string;
     headSha: string;
@@ -1360,6 +1694,21 @@ export class PostgresStore implements KomodoStore {
       [job.prId],
     );
     return prRows[0] ? { job, pr: toPullRequest(prRows[0]) } : null;
+  }
+
+  async supersedeAIReviewJob(jobId: string, finishedAt: number): Promise<boolean> {
+    // No lease check, by design — see the port. The guard is on state instead:
+    // a job that already finished stays as it finished, so this cannot rewrite
+    // the outcome of a run that actually happened.
+    const { rows } = await this.sql.query<Row>(
+      `UPDATE ai_review_jobs
+       SET state = 'completed', "updatedAt" = $1, "lastError" = NULL,
+           "workerId" = NULL, "leaseExpiresAt" = NULL
+       WHERE id = $2 AND state IN ('queued', 'running')
+       RETURNING id`,
+      [finishedAt, jobId],
+    );
+    return rows.length === 1;
   }
 
   async finishAIReviewJob(input: {
@@ -1457,7 +1806,7 @@ export class PostgresStore implements KomodoStore {
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
-          input.diagram ?? null, input.recordId, now,
+          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId, now,
         ],
       );
 
@@ -1677,6 +2026,25 @@ const json = <T,>(v: unknown, fallback: T): T =>
       ? (JSON.parse(v) as T)
       : (v as T);
 
+/**
+ * `diagram` is a plain TEXT column, not JSONB, so it always arrives as a raw
+ * string — including rows written before this column held JSON at all, when
+ * it held free-text Mermaid source instead. Those don't parse as JSON (or
+ * validate against the spec schema even if they happen to), so this falls
+ * back to null rather than throwing: a diagram is supplementary content, not
+ * the record of a decision, and no backfill for pre-change rows is planned.
+ */
+function readDiagram(v: unknown): DiagramSpec | null {
+  if (v === null || v === undefined) return null;
+  try {
+    const parsed = typeof v === "string" ? JSON.parse(v) : v;
+    const result = DiagramSpecSchema.safeParse(parsed);
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
 function toReview(r: Row): Review {
   return {
     version: num(r.version) === 3 ? 3 : 2,
@@ -1690,7 +2058,7 @@ function toReview(r: Row): Review {
     confidence: num(r.confidence),
     effort: num(r.effort),
     verdictLine: str(r.verdictLine),
-    diagram: r.diagram === null ? null : str(r.diagram),
+    diagram: readDiagram(r.diagram),
     recordId: str(r.recordId),
     receiptUrl: r.receiptUrl == null ? null : str(r.receiptUrl),
     receiptPostedAt: r.receiptPostedAt == null ? null : num(r.receiptPostedAt),
@@ -1808,6 +2176,77 @@ function toPullRequest(r: Row): PullRequest {
     createdAt: num(r.createdAt),
     updatedAt: num(r.updatedAt),
     mergedAt: r.mergedAt === null || r.mergedAt === undefined ? null : num(r.mergedAt),
+    checks: readChecks({
+      headSha: str(r.headSha),
+      checksHeadSha: r.checksHeadSha == null ? null : str(r.checksHeadSha),
+      checksState: r.checksState == null ? null : str(r.checksState),
+      checksPassed: r.checksPassed == null ? null : num(r.checksPassed),
+      checksPending: r.checksPending == null ? null : num(r.checksPending),
+      checksFailing: list(r.checksFailing),
+      checksObservedAt: r.checksObservedAt == null ? null : num(r.checksObservedAt),
+    }),
+  };
+}
+
+function toPullRequestComment(r: Row): PullRequestComment {
+  return {
+    id: str(r.id),
+    prId: str(r.prId),
+    kind: str(r.kind) as PullRequestComment["kind"],
+    externalId: num(r.externalId),
+    inReplyToId: r.inReplyToId == null ? null : num(r.inReplyToId),
+    author: str(r.author),
+    body: str(r.body),
+    path: r.path == null ? null : str(r.path),
+    line: r.line == null ? null : num(r.line),
+    state: r.state == null ? null : str(r.state),
+    url: str(r.url),
+    createdAt: num(r.createdAt),
+    updatedAt: num(r.updatedAt),
+  };
+}
+
+function toPullRequestWatch(r: Row): PullRequestWatch {
+  return {
+    id: str(r.id),
+    prId: str(r.prId),
+    memberId: str(r.memberId),
+    mode: str(r.mode) as PullRequestWatch["mode"],
+    createdAt: num(r.createdAt),
+    lastSeenExternalId:
+      r.lastSeenExternalId == null ? null : num(r.lastSeenExternalId),
+    lastSeenAt: r.lastSeenAt == null ? null : num(r.lastSeenAt),
+  };
+}
+
+function toWatchEvent(r: Row): PullRequestWatchEvent {
+  return {
+    id: str(r.id),
+    watchId: str(r.watchId),
+    prId: str(r.prId),
+    commentExternalId: num(r.commentExternalId),
+    commentKind: str(r.commentKind) as PullRequestWatchEvent["commentKind"],
+    commentAuthor: str(r.commentAuthor),
+    commentBody: str(r.commentBody),
+    commentUrl: str(r.commentUrl),
+    verdict: str(r.verdict) as PullRequestWatchEvent["verdict"],
+    reasoning: str(r.reasoning),
+    draftResponse: r.draftResponse == null ? null : str(r.draftResponse),
+    draftPatchSummary:
+      r.draftPatchSummary == null ? null : str(r.draftPatchSummary),
+    createdAt: num(r.createdAt),
+    seenAt: r.seenAt == null ? null : num(r.seenAt),
+    dismissedAt: r.dismissedAt == null ? null : num(r.dismissedAt),
+  };
+}
+
+/** Never carries the token — see loadGithubToken, which is the only way out. */
+function toGithubIdentity(r: Row): MemberGithubIdentity {
+  return {
+    memberId: str(r.memberId),
+    login: str(r.login),
+    connectedAt: num(r.connectedAt),
+    lastError: r.lastError == null ? null : str(r.lastError),
   };
 }
 

@@ -1,3 +1,4 @@
+import { specToMermaid } from "@komodo/diagram";
 import type { KomodoConfig } from "../config.js";
 import {
   KIND_LABEL,
@@ -52,8 +53,8 @@ export function renderWalkthroughComment(pr: PRMeta, result: ReviewResult, confi
   }
 
   if (m.diagram.enabled && result.diagram) {
-    const mermaid = `\`\`\`mermaid\n${result.diagram}\n\`\`\``;
-    parts.push(section("Sequence diagram", mermaid, m.diagram.collapsible, m.diagram.defaultOpen));
+    const mermaid = `\`\`\`mermaid\n${specToMermaid(result.diagram)}\n\`\`\``;
+    parts.push(section("Diagram", mermaid, m.diagram.collapsible, m.diagram.defaultOpen));
   }
 
   parts.push(
@@ -171,7 +172,7 @@ export function renderOutcome(outcome: Outcome, reviewUrl: string): string {
     parts.push(
       [
         `**Questions for the author:**`,
-        ...asked.map((d) => `- ${strip(d.title)}${d.note ? ` — ${d.note}` : ""}`),
+        ...asked.map((d) => `- ${strip(d.title)}${d.note ? `: ${d.note}` : ""}`),
       ].join("\n"),
     );
   }

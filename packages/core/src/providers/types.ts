@@ -1,4 +1,5 @@
 import type { KomodoConfig } from "../config.js";
+import type { SharedContextDoc } from "../context-sources.js";
 import type { PRFile, PRMeta } from "../github.js";
 import type { ReviewResult } from "../schema.js";
 
@@ -30,6 +31,13 @@ export interface ReviewInput {
    * common case and must read as "no extra rules" rather than as an omission.
    */
   memories?: ReviewMemory[];
+  /**
+   * Documents from `context.sources` in komodo.yaml, already narrowed to the
+   * ones whose scope matches this pull request. Unlike `memories` these can
+   * run to thousands of characters each, so they get their own prompt
+   * section rather than a bullet — see `buildReviewPrompt`.
+   */
+  sharedContext?: SharedContextDoc[];
 }
 
 export interface ReviewProvider {

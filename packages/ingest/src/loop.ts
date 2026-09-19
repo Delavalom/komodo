@@ -6,7 +6,12 @@
  * list is recomputed from the store every pass, so a crash, a deploy or a
  * `komodo serve` restart resumes without bookkeeping.
  */
-import type { GitHubClient, KomodoConfig, ReviewProvider } from "@komodo/core";
+import type {
+  GitHubClient,
+  KomodoConfig,
+  ReviewProvider,
+  WatchTriageProvider,
+} from "@komodo/core";
 import {
   META_DISCOVERY_REQUESTED_AT,
   META_LAST_DISCOVERY_AT,
@@ -20,12 +25,15 @@ import { discoverRepositories } from "./discover.js";
 import { pollRepositories } from "./poll.js";
 import { applySettings } from "./settings.js";
 import { reviewPending } from "./review.js";
+import { pollWatches } from "./watch.js";
 
 export interface IngestOptions {
   store: KomodoStore;
   github: GitHubClient;
   /** Omit to poll only — useful before a provider is configured. */
   provider?: ReviewProvider;
+  /** Omit to skip the PR watcher — no Claude available is a normal state. */
+  watchTriage?: WatchTriageProvider;
   /**
    * komodo.yaml as parsed. Each pass overlays the team's stored settings on
    * top of this — see ./settings.ts for which fields each side owns.
@@ -36,6 +44,8 @@ export interface IngestOptions {
   post?: boolean;
   /** Gives the reviewer a tree to read. Omit to review diffs alone. */
   checkout?: RepoCheckout;
+  /** Directory `context.sources` paths resolve relative to. Defaults to cwd. */
+  configDir?: string;
   signal?: AbortSignal;
   onProgress?: (msg: string) => void;
 }
@@ -67,12 +77,27 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
   });
   onProgress?.(
     `Polled ${polled.seen} open PRs — ${polled.changed} changed, ${polled.closed} closed` +
+      (polled.checksObserved ? `, ${polled.checksObserved} with checks read` : "") +
       (polled.notEligible
         ? `, ${polled.notEligible} not eligible for automatic review`
         : "") +
       (polled.unreachable ? `, ${polled.unreachable} unreachable` : "") +
       ".",
   );
+
+  // Independent of the review provider: a deployment can watch comments
+  // without wanting automatic reviews, and vice versa.
+  if (options.watchTriage) {
+    const watched = await pollWatches(github, store, options.watchTriage, {
+      onProgress,
+      checkout: options.checkout,
+    });
+    if (watched.checked > 0) {
+      onProgress?.(
+        `Checked ${watched.checked} watched pull request(s) — ${watched.eventsRecorded} new comment(s) triaged.`,
+      );
+    }
+  }
 
   if (!provider) {
     onProgress?.("No review provider configured; polling only.");
@@ -88,6 +113,7 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
     config,
     post: options.post,
     checkout: options.checkout,
+    configDir: options.configDir,
     onProgress,
   });
 }

@@ -66,3 +66,27 @@ export const META_DISCOVERY_REQUESTED_AT = "discoveryRequestedAt";
  * Cleared on a clean pass, so its presence always describes the latest one.
  */
 export const META_LAST_DISCOVERY_ERROR = "lastDiscoveryError";
+
+/**
+ * A JSON `SharedContextRecord`: what `context.sources` in komodo.yaml
+ * resolved to on the last pass — which sources read cleanly, which errored,
+ * and which files each one contained.
+ *
+ * A meta key rather than a table: this is a deployment fact replaced whole
+ * every pass, the same as `lastDiscoveryError`, and nothing ever queries a
+ * single file's row on its own. File bodies are never stored here — the
+ * checkout is a repository someone else owns, and a stale copy of it would
+ * silently stop matching what the reviewer actually reads once it moves on.
+ */
+export const META_CONTEXT_SOURCES = "contextSources";
+
+/**
+ * Epoch milliseconds at which the PR-watcher last triaged watched pull
+ * requests' comments.
+ *
+ * A single deployment-wide gate rather than one per watch: the watched set is
+ * opt-in and small by construction (unlike the poller's every-open-PR sweep),
+ * so there is no per-repository budget to protect here — only a floor on how
+ * often the triage pass, which calls out to Claude, runs at all.
+ */
+export const META_WATCH_LAST_CHECKED_AT = "watchLastCheckedAt";
