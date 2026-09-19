@@ -350,7 +350,7 @@ function QueueRowCells({
                   and they are what the row is a summary of. */}
               <Link
                 href={reviewHref(orgSlug, row)}
-                className="truncate text-[15px] transition-colors hover:text-[hsl(var(--accent))]"
+                className="min-w-0 truncate text-[15px] transition-colors hover:text-[hsl(var(--accent))]"
               >
                 {row.title}
               </Link>
@@ -384,8 +384,8 @@ function QueueRowCells({
                     ) : (
                       <AlertTriangle className="h-3 w-3 shrink-0" />
                     )}
-                    <span className="label-mono text-[10px]">{f.severity}</span>
-                    <span className="truncate">{f.title}</span>
+                    <span className="shrink-0 label-mono text-[10px]">{f.severity}</span>
+                    <span className="min-w-0 truncate">{f.title}</span>
                   </li>
                 ))}
               </ul>
