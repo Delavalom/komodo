@@ -73,9 +73,10 @@ export class ClaudeWatchTriage implements WatchTriageProvider {
           : {}),
         cwd: input.repoDir ?? process.cwd(),
         allowedTools: ["Read", "Glob", "Grep"],
-        // A verdict on one comment needs far less exploration than a full
-        // review of the diff.
-        maxTurns: 10,
+        // Most comments need far less exploration than a full review of the
+        // diff, but "does X already exist" is a repo-wide search in its own
+        // right — give it the same room reviews get (claude.ts: maxTurns 40).
+        maxTurns: 30,
         systemPrompt:
           "You are Komodo's PR watcher. You only read code; you never modify anything. " +
           "You decide whether a pull-request comment is worth a person's attention, and, " +

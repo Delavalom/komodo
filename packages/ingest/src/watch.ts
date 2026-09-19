@@ -77,21 +77,44 @@ export async function pollWatches(
 
     checked++;
     const ref = { owner: repo.owner, repo: repo.name, number: pr.number };
+    let entries;
     try {
-      const entries = await fetchConversation(github, ref);
-      const since = watch.lastSeenExternalId ?? -1;
-      const fresh = entries
-        .filter((entry) => entry.externalId > since)
-        .slice(0, MAX_NEW_PER_WATCH);
-      if (fresh.length === 0) continue;
+      entries = await fetchConversation(github, ref);
+    } catch (err) {
+      // The repository went private, the token expired, GitHub is down —
+      // nothing here was this watch's fault, so lastSeenExternalId is left
+      // alone and the whole thing is retried next pass.
+      const detail = err instanceof Error ? err.message : String(err);
+      options.onProgress?.(
+        `  could not check ${repo.owner}/${repo.name}#${pr.number}: ${detail}`,
+      );
+      continue;
+    }
 
-      const repoDir = await options.checkout?.prepare({
-        owner: repo.owner,
-        name: repo.name,
-        number: pr.number,
-      });
+    // "Already handled" is whatever already has a recorded event for this
+    // watch — not a (createdAt, externalId) watermark. GitHub hands out
+    // comment ids, review-comment ids and review ids from three independent
+    // counters, so an older review can carry a numerically larger id than a
+    // newer review comment; a raw id (or a timestamp-tiebroken id) watermark
+    // then reads that older entry as "the newest thing seen" and silently,
+    // permanently starves every real comment that follows it with a smaller
+    // id. The event table has no such ordering assumption to get wrong.
+    const seen = new Set(
+      (await store.listWatchEvents(watch.id)).map((e) => e.commentExternalId),
+    );
+    const fresh = entries
+      .filter((entry) => !seen.has(entry.externalId))
+      .slice(0, MAX_NEW_PER_WATCH);
+    if (fresh.length === 0) continue;
 
-      for (const entry of fresh) {
+    const repoDir = await options.checkout?.prepare({
+      owner: repo.owner,
+      name: repo.name,
+      number: pr.number,
+    });
+
+    for (const entry of fresh) {
+      try {
         const result = await triage.triage({
           pr: { title: pr.title, number: pr.number, url: pr.url, author: pr.author },
           comment: {
@@ -117,18 +140,19 @@ export async function pollWatches(
           draftPatchSummary: result.draftPatchSummary,
         });
         eventsRecorded++;
+      } catch (err) {
+        // A comment Claude can't triage — a bot's templated blob with nothing
+        // to reason about, a session that errors out — must not wedge every
+        // comment behind it on this watch, forever, on every retry.
+        const detail = err instanceof Error ? err.message : String(err);
+        options.onProgress?.(
+          `  could not triage ${repo.owner}/${repo.name}#${pr.number} comment ${entry.externalId}: ${detail}`,
+        );
       }
-
-      const newest = fresh[fresh.length - 1];
-      await store.markWatchChecked(watch.id, newest.externalId, Date.now());
-    } catch (err) {
-      // One watch that cannot be read or triaged — a repository that went
-      // private, a Claude session that failed — must not stop the pass for
-      // everyone else's.
-      const detail = err instanceof Error ? err.message : String(err);
-      options.onProgress?.(
-        `  could not check ${repo.owner}/${repo.name}#${pr.number}: ${detail}`,
-      );
+      // Informational only now — "already handled" is decided from
+      // pr_watch_events above, not from this pair, so a failed triage here
+      // (no event recorded) is retried on the next pass rather than lost.
+      await store.markWatchChecked(watch.id, entry.externalId, Date.now());
     }
   }
 
