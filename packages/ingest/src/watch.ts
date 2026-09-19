@@ -109,11 +109,20 @@ export async function pollWatches(
       .slice(0, MAX_NEW_PER_WATCH);
     if (fresh.length === 0) continue;
 
-    const repoDir = await options.checkout?.prepare({
-      owner: repo.owner,
-      name: repo.name,
-      number: pr.number,
-    });
+    let repoDir: string | undefined;
+    try {
+      repoDir = await options.checkout?.prepare({
+        owner: repo.owner,
+        name: repo.name,
+        number: pr.number,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      options.onProgress?.(
+        `  could not prepare checkout for ${repo.owner}/${repo.name}#${pr.number}: ${detail}`,
+      );
+      continue;
+    }
 
     for (const entry of fresh) {
       try {
