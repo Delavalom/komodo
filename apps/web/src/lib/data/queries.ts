@@ -14,7 +14,7 @@
  */
 import { useMemo } from "react";
 
-import { easyWin, needsReviewFrom } from "@komodo/store";
+import { deriveAiState, easyWin, needsReviewFrom } from "@komodo/store";
 
 import { useNow, useSnapshot } from "@/lib/data/provider";
 import { useDataStore } from "@/lib/data/store";
@@ -206,6 +206,65 @@ export function useUnseenWatchEventCount(): number {
   ).length;
 }
 
+export interface WatchedPullRequestRow {
+  id: string;
+  prId: string;
+  prTitle: string;
+  prNumber: number;
+  repoFullName: string;
+  mode: WatchMode;
+  memberName: string;
+  createdAt: number;
+  /** Triaged comments recorded for this watch, worth-addressing and not yet cleared. */
+  unresolvedCount: number;
+  totalCount: number;
+}
+
+/**
+ * Every pull request someone here has asked the poller to watch, one row per
+ * watch — not per triaged comment. `unresolvedCount`/`totalCount` are counted
+ * from `pr_watch_events` at read time, the same rule the rest of this file
+ * follows for every other summary: a number and the rows that caused it
+ * cannot drift if neither is stored.
+ */
+export function useWatchedPullRequests(): WatchedPullRequestRow[] {
+  const { watches, pullRequests, members } = useSnapshot();
+  const events = useWatchEvents();
+  const repoIndex = useRepoIndex();
+  return useMemo(() => {
+    const prById = new Map(pullRequests.map((p) => [p.id, p]));
+    const memberById = new Map(members.map((m) => [m.id, m]));
+    const eventsByWatch = new Map<string, WatchEventRow[]>();
+    for (const event of events) {
+      const list = eventsByWatch.get(event.watchId);
+      if (list) list.push(event);
+      else eventsByWatch.set(event.watchId, [event]);
+    }
+    return watches
+      .map((watch): WatchedPullRequestRow | null => {
+        const pr = prById.get(watch.prId);
+        if (!pr) return null;
+        const repo = repoIndex.get(pr.repoId);
+        const watchEvents = eventsByWatch.get(watch.id) ?? [];
+        return {
+          id: watch.id,
+          prId: watch.prId,
+          prTitle: pr.title,
+          prNumber: pr.number,
+          repoFullName: repo ? fullName(repo) : pr.repoId,
+          mode: watch.mode,
+          memberName: memberById.get(watch.memberId)?.name ?? "someone",
+          createdAt: watch.createdAt,
+          unresolvedCount: watchEvents.filter(
+            (e) => e.verdict === "worth_addressing" && e.dismissedAt === null,
+          ).length,
+          totalCount: watchEvents.length,
+        };
+      })
+      .filter((row): row is WatchedPullRequestRow => row !== null);
+  }, [watches, pullRequests, members, events, repoIndex]);
+}
+
 /**
  * The team's review queue.
  *
@@ -307,17 +366,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
         ...pr,
         prId: pr.id,
         judgmentId: judgment?.id ?? null,
-        aiState:
-          job?.state ??
-          (judgment?.status === "completed"
-            ? "completed"
-            : judgment?.status === "skipped"
-              ? "skipped"
-              : judgment?.status === "pending"
-                ? "queued"
-                : judgment
-                  ? "failed"
-                  : "not_requested"),
+        aiState: deriveAiState(job, judgment?.status ?? null),
         verdict: judgment?.verdict ?? null,
         status: judgment?.status ?? "not_requested",
         impact: judgment?.impact ?? null,

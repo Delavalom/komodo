@@ -8,21 +8,25 @@
  * picking one opens exactly what Komodo thought at that point — along with the
  * answers given against it.
  */
+import * as React from "react";
 import Link from "next/link";
 import { Eye } from "lucide-react";
 
+import { canRequestAiReview } from "@komodo/store";
 import { Avatar, GithubIcon } from "@/components/ui/display";
+import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/controls";
 import { useUrlState } from "@/lib/use-url-state";
 import { cn, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
 import { usePullRequestWatch } from "@/lib/data/queries";
 import {
+  useRequestAIReview,
   useUnwatchPullRequest,
   useUpdateWatchMode,
   useWatchPullRequest,
 } from "@/lib/data/mutations";
-import type { PullRequest, Review, WatchMode } from "@/lib/types";
+import type { AiState, PullRequest, Review, WatchMode } from "@/lib/types";
 
 const WATCH_MODE_OPTIONS: { value: WatchMode; label: string }[] = [
   { value: "notify", label: "Notify only" },
@@ -75,6 +79,7 @@ export function ReviewHeader({
   current,
   orgSlug,
   estimate,
+  aiState,
 }: {
   pr: PullRequest;
   repoFullName: string;
@@ -82,6 +87,7 @@ export function ReviewHeader({
   current: Review | null;
   orgSlug: string;
   estimate: string;
+  aiState: AiState;
 }) {
   const now = useNow();
   const { get, set } = useUrlState();
@@ -172,27 +178,49 @@ export function ReviewHeader({
         </p>
       )}
 
-      <nav className="flex gap-1 px-4 pt-3">
-        <Tab active={view === "verify"} onClick={() => set({ view: null, j: null })}>
-          Verify result
-        </Tab>
-        <Tab
-          active={view === "decisions"}
-          onClick={() => set({ view: "decisions" })}
-        >
-          Decisions
-        </Tab>
-        <Tab active={view === "whole"} onClick={() => set({ view: "whole" })}>
-          The whole review
-        </Tab>
-        <Tab
-          active={view === "conversation"}
-          onClick={() => set({ view: "conversation" })}
-        >
-          Conversation
-        </Tab>
-      </nav>
+      <div className="flex items-center justify-between gap-2 px-4 pt-3">
+        <nav className="flex gap-1">
+          <Tab active={view === "verify"} onClick={() => set({ view: null, j: null })}>
+            Verify result
+          </Tab>
+          <Tab
+            active={view === "decisions"}
+            onClick={() => set({ view: "decisions" })}
+          >
+            Decisions
+          </Tab>
+          <Tab active={view === "whole"} onClick={() => set({ view: "whole" })}>
+            The whole review
+          </Tab>
+          <Tab
+            active={view === "conversation"}
+            onClick={() => set({ view: "conversation" })}
+          >
+            Conversation
+          </Tab>
+        </nav>
+        {canRequestAiReview(aiState) ? (
+          <AskAIReviewButton prId={pr.id} headSha={pr.headSha} />
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+/** Same request the queue's row button makes — see `view.tsx`'s "Review with AI". */
+function AskAIReviewButton({ prId, headSha }: { prId: string; headSha: string }) {
+  const requestReview = useRequestAIReview();
+  const [requesting, startRequest] = React.useTransition();
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={requesting}
+      onClick={() => startRequest(() => requestReview(prId, headSha))}
+    >
+      {requesting ? "Queuing…" : "Ask AI review"}
+    </Button>
   );
 }
 

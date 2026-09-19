@@ -27,6 +27,7 @@ import {
 } from "@/lib/data/server";
 import { loadConversation } from "@/lib/data/conversation";
 import { estimateTime } from "@komodo/core/store";
+import { deriveAiState } from "@komodo/store";
 
 export default async function ReviewPage({
   params,
@@ -41,7 +42,8 @@ export default async function ReviewPage({
   const { owner, repo, number } = await params;
   const query = await searchParams;
 
-  const { organization, repositories, pullRequests, judgments } = await loadSnapshot();
+  const { organization, repositories, pullRequests, judgments, aiReviewJobs } =
+    await loadSnapshot();
   const repoId = `${owner}/${repo}`;
   const prId = `${repoId}#${number}`;
 
@@ -50,6 +52,9 @@ export default async function ReviewPage({
   const repository = repositories.find((r) => r.id === repoId);
   const pr = pullRequests.find((candidate) => candidate.id === prId);
   const judgment = judgments.find(
+    (candidate) => candidate.prId === prId && candidate.headSha === pr?.headSha,
+  );
+  const job = aiReviewJobs.find(
     (candidate) => candidate.prId === prId && candidate.headSha === pr?.headSha,
   );
   if (!repository || !pr) notFound();
@@ -86,6 +91,7 @@ export default async function ReviewPage({
         current={detail?.review ?? null}
         orgSlug={organization.slug}
         estimate={estimateTime(detail?.judgements.length ?? 0)}
+        aiState={deriveAiState(job ?? null, judgment?.status ?? null)}
       />
 
       {view === "conversation" ? (

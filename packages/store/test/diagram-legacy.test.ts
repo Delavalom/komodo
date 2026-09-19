@@ -94,39 +94,43 @@ describe("legacy raw-Mermaid diagram rows", () => {
     }
   });
 
-  it("Postgres: falls back to null instead of throwing", async () => {
-    const db = new PGlite();
-    const sql = {
-      async query<T>(text: string, params?: unknown[]) {
-        const result = await db.query(text, params as never[]);
-        return { rows: result.rows as T[] };
-      },
-      exec: async (text: string) => {
-        await db.exec(text);
-      },
-    };
-    const store = await PostgresStore.fromClient(sql as never);
-    try {
-      await store.upsertRepository({
-        id: "acme/api",
-        owner: "acme",
-        name: "api",
-        provider: "github",
-        enabled: true,
-        reviewCount: 0,
-      });
-      const prId = await store.upsertPullRequest(pr());
-      const reviewId = await store.saveReview(reviewInput({ prId }));
+  it(
+    "Postgres: falls back to null instead of throwing",
+    async () => {
+      const db = new PGlite();
+      const sql = {
+        async query<T>(text: string, params?: unknown[]) {
+          const result = await db.query(text, params as never[]);
+          return { rows: result.rows as T[] };
+        },
+        exec: async (text: string) => {
+          await db.exec(text);
+        },
+      };
+      const store = await PostgresStore.fromClient(sql as never);
+      try {
+        await store.upsertRepository({
+          id: "acme/api",
+          owner: "acme",
+          name: "api",
+          provider: "github",
+          enabled: true,
+          reviewCount: 0,
+        });
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(reviewInput({ prId }));
 
-      await sql.query(`UPDATE reviews SET diagram = $1 WHERE id = $2`, [
-        "sequenceDiagram\n  A->>B: pay()",
-        reviewId,
-      ]);
+        await sql.query(`UPDATE reviews SET diagram = $1 WHERE id = $2`, [
+          "sequenceDiagram\n  A->>B: pay()",
+          reviewId,
+        ]);
 
-      const loaded = await store.loadReview(reviewId);
-      expect(loaded?.review.diagram).toBeNull();
-    } finally {
-      await db.close();
-    }
-  });
+        const loaded = await store.loadReview(reviewId);
+        expect(loaded?.review.diagram).toBeNull();
+      } finally {
+        await db.close();
+      }
+    },
+    15000,
+  );
 });

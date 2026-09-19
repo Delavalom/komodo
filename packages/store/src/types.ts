@@ -298,9 +298,14 @@ export type WatchMode = "notify" | "notify_and_draft";
  * reason a pull request's id is `${repoId}#${number}`: watching again is then
  * an upsert instead of a second row, and a restart cannot duplicate one.
  *
- * `lastSeenExternalId` is the watermark the ingester checks new comments
- * against — GitHub's own comment id, not a count, because a count says
- * nothing about which comments are already accounted for.
+ * `lastSeenExternalId` and `lastSeenAt` record the last comment this watch
+ * touched, for a person reading the row — not what the ingester checks new
+ * comments against. That check is "does `pr_watch_events` already have a row
+ * for this GitHub id", not a watermark: GitHub hands out comment ids,
+ * review-comment ids and review ids from independent counters, so id order
+ * (or an id paired with a timestamp) does not track chronological order
+ * across kinds, and a watermark built on it can silently skip a real comment
+ * forever. See `pollWatches` in `@komodo/ingest`.
  */
 export interface PullRequestWatch {
   id: string;

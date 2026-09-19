@@ -42,6 +42,7 @@ import {
 } from "@/lib/data/queries";
 import { useUrlState } from "@/lib/use-url-state";
 import { useRequestAIReview } from "@/lib/data/mutations";
+import { canRequestAiReview } from "@komodo/store";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
 import type { ChecksState, EasyWinSignal, QueueLens, QueueRow } from "@/lib/types";
@@ -421,12 +422,7 @@ function QueueRowCells({
             >
               {AI_STATE_LABEL[row.aiState]}
             </StatusPill>
-            {[
-              "not_requested",
-              "failed",
-              "skipped",
-              "cancelled",
-            ].includes(row.aiState) ? (
+            {canRequestAiReview(row.aiState) ? (
               <Button
                 variant="ghost"
                 size="sm"
