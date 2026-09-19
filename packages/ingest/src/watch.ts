@@ -100,10 +100,12 @@ export async function pollWatches(
     // permanently starves every real comment that follows it with a smaller
     // id. The event table has no such ordering assumption to get wrong.
     const seen = new Set(
-      (await store.listWatchEvents(watch.id)).map((e) => e.commentExternalId),
+      (await store.listWatchEvents(watch.id)).map(
+        (e) => `${e.commentKind}:${e.commentExternalId}`,
+      ),
     );
     const fresh = entries
-      .filter((entry) => !seen.has(entry.externalId))
+      .filter((entry) => !seen.has(`${entry.kind}:${entry.externalId}`))
       .slice(0, MAX_NEW_PER_WATCH);
     if (fresh.length === 0) continue;
 
