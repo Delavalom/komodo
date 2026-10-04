@@ -94,6 +94,7 @@ export const DepthRuleSchema = z
      */
     path: z
       .string()
+      .trim()
       .min(1)
       .refine((p) => !p.startsWith("!"), {
         message:
@@ -101,7 +102,7 @@ export const DepthRuleSchema = z
       })
       .optional(),
     /** Matches when the pull request carries this label, case-insensitively. */
-    label: z.string().min(1).optional(),
+    label: z.string().trim().min(1).optional(),
   })
   .strict()
   .refine(

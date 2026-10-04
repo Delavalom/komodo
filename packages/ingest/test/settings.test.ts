@@ -200,12 +200,40 @@ describe("review depth", () => {
     expect(config.depth.rules).toEqual([]);
   });
 
+  it("refuses a malformed setting rather than handing it on", () => {
+    // updateOrgSettings is a server action with no runtime validation, so the
+    // row can hold anything a client chose to send.
+    const bad = (value: unknown) => value as never;
+    const config = applySettings(
+      baseConfig({ depth: { default: "deep" } }),
+      settings({
+        reviewDepth: bad("max"),
+        depthRules: [
+          { kind: "label", value: "risky", depth: bad("max") },
+          { kind: bad("owner"), value: "marco", depth: "deep" },
+          { kind: "label", value: bad(7), depth: "deep" },
+        ],
+      }),
+    );
+    expect(config.depth).toEqual({ default: "deep", rules: [] });
+  });
+
+  it("survives a row whose rules are not a list", () => {
+    const config = applySettings(
+      baseConfig(),
+      settings({ depthRules: null as unknown as OrgSettings["depthRules"] }),
+    );
+    expect(config.depth.rules).toEqual([]);
+  });
+
   it("round-trips komodo.yaml's depth through the stored row", () => {
     const file = baseConfig({
       depth: {
         default: "deep",
         rules: [
           { files: 28, depth: "thorough" },
+          { lines: 800, depth: "deep" },
+          { path: "migrations/**", depth: "thorough" },
           { label: "risky", depth: "thorough" },
         ],
       },

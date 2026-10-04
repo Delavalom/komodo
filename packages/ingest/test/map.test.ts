@@ -152,8 +152,8 @@ describe("toReview — depth", () => {
   });
 
   it("reads a record without a run as one standard pass", () => {
-    const { run: _run, ...legacy } = record();
-    expect(toReview("acme/api#1", legacy)).toMatchObject({
+    // record() carries no run unless it is given one, as a legacy record has none.
+    expect(toReview("acme/api#1", record())).toMatchObject({
       depth: "standard", depthReason: "", passes: 1, costUsd: null,
     });
   });

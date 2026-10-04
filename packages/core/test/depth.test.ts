@@ -43,6 +43,16 @@ describe("depth config", () => {
     ).toThrow(/path_filters/);
   });
 
+  it("trims a label and a path, so a padded one matches as it would off the screen", () => {
+    const config = KomodoConfigSchema.parse({
+      depth: { rules: [{ label: " risky ", depth: "deep" }] },
+    });
+    expect(config.depth.rules[0]).toEqual({ label: "risky", depth: "deep" });
+    expect(() =>
+      KomodoConfigSchema.parse({ depth: { rules: [{ path: " !**/*.md", depth: "deep" }] } }),
+    ).toThrow(/path_filters/);
+  });
+
   it("refuses a misspelled key rather than dropping it", () => {
     expect(() =>
       KomodoConfigSchema.parse({

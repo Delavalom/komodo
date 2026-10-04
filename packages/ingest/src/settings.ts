@@ -21,7 +21,8 @@
  *     the roster, local.url — comes from komodo.yaml on every pass. Those are
  *     deployment facts, not preferences.
  */
-import type { DepthRule, KomodoConfig, Severity } from "@komodo/core";
+import { REVIEW_DEPTHS } from "@komodo/core";
+import type { DepthRule, KomodoConfig, ReviewDepth, Severity } from "@komodo/core";
 import { META_SETTINGS_INITIALIZED } from "@komodo/store";
 import type { DepthRuleSetting, KomodoStore, OrgSettings } from "@komodo/store";
 
@@ -64,8 +65,11 @@ export function applySettings(
     ...config,
     min_severity: MIN_SEVERITY[settings.strictness],
     depth: {
-      default: settings.reviewDepth,
-      rules: settings.depthRules.flatMap(toConfigRule),
+      // updateOrgSettings has no runtime validation, so the row can hold
+      // anything a client sent. Fall back to the file rather than hand the
+      // reviewer a depth it has no passes for.
+      default: isDepth(settings.reviewDepth) ? settings.reviewDepth : config.depth.default,
+      rules: Array.isArray(settings.depthRules) ? settings.depthRules.flatMap(toConfigRule) : [],
     },
     // The screen's box replaces the file's text rather than appending to it:
     // two sources of repository instructions silently concatenated is a
@@ -159,6 +163,9 @@ export async function effectiveConfig(
   return applySettings(config, await store.loadSettings());
 }
 
+const isDepth = (d: unknown): d is ReviewDepth =>
+  (REVIEW_DEPTHS as readonly unknown[]).includes(d);
+
 /**
  * A rule off the screen, in the shape komodo.yaml spells it.
  *
@@ -170,6 +177,7 @@ export async function effectiveConfig(
  * own refusals do not protect it and the same ones are repeated here.
  */
 function toConfigRule(rule: DepthRuleSetting): DepthRule[] {
+  if (!isDepth(rule.depth) || typeof rule.value !== "string") return [];
   const value = rule.value.trim();
   if (!value) return [];
   if (rule.kind === "files" || rule.kind === "lines") {
@@ -180,7 +188,9 @@ function toConfigRule(rule: DepthRuleSetting): DepthRule[] {
   // A leading "!" is negation to the glob matcher: the opposite of a
   // path_filters entry, which is what someone typing one expects.
   if (rule.kind === "path" && value.startsWith("!")) return [];
-  return [rule.kind === "path" ? { depth: rule.depth, path: value } : { depth: rule.depth, label: value }];
+  if (rule.kind === "path") return [{ depth: rule.depth, path: value }];
+  if (rule.kind === "label") return [{ depth: rule.depth, label: value }];
+  return [];
 }
 
 function toSettingRule(rule: DepthRule): DepthRuleSetting {
