@@ -13,7 +13,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { mintApiKey } from "@komodo/store/api-key";
-import { META_DISCOVERY_REQUESTED_AT } from "@komodo/store";
+import { META_DISCOVERY_REQUESTED_AT, REVIEW_DEPTH_ORDER } from "@komodo/store";
 import {
   GitHubClient,
   loadConfig,
@@ -56,6 +56,7 @@ import type {
   Member,
   MemoryRule,
   OrgSettings,
+  ReviewDepth,
   ReviewJudgement,
   WatchMode,
 } from "@/lib/types";
@@ -119,7 +120,13 @@ export async function retriggerReviews(judgmentIds: string[]): Promise<void> {
 export async function requestAIReview(
   prId: string,
   expectedHeadSha: string,
+  depth: ReviewDepth | null = null,
 ): Promise<void> {
+  // A server action is an endpoint: the menu only offers three values, and
+  // nothing stops a request carrying a fourth.
+  if (depth !== null && !REVIEW_DEPTH_ORDER.includes(depth)) {
+    throw new Error("That is not a review depth.");
+  }
   const store = await getStore();
   const snapshot = await store.snapshot();
   const pr = snapshot.pullRequests.find((candidate) => candidate.id === prId);
@@ -136,6 +143,7 @@ export async function requestAIReview(
     trigger: "manual",
     requestedBy: await resolveActorLogin(snapshot.members),
     requestedAt: Date.now(),
+    depth,
   });
   // An explicit retry means the operator believes the provider is usable
   // again; do not leave it behind the automatic failure circuit.
