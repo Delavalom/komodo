@@ -4,6 +4,7 @@ export * from "./config.js";
 export * from "./depth.js";
 export * from "./depth-rules.js";
 export * from "./merge.js";
+export * from "./passes.js";
 export * from "./voice.js";
 export * from "./context-sources.js";
 export * from "./diff.js";
