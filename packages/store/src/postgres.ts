@@ -284,6 +284,10 @@ CREATE TABLE IF NOT EXISTS reviews (
   "depthReason" TEXT NOT NULL DEFAULT '',
   passes        INTEGER NOT NULL DEFAULT 1,
   "costUsd"     DOUBLE PRECISION,
+  -- When this row's judgements were last written. createdAt and seq keep their
+  -- first-insert values across a re-run of the same head; this does not, so an
+  -- answer older than it was given to the run it replaced.
+  "savedAt"     BIGINT NOT NULL DEFAULT 0,
   "createdAt"   BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reviews_pr ON reviews ("prId", seq DESC);
@@ -1298,11 +1302,14 @@ export class PostgresStore implements KomodoStore {
   }
 
   private async readReviewRuns(): Promise<ReviewRunOutcome[]> {
-    // The mirror of the SQLite driver's query. COUNT is cast because Postgres
-    // returns bigint, which the driver hands back as a string.
+    // The mirror of the SQLite driver's query, and aggregated once for the same
+    // reason: correlated subqueries over the answers CTE rescan it per run.
+    // An answer older than the run's last save was given to the run it
+    // replaced, so it does not count. COUNT is cast because Postgres returns
+    // bigint, which the driver hands back as a string.
     const { rows } = await this.sql.query<Row>(
       `WITH newest_answer AS (
-         SELECT "judgementId", bucket,
+         SELECT "judgementId", bucket, "createdAt",
                 ROW_NUMBER() OVER (
                   PARTITION BY "judgementId" ORDER BY "createdAt" DESC, id DESC
                 ) AS rn
@@ -1310,22 +1317,28 @@ export class PostgresStore implements KomodoStore {
        ),
        judged AS (
          SELECT q."reviewId",
-                q.severity IN ('critical', 'major') AS severe,
-                COALESCE(a.bucket IN ('Blocks', 'Agreed'), false) AS upheld
+                COUNT(*)::int AS judgements,
+                (COUNT(*) FILTER (WHERE q.severity IN ('critical', 'major')))::int
+                  AS "severeJudgements",
+                (COUNT(*) FILTER (WHERE a.bucket IN ('Blocks', 'Agreed')))::int AS upheld,
+                (COUNT(*) FILTER (WHERE a.bucket IN ('Blocks', 'Agreed')
+                                    AND q.severity IN ('critical', 'major')))::int
+                  AS "severeUpheld"
          FROM review_judgements q
-         LEFT JOIN newest_answer a ON a."judgementId" = q.id AND a.rn = 1
+         JOIN reviews rv ON rv.id = q."reviewId"
+         LEFT JOIN newest_answer a
+           ON a."judgementId" = q.id AND a.rn = 1 AND a."createdAt" >= rv."savedAt"
+         GROUP BY q."reviewId"
        )
        SELECT r.id AS "reviewId", r."prId", p."repoId", p.author, r."createdAt",
               r.depth, r."depthReason", r.passes, r."costUsd", p."changedFiles",
-              (SELECT COUNT(*)::int FROM judged j WHERE j."reviewId" = r.id) AS judgements,
-              (SELECT COUNT(*)::int FROM judged j WHERE j."reviewId" = r.id AND j.severe)
-                AS "severeJudgements",
-              (SELECT COUNT(*)::int FROM judged j WHERE j."reviewId" = r.id AND j.upheld)
-                AS upheld,
-              (SELECT COUNT(*)::int FROM judged j
-                WHERE j."reviewId" = r.id AND j.upheld AND j.severe) AS "severeUpheld"
+              COALESCE(j.judgements, 0) AS judgements,
+              COALESCE(j."severeJudgements", 0) AS "severeJudgements",
+              COALESCE(j.upheld, 0) AS upheld,
+              COALESCE(j."severeUpheld", 0) AS "severeUpheld"
        FROM reviews r
        JOIN pull_requests p ON p.id = r."prId"
+       LEFT JOIN judged j ON j."reviewId" = r.id
        ORDER BY r.seq`,
     );
 
@@ -1859,9 +1872,9 @@ export class PostgresStore implements KomodoStore {
         `INSERT INTO reviews
            (id, version, "prId", "headSha", seq, provider, model, summary, walkthrough,
             confidence, effort, "verdictLine", diagram, "recordId",
-            depth, "depthReason", passes, "costUsd", "createdAt")
+            depth, "depthReason", passes, "costUsd", "createdAt", "savedAt")
          VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)
          ON CONFLICT (id) DO UPDATE SET
            version = EXCLUDED.version,
            provider = EXCLUDED.provider, model = EXCLUDED.model,
@@ -1870,7 +1883,8 @@ export class PostgresStore implements KomodoStore {
            "verdictLine" = EXCLUDED."verdictLine", diagram = EXCLUDED.diagram,
            "recordId" = EXCLUDED."recordId",
            depth = EXCLUDED.depth, "depthReason" = EXCLUDED."depthReason",
-           passes = EXCLUDED.passes, "costUsd" = EXCLUDED."costUsd"`,
+           passes = EXCLUDED.passes, "costUsd" = EXCLUDED."costUsd",
+           "savedAt" = EXCLUDED."savedAt"`,
         [
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),

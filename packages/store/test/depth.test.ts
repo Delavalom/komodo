@@ -52,6 +52,12 @@ describe("describeDepth", () => {
     );
   });
 
+  it("does not say 'of' when a run made more passes than planned", () => {
+    expect(describeDepth({ depth: "thorough", passes: 6, depthReason: "" })).toBe(
+      "Thorough · 6 passes",
+    );
+  });
+
   it("uses the singular for one pass", () => {
     expect(describeDepth({ depth: "standard", passes: 1, depthReason: "deployment default" })).toBe(
       "Standard · 1 pass — deployment default",

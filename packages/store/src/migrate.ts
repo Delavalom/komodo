@@ -524,6 +524,9 @@ CREATE TABLE IF NOT EXISTS github_identities (
         postgres: "INTEGER NOT NULL DEFAULT 1",
       },
       { table: "reviews", column: "costUsd", sqlite: "REAL", postgres: "DOUBLE PRECISION" },
+      // Added to this migration rather than a new one: it is unreleased. 0 on a
+      // legacy row means every answer it has counts, which is how it behaved.
+      { table: "reviews", column: "savedAt", sqlite: "INTEGER NOT NULL DEFAULT 0", postgres: "BIGINT NOT NULL DEFAULT 0" },
     ],
   },
 ];

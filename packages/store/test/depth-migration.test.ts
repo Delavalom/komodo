@@ -23,8 +23,8 @@ describe("review depth migration", () => {
 
       runSqliteMigrations(db, 2);
 
-      expect(db.prepare("SELECT depth, depthReason, passes, costUsd FROM reviews").get()).toEqual({
-        depth: "standard", depthReason: "", passes: 1, costUsd: null,
+      expect(db.prepare("SELECT depth, depthReason, passes, costUsd, savedAt FROM reviews").get()).toEqual({
+        depth: "standard", depthReason: "", passes: 1, costUsd: null, savedAt: 0,
       });
       expect(db.prepare("SELECT depth FROM ai_review_jobs").get()).toEqual({ depth: null });
     } finally {
@@ -54,8 +54,10 @@ describe("review depth migration", () => {
 
       await runPostgresMigrations(sql, 2);
 
-      const { rows } = await pg.query(`SELECT depth, "depthReason", passes, "costUsd" FROM reviews`);
-      expect(rows[0]).toEqual({ depth: "standard", depthReason: "", passes: 1, costUsd: null });
+      const { rows } = await pg.query(`SELECT depth, "depthReason", passes, "costUsd", "savedAt" FROM reviews`);
+      expect(rows[0]).toEqual({
+        depth: "standard", depthReason: "", passes: 1, costUsd: null, savedAt: 0,
+      });
       const jobs = await pg.query(`SELECT depth FROM ai_review_jobs`);
       expect(jobs.rows[0]).toEqual({ depth: null });
     } finally {

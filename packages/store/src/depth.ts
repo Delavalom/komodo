@@ -3,8 +3,9 @@
  *
  * Re-declared rather than imported from @komodo/core for the reason every
  * vocabulary in this package is: no dependency on core, and client components
- * import from here. packages/ingest/test/settings.test.ts asserts these
- * tables equal core's, so the two cannot drift silently.
+ * import from here. packages/ingest/test/settings.test.ts asserts that the
+ * depth order and the pass counts agree with core's, so those two cannot drift
+ * silently.
  */
 import type { ReviewDepth, ReviewRunOutcome } from "./types.js";
 
@@ -31,7 +32,7 @@ export const SIZE_BANDS = [
 export type SizeBand = (typeof SIZE_BANDS)[number]["key"];
 
 export function sizeBand(changedFiles: number): SizeBand {
-  return SIZE_BANDS.find((band) => changedFiles <= band.max)!.key;
+  return SIZE_BANDS.find((band) => changedFiles <= band.max)?.key ?? "large";
 }
 
 export interface DepthCell {
@@ -89,7 +90,7 @@ export function describeDepth(run: {
 }): string {
   const planned = DEPTH_PASSES[run.depth];
   const passes =
-    run.passes === planned
+    run.passes >= planned
       ? `${run.passes} ${run.passes === 1 ? "pass" : "passes"}`
       : `${run.passes} of ${planned} passes`;
   const reason = run.depthReason ? ` — ${run.depthReason}` : "";

@@ -781,13 +781,72 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
         expect(run.upheld).toBe(0);
       });
 
-      it("lists every run, oldest first, not only each pull request's newest", async () => {
+      it("lists every reviewed head, oldest first, not only each pull request's newest", async () => {
         const prId = await store.upsertPullRequest(pr());
         await store.saveReview(review({ prId }));
         await store.saveReview(review({ prId, headSha: "bbb222", depth: "thorough", passes: 5 }));
 
         const runs = (await store.snapshot()).reviewRuns;
         expect(runs.map((r) => r.depth)).toEqual(["standard", "thorough"]);
+      });
+
+      it("reports a run with no judgements as zero rather than dropping it", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        await store.saveReview(review({ prId, judgements: [] }));
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run).toMatchObject({ judgements: 0, severeJudgements: 0, upheld: 0, severeUpheld: 0 });
+      });
+
+      it("keeps each run's answers to itself", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        await store.saveReview(review({ prId }));
+        const second = await store.saveReview(review({ prId, headSha: "bbb222" }));
+        await store.recordAnswer({
+          judgementId: `${second}:0`, actorLogin: "renata", bucket: "Blocks", optionLabel: "No",
+        });
+
+        const runs = (await store.snapshot()).reviewRuns;
+        expect(runs.map((r) => r.upheld)).toEqual([0, 1]);
+      });
+
+      it("counts an answer that moves from Passed on to Agreed", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Passed on", optionLabel: "Not my call",
+        });
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Agreed", optionLabel: "Yes",
+        });
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run.upheld).toBe(1);
+      });
+
+      it("does not credit a re-run with an answer given to the run it replaced", async () => {
+        // A re-run of the same head keeps its id, and a judgement id is
+        // `<review id>:<ordinal>`, so the new :0 shares a ledger key with the
+        // old :0. The answer was a verdict on the old findings.
+        const clock = vi.spyOn(Date, "now").mockReturnValue(T0);
+        try {
+          const prId = await store.upsertPullRequest(pr());
+          const reviewId = await store.saveReview(review({ prId, depth: "standard" }));
+          clock.mockReturnValue(T0 + 1_000);
+          await store.recordAnswer({
+            judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Blocks", optionLabel: "No",
+          });
+          expect((await store.snapshot()).reviewRuns[0].upheld).toBe(1);
+
+          clock.mockReturnValue(T0 + 2_000);
+          await store.saveReview(review({ prId, depth: "thorough", passes: 5 }));
+
+          const runs = (await store.snapshot()).reviewRuns;
+          expect(runs).toHaveLength(1);
+          expect(runs[0]).toMatchObject({ depth: "thorough", upheld: 0, severeUpheld: 0 });
+        } finally {
+          clock.mockRestore();
+        }
       });
     });
 

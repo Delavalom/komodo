@@ -289,6 +289,10 @@ CREATE TABLE IF NOT EXISTS reviews (
   depthReason TEXT NOT NULL DEFAULT '',
   passes      INTEGER NOT NULL DEFAULT 1,
   costUsd     REAL,
+  -- When this row's judgements were last written. createdAt and seq keep their
+  -- first-insert values across a re-run of the same head; this does not, so an
+  -- answer older than it was given to the run it replaced.
+  savedAt     INTEGER NOT NULL DEFAULT 0,
   createdAt   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reviews_pr ON reviews (prId, seq DESC);
@@ -1239,11 +1243,17 @@ export class SqliteStore implements KomodoStore {
   private readReviewRuns(): ReviewRunOutcome[] {
     // Upheld means the newest ledger entry says Blocks or Agreed — the same
     // "newest answer wins" rule readJudgments uses, so withdrawing an answer
-    // un-upholds it here too.
+    // un-upholds it here too. An answer older than the run's last save was
+    // given to the run it replaced (a re-run of the same head keeps its
+    // judgement ids), so it does not count.
+    //
+    // The judgements are aggregated once, grouped by review, and joined back
+    // to the reviews. A per-review correlated subquery over this CTE walks
+    // every answer for every run, which is quadratic and ran on every snapshot.
     const rows = this.db
       .prepare(
         `WITH newest_answer AS (
-           SELECT judgementId, bucket,
+           SELECT judgementId, bucket, createdAt,
                   ROW_NUMBER() OVER (
                     PARTITION BY judgementId ORDER BY createdAt DESC, id DESC
                   ) AS rn
@@ -1251,22 +1261,28 @@ export class SqliteStore implements KomodoStore {
          ),
          judged AS (
            SELECT q.reviewId,
-                  q.severity IN ('critical', 'major') AS severe,
-                  a.bucket IN ('Blocks', 'Agreed') AS upheld
+                  COUNT(*) AS judgements,
+                  SUM(CASE WHEN q.severity IN ('critical', 'major') THEN 1 ELSE 0 END)
+                    AS severeJudgements,
+                  SUM(CASE WHEN a.bucket IN ('Blocks', 'Agreed') THEN 1 ELSE 0 END) AS upheld,
+                  SUM(CASE WHEN a.bucket IN ('Blocks', 'Agreed')
+                            AND q.severity IN ('critical', 'major') THEN 1 ELSE 0 END)
+                    AS severeUpheld
            FROM review_judgements q
-           LEFT JOIN newest_answer a ON a.judgementId = q.id AND a.rn = 1
+           JOIN reviews rv ON rv.id = q.reviewId
+           LEFT JOIN newest_answer a
+             ON a.judgementId = q.id AND a.rn = 1 AND a.createdAt >= rv.savedAt
+           GROUP BY q.reviewId
          )
          SELECT r.id AS reviewId, r.prId, p.repoId, p.author, r.createdAt,
                 r.depth, r.depthReason, r.passes, r.costUsd, p.changedFiles,
-                (SELECT COUNT(*) FROM judged j WHERE j.reviewId = r.id) AS judgements,
-                (SELECT COUNT(*) FROM judged j WHERE j.reviewId = r.id AND j.severe)
-                  AS severeJudgements,
-                (SELECT COUNT(*) FROM judged j WHERE j.reviewId = r.id AND j.upheld)
-                  AS upheld,
-                (SELECT COUNT(*) FROM judged j
-                  WHERE j.reviewId = r.id AND j.upheld AND j.severe) AS severeUpheld
+                COALESCE(j.judgements, 0) AS judgements,
+                COALESCE(j.severeJudgements, 0) AS severeJudgements,
+                COALESCE(j.upheld, 0) AS upheld,
+                COALESCE(j.severeUpheld, 0) AS severeUpheld
          FROM reviews r
          JOIN pull_requests p ON p.id = r.prId
+         LEFT JOIN judged j ON j.reviewId = r.id
          ORDER BY r.seq`,
       )
       .all() as Row[];
@@ -1833,9 +1849,9 @@ export class SqliteStore implements KomodoStore {
           `INSERT INTO reviews
              (id, version, prId, headSha, seq, provider, model, summary, walkthrough,
               confidence, effort, verdictLine, diagram, recordId,
-              depth, depthReason, passes, costUsd, createdAt)
+              depth, depthReason, passes, costUsd, createdAt, savedAt)
            VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id) DO UPDATE SET
              version = excluded.version,
              provider = excluded.provider, model = excluded.model,
@@ -1844,7 +1860,8 @@ export class SqliteStore implements KomodoStore {
              verdictLine = excluded.verdictLine, diagram = excluded.diagram,
              recordId = excluded.recordId,
              depth = excluded.depth, depthReason = excluded.depthReason,
-             passes = excluded.passes, costUsd = excluded.costUsd`,
+             passes = excluded.passes, costUsd = excluded.costUsd,
+             savedAt = excluded.savedAt`,
         )
         .run(
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
@@ -1852,7 +1869,7 @@ export class SqliteStore implements KomodoStore {
           input.confidence, input.effort, input.verdictLine,
           input.diagram ? JSON.stringify(input.diagram) : null, input.recordId,
           input.depth ?? "standard", input.depthReason ?? "", input.passes ?? 1,
-          input.costUsd ?? null, now,
+          input.costUsd ?? null, now, now,
         );
 
       // A re-run of the same head replaces its own bodies. The answer rows
