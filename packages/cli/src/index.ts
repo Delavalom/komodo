@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { diffCommand } from "./commands/diff.js";
+import { evalCommand } from "./commands/eval.js";
 import { initCommand } from "./commands/init.js";
 import { prCommand } from "./commands/pr.js";
 import { promptCommand } from "./commands/prompt.js";
@@ -38,6 +39,14 @@ program
   .option("--depth <depth>", "standard | deep | thorough (default: the depth rules in komodo.yaml)")
   .option("--no-ui", "do not print the local UI hint")
   .action(prCommand);
+
+program
+  .command("eval")
+  .argument("<file>", "eval YAML, e.g. eval/playground.yaml")
+  .description("Run seeded pull requests at each review depth and report which known defects were raised")
+  .option("--provider <name>", "claude | codex (default: from komodo.yaml / auto-detect)")
+  .option("--model <model>", "model override passed to the provider")
+  .action(evalCommand);
 
 program
   .command("dev")
