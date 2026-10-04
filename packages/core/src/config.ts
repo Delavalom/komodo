@@ -86,11 +86,24 @@ export const DepthRuleSchema = z
     files: z.number().int().min(1).optional(),
     /** Matches when at least this many reviewable lines changed (added + deleted). */
     lines: z.number().int().min(1).optional(),
-    /** Matches when any reviewable file matches this glob. */
-    path: z.string().min(1).optional(),
+    /**
+     * Matches when any reviewable file matches this glob. A leading `!` is
+     * refused: picomatch reads it as "any file not matching", the opposite of
+     * what it means in `path_filters`, so a copied exclusion would escalate
+     * nearly every pull request.
+     */
+    path: z
+      .string()
+      .min(1)
+      .refine((p) => !p.startsWith("!"), {
+        message:
+          "A depth rule's path is a glob of files to look harder at; use path_filters to exclude files.",
+      })
+      .optional(),
     /** Matches when the pull request carries this label, case-insensitively. */
     label: z.string().min(1).optional(),
   })
+  .strict()
   .refine(
     (rule) =>
       [rule.files, rule.lines, rule.path, rule.label].filter((v) => v !== undefined)

@@ -37,6 +37,20 @@ describe("depth config", () => {
     expect(config.depth.rules).toHaveLength(4);
   });
 
+  it("refuses a negated path, which picomatch reads as 'any file not matching'", () => {
+    expect(() =>
+      KomodoConfigSchema.parse({ depth: { rules: [{ path: "!**/*.md", depth: "deep" }] } }),
+    ).toThrow(/path_filters/);
+  });
+
+  it("refuses a misspelled key rather than dropping it", () => {
+    expect(() =>
+      KomodoConfigSchema.parse({
+        depth: { rules: [{ files: 10, lable: "x", depth: "deep" }] },
+      }),
+    ).toThrow();
+  });
+
   it("refuses a rule with no condition", () => {
     expect(() =>
       KomodoConfigSchema.parse({ depth: { rules: [{ depth: "deep" }] } }),
@@ -98,6 +112,51 @@ describe("resolveDepth", () => {
       depth: "deep",
       reason: "touches db/migrations/001.sql (rule: **/migrations/**)",
     });
+    // A leading-dot directory only matches with `dot: true`.
+    expect(
+      resolveDepth(withRules([{ path: "**/*.yml", depth: "deep" }]), {
+        files: [{ path: ".github/workflows/ci.yml", additions: 1, deletions: 0 }],
+        labels: [],
+      }),
+    ).toEqual({
+      depth: "deep",
+      reason: "touches .github/workflows/ci.yml (rule: **/*.yml)",
+    });
+  });
+
+  it("fires exactly at the threshold", () => {
+    expect(
+      resolveDepth(withRules([{ files: 28, depth: "thorough" }]), {
+        files: files(28),
+        labels: [],
+      }),
+    ).toEqual({ depth: "thorough", reason: "28 files changed (rule: at least 28)" });
+  });
+
+  it("keeps the first rule's reason when two rules reach the same depth", () => {
+    const decision = resolveDepth(
+      withRules([
+        { files: 2, depth: "deep" },
+        { label: "risky", depth: "deep" },
+      ]),
+      { files: files(5), labels: ["risky"] },
+    );
+    expect(decision).toEqual({ depth: "deep", reason: "5 files changed (rule: at least 2)" });
+  });
+
+  it("leaves the default when a path rule matches nothing", () => {
+    expect(
+      resolveDepth(withRules([{ path: "migrations/**", depth: "deep" }]), {
+        files: files(3),
+        labels: [],
+      }),
+    ).toEqual({ depth: "standard", reason: "deployment default" });
+  });
+
+  it("gives a plain reason when the request names no actor", () => {
+    expect(
+      resolveDepth(withRules([]), { files: files(1), labels: [] }, { depth: "deep", by: null }),
+    ).toEqual({ depth: "deep", reason: "requested" });
   });
 
   it("matches a label regardless of case", () => {
