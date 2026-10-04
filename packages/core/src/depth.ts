@@ -50,3 +50,15 @@ export const DEPTH_LABEL: Record<ReviewDepth, string> = {
   deep: "Deep",
   thorough: "Thorough",
 };
+
+/**
+ * A depth from a flag or a form field, refused with the choices spelled out.
+ *
+ * Trimmed and lower-cased so `--depth Thorough` works; anything else throws
+ * here, before a model has been asked for anything, so a typo costs nothing.
+ */
+export function parseDepth(value: string): ReviewDepth {
+  const depth = value.trim().toLowerCase();
+  if ((REVIEW_DEPTHS as readonly string[]).includes(depth)) return depth as ReviewDepth;
+  throw new Error(`Unknown review depth "${value}". Use standard, deep or thorough.`);
+}

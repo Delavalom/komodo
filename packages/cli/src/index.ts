@@ -35,6 +35,7 @@ program
   .option("--local-only", "do not post to GitHub; just write the local review record", false)
   .option("--provider <name>", "claude | codex (default: from komodo.yaml / auto-detect)")
   .option("--model <model>", "model override passed to the provider")
+  .option("--depth <depth>", "standard | deep | thorough (default: the depth rules in komodo.yaml)")
   .option("--no-ui", "do not print the local UI hint")
   .action(prCommand);
 

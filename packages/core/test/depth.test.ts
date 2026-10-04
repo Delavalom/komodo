@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { KomodoConfigSchema } from "../src/config.js";
-import { DEPTH_PASSES, DEPTH_RANK, REVIEW_DEPTHS } from "../src/depth.js";
+import { DEPTH_PASSES, DEPTH_RANK, parseDepth, REVIEW_DEPTHS } from "../src/depth.js";
 import { resolveDepth } from "../src/depth-rules.js";
 
 describe("depth vocabulary", () => {
@@ -204,5 +204,15 @@ describe("resolveDepth", () => {
     expect(
       resolveDepth(config, { files: files(5), labels: [] }, { depth: "deep" }),
     ).toEqual({ depth: "deep", reason: "requested" });
+  });
+});
+
+describe("parseDepth", () => {
+  it("accepts a depth name, case-insensitively", () => {
+    expect(parseDepth("Thorough")).toBe("thorough");
+  });
+
+  it("names the choices when it refuses", () => {
+    expect(() => parseDepth("max")).toThrow("standard, deep or thorough");
   });
 });
