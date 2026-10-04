@@ -64,7 +64,11 @@ export interface ReviewInput {
   pass?: ReviewPass;
   /** Agent turns this pass may take, for providers that run an agent loop. */
   turnBudget?: number;
-  /** Called with what the pass cost, when the provider reports it. */
+  /**
+   * Called with what the pass cost, when the provider reports it. Call it at
+   * most once per review call, and call it even if the pass then fails — the
+   * cost was still spent.
+   */
   onUsage?: (usage: PassUsage) => void;
 }
 

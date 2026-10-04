@@ -64,6 +64,16 @@ describe("sameConcern", () => {
   });
 });
 
+describe("sameConcern — file-level judgements", () => {
+  it("does not treat line 0 as a real line", () => {
+    const a = judgement({ line: 0, focus: "tests", title: "No test reaches the timeout branch." });
+    const b = judgement({ line: 0, focus: "tests", title: "No test reaches the retry cap." });
+    expect(sameConcern(a, b)).toBe(false);
+    expect(sameConcern(a, judgement({ line: 2, focus: "tests" }))).toBe(false);
+    expect(sameConcern(a, { ...a, title: "no test reaches the TIMEOUT branch" })).toBe(true);
+  });
+});
+
 describe("mergeResults", () => {
   it("keeps the base pass's summary, walkthrough and scores", () => {
     const base = result();
@@ -100,5 +110,31 @@ describe("mergeResults", () => {
     ]);
     expect(merged.verificationChecks).toHaveLength(1);
     expect(merged.verificationChecks[0].required).toBe(true);
+  });
+
+  it("keeps two distinct nearby judgements from one extra pass", () => {
+    const extra = result({
+      judgements: [
+        judgement({ focus: "tests", line: 12, path: "src/x.ts", severity: "major", title: "No test reaches the timeout branch." }),
+        judgement({ focus: "tests", line: 14, path: "src/x.ts", severity: "minor", title: "No test reaches the retry cap." }),
+      ],
+    });
+    const merged = mergeResults(result(), [extra]);
+    expect(merged.judgements).toHaveLength(2);
+  });
+
+  it("still collapses a repeat across two extra passes", () => {
+    const one = result({ judgements: [judgement({ focus: "tests", severity: "minor" })] });
+    const two = result({ judgements: [judgement({ focus: "tests", severity: "major", line: 13 })] });
+    const merged = mergeResults(result(), [one, two]);
+    expect(merged.judgements).toHaveLength(1);
+    expect(merged.judgements[0].severity).toBe("major");
+  });
+
+  it("never collapses checks whose titles have no letters or digits", () => {
+    const merged = mergeResults(result({ verificationChecks: [check({ title: "—" })] }), [
+      result({ verificationChecks: [check({ title: "!!" })] }),
+    ]);
+    expect(merged.verificationChecks).toHaveLength(2);
   });
 });

@@ -1,10 +1,11 @@
 import { annotatePatch } from "../diff.js";
+import type { Judgement } from "../schema.js";
 import { voiceSection } from "../voice.js";
 import type { LensFocus, ReviewInput, ReviewPass } from "./types.js";
 
 const LENS_BRIEF: Record<LensFocus, string> = {
   architecture:
-    "ownership, layering, system boundaries and data flow. Trace the callers of every changed export and the modules that own the data it touches. Read the configuration and generated files the change depends on, even when they are outside the diff.",
+    "ownership, layering, system boundaries and data flow. Trace the callers of every changed export and the modules that own the data it touches. If a repository checkout is available, read the configuration and generated files the change depends on, even when they are outside the diff.",
   scope:
     "whether the change reaches farther than its task: unrelated files, a new dependency or module where an existing one would do, and behaviour that changes without the description mentioning it.",
   tests:
@@ -20,19 +21,25 @@ const LENS_BRIEF: Record<LensFocus, string> = {
 export function passSection(pass: ReviewPass | undefined): string {
   if (!pass || pass.kind === "base") return "";
 
-  const keep =
-    "Only new judgements and verification checks are kept from this pass. Write the summary and walkthrough as one line each. An empty judgement list is a valid answer.";
+  const rest =
+    "Write the summary and walkthrough as one line each. An empty judgement list is a valid answer.";
 
   if (pass.kind === "lens") {
-    return `\n## This pass\nThis is one of several passes over the same pull request, and its whole job is one question: ${LENS_BRIEF[pass.focus]}\nOnly judgements with focus \`${pass.focus}\` are kept from this pass. ${keep}\n`;
+    return `\n## This pass\nThis is one of several passes over the same pull request, and its whole job is one question: ${LENS_BRIEF[pass.focus]}\nOnly judgements with focus \`${pass.focus}\` and verification checks are kept from this pass. ${rest}\n`;
   }
 
   const prior = pass.prior.length
     ? pass.prior
-        .map((j) => `- [${j.focus}] ${j.path || "(cross-cutting)"}:${j.line} — ${j.title}`)
+        .map((j) => `- [${j.focus}] ${where(j)} — ${j.title.replace(/\s+/g, " ").trim()}`)
         .join("\n")
     : "- (none)";
-  return `\n## This pass\nEarlier passes over this pull request already raised the judgements below. Do not repeat them, reword them or argue with them. Look for what they missed — most often behaviour that only appears under particular configuration, limits or input sizes, a changed path no test reaches, and files the change depends on outside the diff. ${keep}\n\nAlready raised:\n${prior}\n`;
+  return `\n## This pass\nEarlier passes over this pull request already raised the judgements below. Do not repeat them, reword them or argue with them. Look for what they missed — most often behaviour that only appears under particular configuration, limits or input sizes, a changed path no test reaches, and, when a checkout is available, files the change depends on outside the diff. Only new judgements and verification checks are kept from this pass. ${rest}\n\nAlready raised:\n${prior}\n`;
+}
+
+/** Where a judgement sits: `path:line`, `path` when file-level, or a marker when it has no file. */
+function where(j: Pick<Judgement, "path" | "line">): string {
+  if (!j.path) return "(cross-cutting)";
+  return j.line > 0 ? `${j.path}:${j.line}` : j.path;
 }
 
 export function buildReviewPrompt(input: ReviewInput): string {
