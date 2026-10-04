@@ -55,6 +55,7 @@ import type {
   Repository,
   Review,
   ReviewDepth,
+  ReviewRunOutcome,
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,
@@ -584,6 +585,7 @@ export class PostgresStore implements KomodoStore {
       pullRequests,
       aiReviewJobs,
       judgments,
+      reviewRuns,
       findings,
       memoryRules,
       repoClusters,
@@ -602,6 +604,7 @@ export class PostgresStore implements KomodoStore {
       this.listPullRequests(),
       this.listAIReviewJobs(),
       this.readJudgments(),
+      this.readReviewRuns(),
       this.readFindings(),
       this.listMemoryRules(),
       this.listRepoClusters(),
@@ -621,6 +624,7 @@ export class PostgresStore implements KomodoStore {
       pullRequests,
       aiReviewJobs,
       judgments,
+      reviewRuns,
       findings,
       memoryRules,
       repoClusters,
@@ -1290,6 +1294,56 @@ export class PostgresStore implements KomodoStore {
       provider: str(r.provider) as Repository["provider"],
       enabled: bool(r.enabled),
       reviewCount: num(r.reviewCount),
+    }));
+  }
+
+  private async readReviewRuns(): Promise<ReviewRunOutcome[]> {
+    // The mirror of the SQLite driver's query. COUNT is cast because Postgres
+    // returns bigint, which the driver hands back as a string.
+    const { rows } = await this.sql.query<Row>(
+      `WITH newest_answer AS (
+         SELECT "judgementId", bucket,
+                ROW_NUMBER() OVER (
+                  PARTITION BY "judgementId" ORDER BY "createdAt" DESC, id DESC
+                ) AS rn
+         FROM answers
+       ),
+       judged AS (
+         SELECT q."reviewId",
+                q.severity IN ('critical', 'major') AS severe,
+                COALESCE(a.bucket IN ('Blocks', 'Agreed'), false) AS upheld
+         FROM review_judgements q
+         LEFT JOIN newest_answer a ON a."judgementId" = q.id AND a.rn = 1
+       )
+       SELECT r.id AS "reviewId", r."prId", p."repoId", p.author, r."createdAt",
+              r.depth, r."depthReason", r.passes, r."costUsd", p."changedFiles",
+              (SELECT COUNT(*)::int FROM judged j WHERE j."reviewId" = r.id) AS judgements,
+              (SELECT COUNT(*)::int FROM judged j WHERE j."reviewId" = r.id AND j.severe)
+                AS "severeJudgements",
+              (SELECT COUNT(*)::int FROM judged j WHERE j."reviewId" = r.id AND j.upheld)
+                AS upheld,
+              (SELECT COUNT(*)::int FROM judged j
+                WHERE j."reviewId" = r.id AND j.upheld AND j.severe) AS "severeUpheld"
+       FROM reviews r
+       JOIN pull_requests p ON p.id = r."prId"
+       ORDER BY r.seq`,
+    );
+
+    return rows.map((r) => ({
+      reviewId: str(r.reviewId),
+      prId: str(r.prId),
+      repoId: str(r.repoId),
+      author: str(r.author),
+      createdAt: num(r.createdAt),
+      depth: asDepth(r.depth) ?? "standard",
+      depthReason: str(r.depthReason),
+      passes: num(r.passes),
+      costUsd: r.costUsd == null ? null : num(r.costUsd),
+      changedFiles: num(r.changedFiles),
+      judgements: num(r.judgements),
+      severeJudgements: num(r.severeJudgements),
+      upheld: num(r.upheld),
+      severeUpheld: num(r.severeUpheld),
     }));
   }
 

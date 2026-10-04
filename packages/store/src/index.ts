@@ -50,6 +50,7 @@ export type {
   Repository,
   Review,
   ReviewDepth,
+  ReviewRunOutcome,
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,

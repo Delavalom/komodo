@@ -749,6 +749,48 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(await store.listVerificationEntries(reviewId)).toHaveLength(1);
     });
 
+    describe("review run outcomes", () => {
+      it("derives upheld counts from each judgement's newest answer", async () => {
+        const prId = await store.upsertPullRequest(pr({ changedFiles: 31 }));
+        // The fixture's judgement 0 is major and judgement 1 is minor.
+        const reviewId = await store.saveReview(review({ prId, depth: "deep", passes: 2, costUsd: 0.3 }));
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Blocks", optionLabel: "No",
+        });
+        await store.recordAnswer({
+          judgementId: `${reviewId}:1`, actorLogin: "renata", bucket: "Passed on", optionLabel: "Not my call",
+        });
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run).toMatchObject({
+          reviewId, prId, repoId: "acme/api", author: "renata",
+          depth: "deep", passes: 2, costUsd: 0.3, changedFiles: 31,
+          judgements: 2, severeJudgements: 1, upheld: 1, severeUpheld: 1,
+        });
+      });
+
+      it("stops counting a judgement as upheld once the answer is withdrawn", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Agreed", optionLabel: "Yes",
+        });
+        await store.recordAnswer({ judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: null });
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run.upheld).toBe(0);
+      });
+
+      it("lists every run, oldest first, not only each pull request's newest", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        await store.saveReview(review({ prId }));
+        await store.saveReview(review({ prId, headSha: "bbb222", depth: "thorough", passes: 5 }));
+
+        const runs = (await store.snapshot()).reviewRuns;
+        expect(runs.map((r) => r.depth)).toEqual(["standard", "thorough"]);
+      });
+    });
+
     describe("the ingester work list", () => {
       it("offers an unreviewed open pull request", async () => {
         await store.upsertPullRequest(pr());

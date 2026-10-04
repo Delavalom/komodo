@@ -544,6 +544,33 @@ export interface Review {
   createdAt: number;
 }
 
+/**
+ * One review run and what people made of it.
+ *
+ * The row the depth panel and the usage screen count from. Every number is
+ * derived at read time from the run's own judgements and the answer ledger
+ * (AGENTS.md rule 4) — none of it is a column anything writes.
+ */
+export interface ReviewRunOutcome {
+  reviewId: string;
+  prId: string;
+  repoId: string;
+  author: string;
+  createdAt: number;
+  depth: ReviewDepth;
+  depthReason: string;
+  passes: number;
+  costUsd: number | null;
+  /** The pull request's changed files as GitHub last reported them. */
+  changedFiles: number;
+  judgements: number;
+  /** Critical or major. */
+  severeJudgements: number;
+  /** Judgements whose newest answer is Blocks or Agreed: a person said it was real. */
+  upheld: number;
+  severeUpheld: number;
+}
+
 /** One file the run read, with the patch it read. */
 export interface ReviewFile {
   reviewId: string;

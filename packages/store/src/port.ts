@@ -32,6 +32,7 @@ import type {
   Repository,
   Review,
   ReviewDepth,
+  ReviewRunOutcome,
   ReviewDetail,
   ReviewFile,
   JudgementVote,
@@ -69,6 +70,8 @@ export interface QueueSnapshot {
   /** Durable AI intent, separate from results in judgments. */
   aiReviewJobs: AIReviewJob[];
   judgments: Judgment[];
+  /** Every review run, oldest first, with its outcome derived from the ledger. */
+  reviewRuns: ReviewRunOutcome[];
   findings: Finding[];
   /** What the team has taught Komodo, with its counted usage figures. */
   memoryRules: MemoryRuleStats[];
