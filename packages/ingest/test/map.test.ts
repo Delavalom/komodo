@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { ReviewResult } from "@komodo/core";
+import type { ReviewRecord, ReviewResult } from "@komodo/core";
 
-import { impactOf, isSecurityFinding, toFindings, toJudgment } from "../src/map.js";
+import { impactOf, isSecurityFinding, toFindings, toJudgment, toReview } from "../src/map.js";
 
 function judgement(over: Partial<ReviewResult["judgements"][number]> = {}) {
   return {
@@ -119,5 +119,42 @@ describe("toJudgment", () => {
     expect(j.prId).toBe("acme/api#7");
     expect(j.headSha).toBe("abc123");
     expect(j.status).toBe("completed");
+  });
+});
+
+describe("toReview — depth", () => {
+  // No fixture for a whole record existed here; this is the smallest one the
+  // type accepts.
+  function record(over: Partial<ReviewRecord> = {}): ReviewRecord {
+    return {
+      version: 3,
+      id: "rec-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      provider: "fake",
+      pr: {
+        owner: "acme", repo: "api", number: 1, title: "Add rate limiting",
+        author: "marco", url: "https://github.com/acme/api/pull/1",
+        baseRef: "main", headRef: "limits", headSha: "aaa111",
+      },
+      files: [],
+      result: result(),
+      posted: false,
+      ...over,
+    };
+  }
+
+  it("carries how hard the run looked into the store", () => {
+    const input = toReview("acme/api#1", {
+      ...record(),
+      run: { depth: "deep", depthReason: "labelled risky", passes: 2, costUsd: 0.2 },
+    });
+    expect(input).toMatchObject({ depth: "deep", depthReason: "labelled risky", passes: 2, costUsd: 0.2 });
+  });
+
+  it("reads a record without a run as one standard pass", () => {
+    const { run: _run, ...legacy } = record();
+    expect(toReview("acme/api#1", legacy)).toMatchObject({
+      depth: "standard", depthReason: "", passes: 1, costUsd: null,
+    });
   });
 });

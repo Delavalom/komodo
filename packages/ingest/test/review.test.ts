@@ -414,3 +414,57 @@ describe("reviewPending — shared context", () => {
     expect(JSON.stringify(record)).not.toContain("Body.");
   });
 });
+
+describe("reviewPending — depth", () => {
+  const result: ReviewResult = {
+    summary: "- Adds a rate limiter.",
+    walkthrough: [],
+    confidence: 4,
+    verdict: "Read the limiter and its tests.",
+    effort: 2,
+    verificationChecks: [],
+    judgements: [],
+  };
+
+  it("runs the depth a person picked, and stores how hard it looked", async () => {
+    let calls = 0;
+    const provider: ReviewProvider = {
+      name: "fake",
+      async review() {
+        calls++;
+        return result;
+      },
+    };
+    const github = {
+      async getPR(ref: { owner: string; repo: string; number: number }) {
+        return {
+          ...ref, title: "Add rate limiting", body: "", author: "marco",
+          url: "https://github.com/acme/api/pull/1", baseRef: "main", headRef: "limits",
+          headSha: "aaa111", isDraft: false, labels: [],
+        };
+      },
+      async listFiles() {
+        return [{ path: "src/limit.ts", status: "modified", additions: 40, deletions: 3 }];
+      },
+    } as unknown as GitHubClient;
+
+    const store = new SqliteStore({ path: ":memory:" });
+    await store.upsertRepository({
+      id: "acme/api", owner: "acme", name: "api", provider: "github", enabled: true, reviewCount: 0,
+    });
+    await store.upsertPullRequest(pr());
+    await store.requestAIReview({
+      prId: "acme/api#1", headSha: "aaa111", trigger: "manual",
+      requestedBy: "renata", requestedAt: 1, depth: "thorough",
+    });
+
+    await reviewPending({ store, github, provider, config: config() });
+
+    expect(calls).toBe(5);
+    const detail = await store.loadLatestReview("acme/api#1");
+    expect(detail?.review).toMatchObject({
+      depth: "thorough", depthReason: "requested by renata", passes: 5,
+    });
+    store.close();
+  });
+});

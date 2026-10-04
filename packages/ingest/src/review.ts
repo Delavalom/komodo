@@ -11,6 +11,7 @@ import {
   resolveContextSources,
   runReview,
   WALKTHROUGH_MARKER,
+  type DepthRequest,
   type GitHubClient,
   type KomodoConfig,
 } from "@komodo/core";
@@ -155,7 +156,12 @@ export async function reviewPending(
       continue;
     }
 
-    const outcome = await reviewOne(options, pr, repo);
+    const outcome = await reviewOne(
+      options,
+      pr,
+      repo,
+      job.depth ? { depth: job.depth, by: job.requestedBy } : null,
+    );
     await store.finishAIReviewJob({
       jobId: job.id,
       workerId,
@@ -189,6 +195,7 @@ async function reviewOne(
   options: ReviewRunnerOptions,
   pr: PullRequest,
   repo: Repository,
+  depthRequest: DepthRequest | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { store, github, provider, config, onProgress } = options;
   const ref = { owner: repo.owner, repo: repo.name, number: pr.number };
@@ -229,6 +236,7 @@ async function reviewOne(
       contextScope: { repoId: repo.id, clusterNames },
       post: options.post ?? false,
       onProgress,
+      depthRequest,
     });
 
     const result = outcome.record.result;
