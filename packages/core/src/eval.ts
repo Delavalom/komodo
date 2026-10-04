@@ -9,12 +9,19 @@ import type { Judgement } from "./schema.js";
  * Scored against judgements, not against wording alone: the path has to
  * match, the line has to fall in range when one is given, and `match` — a
  * case-insensitive regular expression — has to find the idea somewhere in
- * the title, lede or detail.
+ * the title, lede or detail. The line range is tested for overlap, so a
+ * judgement spanning lines 10-15 satisfies a range of 13-18.
+ *
+ * Expectations on one file should use non-overlapping ranges, because one
+ * judgement can otherwise satisfy several of them and inflate the count.
  */
 export const EvalExpectationSchema = z.object({
   name: z.string().min(1),
   path: z.string().min(1),
-  lines: z.tuple([z.number().int().min(0), z.number().int().min(0)]).optional(),
+  lines: z
+    .tuple([z.number().int().min(0), z.number().int().min(0)])
+    .refine(([start, end]) => start <= end, { message: "lines must be [start, end]" })
+    .optional(),
   // Compiled here as well as when scoring: a pattern that does not parse must
   // fail while the file is read, with the expectation's position in the error,
   // not after the first model run has already spent quota.
@@ -64,10 +71,15 @@ export function scoreCase(judgements: Judgement[], expectations: EvalExpectation
     const found = judgements.some(
       (j) =>
         j.path === want.path &&
-        (!want.lines || (j.line >= want.lines[0] && j.line <= want.lines[1])) &&
+        (!want.lines || overlaps(j, want.lines)) &&
         pattern.test(`${j.title}\n${j.lede}\n${j.detail}`),
     );
     (found ? hits : missed).push(want);
   }
   return { hits, missed };
+}
+
+/** A judgement owns line..endLine (just `line` when it has no range). */
+function overlaps(j: Judgement, [lo, hi]: [number, number]): boolean {
+  return j.line <= hi && (j.endLine ?? j.line) >= lo;
 }

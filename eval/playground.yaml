@@ -12,12 +12,12 @@ cases:
       - name: pageCount drops a final partial page
         path: src/pagination.js
         lines: [9, 11]
-        match: "floor|ceil|partial|last page|round"
+        match: "floor|ceil|partial|last page|\\bround"
       - name: lastItemIndexOnPage is one past the end
         path: src/pagination.js
         lines: [13, 15]
-        match: "off.by.one|one past|exclusive|inclusive|- ?1"
+        match: "off.by.one|one past|exclusive|inclusive|- ?1\\b"
       - name: credit and transfer race on the balance
         path: src/wallet.js
-        lines: [10, 22]
+        lines: [9, 22]
         match: "race|concurren|interleav|stale|read.modify|atomic|lost update"

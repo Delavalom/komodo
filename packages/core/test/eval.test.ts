@@ -56,4 +56,20 @@ describe("scoreCase", () => {
     });
     expect(file.depths).toEqual(["standard", "deep", "thorough"]);
   });
+
+  it("counts a multi-line judgement that overlaps the range", () => {
+    expect(scoreCase([j({ line: 10, endLine: 15 })], expectations).hits.map((h) => h.name)).toEqual([
+      "SQL injection",
+    ]);
+    expect(scoreCase([j({ line: 10, endLine: 12 })], expectations).hits).toEqual([]);
+    expect(scoreCase([j({ line: 18, endLine: 30 })], expectations).hits).toHaveLength(1);
+  });
+
+  it("refuses a line range written backwards", () => {
+    expect(() =>
+      EvalFileSchema.parse({
+        cases: [{ pr: "a/b#1", expect: [{ name: "n", path: "x.js", lines: [18, 13], match: "x" }] }],
+      }),
+    ).toThrow("lines must be [start, end]");
+  });
 });
