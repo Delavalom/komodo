@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DiagramSpecSchema } from "@komodo/diagram";
-import { REVIEW_DEPTHS } from "./depth.js";
+import { DEPTH_PASSES, REVIEW_DEPTHS } from "./depth.js";
 
 export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
 
@@ -268,9 +268,16 @@ export const ReviewRecordSchema = z.object({
   run: z
     .object({
       depth: z.enum(REVIEW_DEPTHS),
-      depthReason: z.string(),
+      // Free text from whoever built the record; bounded so a pushed record
+      // cannot carry an arbitrary payload into the store's display fields.
+      depthReason: z.string().max(200),
       passes: z.number().int().min(1),
       costUsd: z.number().nonnegative().nullable(),
+    })
+    // A run cannot have made more passes than its depth ever runs. Fewer is
+    // legitimate: an optional pass that failed is left out.
+    .refine((run) => run.passes <= DEPTH_PASSES[run.depth], {
+      message: "More passes than this depth runs.",
     })
     .optional(),
   posted: z.boolean(),

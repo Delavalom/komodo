@@ -31,7 +31,11 @@ export async function storeSubmittedReview(
   const judgmentId = await store.upsertJudgment(
     toJudgment(prId, record.pr.headSha, record.result),
   );
-  const reviewId = await store.saveReview(toReview(prId, record));
+  // A submitted run's depth, passes and cost are the sender's claim, not
+  // something this deployment observed. Komodo records only what it measured
+  // itself (AGENTS.md rules 4 and 11), so a submitted review is stored as one
+  // standard pass until self-reported depth has a design of its own.
+  const reviewId = await store.saveReview(toReview(prId, { ...record, run: undefined }));
   // Replaces rather than appends, so re-submitting the same head cannot
   // double a pull request's findings.
   await store.replaceFindings(judgmentId, toFindings(record.result, reviewId));

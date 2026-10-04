@@ -138,3 +138,36 @@ describe("mergeResults", () => {
     expect(merged.verificationChecks).toHaveLength(2);
   });
 });
+
+describe("mergeResults — accept", () => {
+  const acceptable = (j: Judgement) => j.severity !== "critical";
+
+  it("never replaces an acceptable judgement with an unacceptable one", () => {
+    const kept = judgement({ severity: "major", line: 10 });
+    const merged = mergeResults(
+      result({ judgements: [kept] }),
+      [result({ judgements: [judgement({ severity: "critical", line: 12 })] })],
+      acceptable,
+    );
+    expect(merged.judgements).toEqual([kept]);
+  });
+
+  it("still upgrades when the more severe one is acceptable", () => {
+    const merged = mergeResults(
+      result({ judgements: [judgement({ severity: "minor", line: 10 })] }),
+      [result({ judgements: [judgement({ severity: "major", line: 12 })] })],
+      acceptable,
+    );
+    expect(merged.judgements.map((j) => j.severity)).toEqual(["major"]);
+  });
+
+  it("upgrades when the judgement it replaces was unacceptable anyway", () => {
+    const merged = mergeResults(
+      result({ judgements: [judgement({ severity: "critical", line: 10 })] }),
+      [result({ judgements: [judgement({ severity: "critical", line: 12, title: "other" })] })],
+      () => false,
+    );
+    expect(merged.judgements).toHaveLength(1);
+  });
+});
+

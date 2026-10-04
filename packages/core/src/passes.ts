@@ -1,7 +1,7 @@
 import { DEPTH_TURNS, type ReviewDepth } from "./depth.js";
 import { mergeResults } from "./merge.js";
 import type { LensFocus, ReviewInput, ReviewPass, ReviewProvider } from "./providers/types.js";
-import type { ReviewResult } from "./schema.js";
+import type { Judgement, ReviewResult } from "./schema.js";
 
 const LENSES: readonly LensFocus[] = ["architecture", "scope", "tests"];
 
@@ -33,15 +33,21 @@ export async function runPasses(opts: {
   provider: ReviewProvider;
   input: PassInput;
   depth: ReviewDepth;
+  /**
+   * The caller's test for whether a judgement will survive later filtering,
+   * handed to every merge — see `mergeResults`.
+   */
+  accept?: (judgement: Judgement) => boolean;
   onProgress?: (msg: string) => void;
 }): Promise<PassRun> {
-  const { provider, input, depth, onProgress } = opts;
+  const { provider, input, depth, accept, onProgress } = opts;
   const tally = { passes: 0, costUsd: null as number | null };
   const turnBudget = DEPTH_TURNS[depth];
 
   const run = async (pass: ReviewPass): Promise<ReviewResult> => {
     // Passes run in parallel at thorough depth, so each one's progress says
-    // which pass spoke.
+    // which pass spoke. A standard run is a single pass with nothing to tell
+    // apart, so its provider output reads exactly as it always did.
     const tag = pass.kind === "lens" ? pass.focus : pass.kind;
     const result = await provider.review(
       {
@@ -54,7 +60,7 @@ export async function runPasses(opts: {
           }
         },
       },
-      onProgress && ((m: string) => onProgress(`  [${tag}] ${m}`)),
+      onProgress && (depth === "standard" ? onProgress : (m: string) => onProgress(`  [${tag}] ${m}`)),
     );
     tally.passes++;
     return result;
@@ -97,6 +103,7 @@ export async function runPasses(opts: {
     merged = mergeResults(
       base,
       lenses.filter((r): r is ReviewResult => r !== null),
+      accept,
     );
   } else {
     merged = await run({ kind: "base" });
@@ -104,7 +111,7 @@ export async function runPasses(opts: {
 
   onProgress?.("  running a second look for what the earlier passes missed…");
   const second = await optional({ kind: "second-look", prior: merged.judgements }, "second-look");
-  if (second) merged = mergeResults(merged, [second]);
+  if (second) merged = mergeResults(merged, [second], accept);
 
   return { result: merged, ...tally };
 }

@@ -127,6 +127,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     provider,
     input: { pr, files, config, repoDir: opts.repoDir, memories: opts.memories, sharedContext: shared.docs },
     depth: decision.depth,
+    accept: judgementCheck(files, config),
     onProgress,
   });
   const result = passRun.result;
@@ -250,35 +251,59 @@ function verificationStatus(result: ReviewResult): string {
     : "Human review required; AI preflight is ready";
 }
 
+/**
+ * Decides, for one judgement, whether it can be posted and where.
+ *
+ * One function behind both `judgementCheck` and `validateJudgements` so the
+ * merge step and the final filter cannot disagree about what survives:
+ * returns the judgement to keep (its line possibly snapped to a commentable
+ * one), or null when it must be dropped.
+ */
+function keepJudgement(
+  files: PRFile[],
+  config: KomodoConfig,
+): (judgement: Judgement) => Judgement | null {
+  const lineIndex = new Map<string, Set<number>>();
+  for (const f of files) {
+    if (f.patch) lineIndex.set(f.path, commentableLines(f.patch).right);
+  }
+  return (judgement) => {
+    if (SEVERITY_RANK[judgement.severity] < SEVERITY_RANK[config.min_severity]) return null;
+    const lines = lineIndex.get(judgement.path);
+    if (!lines?.has(judgement.line) || (judgement.endLine !== undefined && !lines.has(judgement.endLine))) {
+      // Try to salvage single-line judgements by snapping to the nearest commentable line within 3.
+      const snapped = lines ? snapLine(judgement.line, lines) : undefined;
+      if (snapped !== undefined && judgement.endLine === undefined) return { ...judgement, line: snapped };
+      return null;
+    }
+    return judgement;
+  };
+}
+
+/**
+ * Whether `validateJudgements` would keep this judgement.
+ *
+ * Handed to the merge step so that a more severe duplicate which would be
+ * dropped later cannot displace a valid judgement that would have been kept.
+ */
+export function judgementCheck(files: PRFile[], config: KomodoConfig): (judgement: Judgement) => boolean {
+  const keep = keepJudgement(files, config);
+  return (judgement) => keep(judgement) !== null;
+}
+
 /** Drop judgements below min_severity or anchored to lines GitHub can't comment on. */
 function validateJudgements(
   result: ReviewResult,
   files: PRFile[],
   config: KomodoConfig,
 ): { valid: Judgement[]; dropped: Judgement[] } {
-  const lineIndex = new Map<string, Set<number>>();
-  for (const f of files) {
-    if (f.patch) lineIndex.set(f.path, commentableLines(f.patch).right);
-  }
+  const keep = keepJudgement(files, config);
   const valid: Judgement[] = [];
   const dropped: Judgement[] = [];
   for (const judgement of result.judgements) {
-    if (SEVERITY_RANK[judgement.severity] < SEVERITY_RANK[config.min_severity]) {
-      dropped.push(judgement);
-      continue;
-    }
-    const lines = lineIndex.get(judgement.path);
-    if (!lines?.has(judgement.line) || (judgement.endLine !== undefined && !lines.has(judgement.endLine))) {
-      // Try to salvage single-line judgements by snapping to the nearest commentable line within 3.
-      const snapped = lines ? snapLine(judgement.line, lines) : undefined;
-      if (snapped !== undefined && judgement.endLine === undefined) {
-        valid.push({ ...judgement, line: snapped });
-      } else {
-        dropped.push(judgement);
-      }
-      continue;
-    }
-    valid.push(judgement);
+    const kept = keep(judgement);
+    if (kept) valid.push(kept);
+    else dropped.push(judgement);
   }
   return { valid, dropped };
 }

@@ -184,6 +184,19 @@ describe("runPasses", () => {
     expect(lines.some((l) => l.includes("failed"))).toBe(true);
   });
 
+  it("leaves a standard run's progress untagged", async () => {
+    const lines: string[] = [];
+    const provider: ReviewProvider = {
+      name: "fake",
+      async review(pass, onProgress) {
+        onProgress?.("reading");
+        return fake().provider.review(pass);
+      },
+    };
+    await runPasses({ provider, input, depth: "standard", onProgress: (m) => lines.push(m) });
+    expect(lines).toEqual(["reading"]);
+  });
+
   it("tags a pass's own progress with the pass that spoke", async () => {
     const lines: string[] = [];
     const provider: ReviewProvider = {

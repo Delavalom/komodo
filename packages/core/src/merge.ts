@@ -36,15 +36,27 @@ export function sameConcern(a: Judgement, b: Judgement): boolean {
  * A pass is only compared against what came before it — the base and earlier
  * extras — never against its own additions: two distinct findings from one
  * pass that happen to sit near each other are both worth reading.
+ *
+ * `accept` is the caller's own test for whether a judgement will survive
+ * later filtering. Severity decides which reading stays, but never at the
+ * price of swapping a judgement that would be kept for one that would be
+ * dropped — the concern would vanish from the review entirely.
  */
-export function mergeResults(base: ReviewResult, extras: ReviewResult[]): ReviewResult {
+export function mergeResults(
+  base: ReviewResult,
+  extras: ReviewResult[],
+  accept?: (judgement: Judgement) => boolean,
+): ReviewResult {
   const judgements = [...base.judgements];
   for (const extra of extras) {
     const earlier = judgements.length;
     for (const candidate of extra.judgements) {
       const at = judgements.findIndex((j, i) => i < earlier && sameConcern(j, candidate));
       if (at === -1) judgements.push(candidate);
-      else if (SEVERITY_RANK[candidate.severity] > SEVERITY_RANK[judgements[at].severity]) {
+      else if (
+        SEVERITY_RANK[candidate.severity] > SEVERITY_RANK[judgements[at].severity] &&
+        (!accept || accept(candidate) || !accept(judgements[at]))
+      ) {
         judgements[at] = candidate;
       }
     }
