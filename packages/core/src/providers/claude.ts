@@ -37,7 +37,7 @@ export class ClaudeProvider implements ReviewProvider {
           : {}),
         cwd: input.repoDir ?? process.cwd(),
         allowedTools: ["Read", "Glob", "Grep"],
-        maxTurns: 40,
+        maxTurns: input.turnBudget ?? 40,
         systemPrompt:
           "You are Komodo, an AI code review engine. You only read code; you never modify anything. Follow the user's output instructions exactly.",
         outputFormat: { type: "json_schema", schema: reviewResultJsonSchema() },
@@ -49,6 +49,14 @@ export class ClaudeProvider implements ReviewProvider {
         if (text) onProgress(text.slice(0, 120));
       }
       if (m.type === "result") {
+        // The SDK states a cost on every result, including one that then
+        // failed (a pass that runs out of turns still spent them), so it is
+        // reported before the failure check. On a subscription the figure is
+        // what the run would have cost on the API, which is still the honest
+        // number to compare depths by.
+        if (typeof m.total_cost_usd === "number") {
+          input.onUsage?.({ costUsd: m.total_cost_usd });
+        }
         if (m.subtype && m.subtype !== "success") {
           throw new Error(
             `Claude review failed (${m.subtype})${
