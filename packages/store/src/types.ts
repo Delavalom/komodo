@@ -51,6 +51,12 @@ export type AIReviewJobState =
   | "failed"
   | "cancelled";
 
+/**
+ * How hard a review run looked. Mirrors @komodo/core's REVIEW_DEPTHS;
+ * packages/ingest/test/settings.test.ts asserts the two lists agree.
+ */
+export type ReviewDepth = "standard" | "deep" | "thorough";
+
 /** Durable intent to review one immutable pull-request head. */
 export interface AIReviewJob {
   id: string;
@@ -64,6 +70,11 @@ export interface AIReviewJob {
   workerId: string | null;
   leaseExpiresAt: number | null;
   lastError: string | null;
+  /**
+   * The depth someone picked when they asked for this run. Null for a job the
+   * poller started, and for a request that left the depth to the rules.
+   */
+  depth: ReviewDepth | null;
 }
 
 export interface Organization {
@@ -515,6 +526,14 @@ export interface Review {
   diagram: DiagramSpec | null;
   /** The `.komodo/reviews/<id>.json` this row was built from. */
   recordId: string;
+  /** How hard this run looked. A run from before depth existed reads as standard. */
+  depth: ReviewDepth;
+  /** Why it ran at that depth — a rule, a person, or the default. Empty when unknown. */
+  depthReason: string;
+  /** Model passes that returned a result. Fewer than the depth plans means one failed. */
+  passes: number;
+  /** What the provider said the run cost, in USD. Null when it said nothing. */
+  costUsd: number | null;
   /**
    * The GitHub comment carrying the answered outcome, once someone has closed
    * the review out. Null until then, and the pair is what lets the closing

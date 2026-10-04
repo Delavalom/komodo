@@ -19,6 +19,7 @@ const job = (over: Partial<AIReviewJob> = {}): AIReviewJob => ({
   workerId: null,
   leaseExpiresAt: null,
   lastError: null,
+  depth: null,
   ...over,
 });
 

@@ -49,6 +49,7 @@ export type {
   RepoCluster,
   Repository,
   Review,
+  ReviewDepth,
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,

@@ -221,6 +221,54 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       });
     });
 
+    it("carries a requested depth from the button to the worker", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({
+        prId, headSha: "aaa111", trigger: "manual",
+        requestedBy: "renata", requestedAt: T0, depth: "thorough",
+      });
+      const claim = await store.claimNextAIReview({ workerId: "w1", now: T0 + 1, leaseMs: 60_000 });
+      expect(claim?.job.depth).toBe("thorough");
+    });
+
+    it("leaves an automatic job's depth to the rules", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "new_pull_request", requestedAt: T0 });
+      expect((await store.listAIReviewJobs())[0].depth).toBeNull();
+    });
+
+    it("lets a second explicit request change the depth it asked for", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "deep" });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0 + 1, depth: "thorough" });
+      expect((await store.listAIReviewJobs())[0].depth).toBe("thorough");
+    });
+
+    it("round-trips how hard a run looked", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(
+        review({
+          prId, depth: "thorough",
+          depthReason: "31 files changed (rule: at least 28)",
+          passes: 4, costUsd: 1.25,
+        }),
+      );
+      expect((await store.loadReview(reviewId))?.review).toMatchObject({
+        depth: "thorough",
+        depthReason: "31 files changed (rule: at least 28)",
+        passes: 4,
+        costUsd: 1.25,
+      });
+    });
+
+    it("reads a run that never said how hard it looked as one standard pass", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      expect((await store.loadReview(reviewId))?.review).toMatchObject({
+        depth: "standard", depthReason: "", passes: 1, costUsd: null,
+      });
+    });
+
     it("leases a job once, reclaims an expired lease, and enforces ownership", async () => {
       const prId = await store.upsertPullRequest(pr());
       await store.requestAIReview({

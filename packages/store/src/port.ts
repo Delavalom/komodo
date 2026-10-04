@@ -31,6 +31,7 @@ import type {
   PullRequestWatchEvent,
   Repository,
   Review,
+  ReviewDepth,
   ReviewDetail,
   ReviewFile,
   JudgementVote,
@@ -258,6 +259,11 @@ export interface ReviewInput {
   verdictLine: string;
   diagram?: DiagramSpec | null;
   recordId: string;
+  /** Omitted by callers that predate depth; stored as one standard pass. */
+  depth?: ReviewDepth;
+  depthReason?: string;
+  passes?: number;
+  costUsd?: number | null;
   /** In the order they should be answered. Ordinals are assigned here. */
   judgements: Omit<ReviewJudgement, "id" | "reviewId" | "ordinal">[];
   verificationRequirements: Omit<
@@ -391,6 +397,8 @@ export interface StoreWriter {
     trigger: ReviewTrigger;
     requestedBy?: string | null;
     requestedAt: number;
+    /** A depth the requester picked. Ignored on an automatic re-request, like every other field. */
+    depth?: ReviewDepth | null;
   }): Promise<string>;
 
   /** Atomically leases the next queued or abandoned job. */

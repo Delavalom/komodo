@@ -218,7 +218,8 @@ CREATE TABLE IF NOT EXISTS ai_review_jobs (
   "updatedAt"      BIGINT NOT NULL,
   "workerId"       TEXT,
   "leaseExpiresAt" BIGINT,
-  "lastError"      TEXT
+  "lastError"      TEXT,
+  depth            TEXT
 );
 CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
   ON ai_review_jobs (state, "leaseExpiresAt", "requestedAt");
@@ -277,6 +278,10 @@ CREATE TABLE IF NOT EXISTS reviews (
   -- written by saveReview, so re-running the same head does not forget it.
   "receiptUrl"      TEXT,
   "receiptPostedAt" BIGINT,
+  depth         TEXT NOT NULL DEFAULT 'standard',
+  "depthReason" TEXT NOT NULL DEFAULT '',
+  passes        INTEGER NOT NULL DEFAULT 1,
+  "costUsd"     DOUBLE PRECISION,
   "createdAt"   BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reviews_pr ON reviews ("prId", seq DESC);
@@ -1637,13 +1642,14 @@ export class PostgresStore implements KomodoStore {
     trigger: AIReviewJob["trigger"];
     requestedBy?: string | null;
     requestedAt: number;
+    depth?: AIReviewJob["depth"];
   }): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     await this.sql.query(
       `INSERT INTO ai_review_jobs
          (id, "prId", "headSha", trigger, state, "requestedBy",
-          "requestedAt", "updatedAt", "workerId", "leaseExpiresAt", "lastError")
-       VALUES ($1,$2,$3,$4,'queued',$5,$6,$6,NULL,NULL,NULL)
+          "requestedAt", "updatedAt", "workerId", "leaseExpiresAt", "lastError", depth)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6,$6,NULL,NULL,NULL,$7)
        ON CONFLICT (id) DO UPDATE SET
          trigger = EXCLUDED.trigger,
          state = 'queued',
@@ -1652,7 +1658,8 @@ export class PostgresStore implements KomodoStore {
          "updatedAt" = EXCLUDED."updatedAt",
          "workerId" = NULL,
          "leaseExpiresAt" = NULL,
-         "lastError" = NULL
+         "lastError" = NULL,
+         depth = EXCLUDED.depth
        WHERE EXCLUDED.trigger IN ('manual', 'interactive')
          AND ai_review_jobs.state != 'running'`,
       [
@@ -1662,6 +1669,7 @@ export class PostgresStore implements KomodoStore {
         input.trigger,
         input.requestedBy ?? null,
         input.requestedAt,
+        input.depth ?? null,
       ],
     );
     return id;
@@ -1792,21 +1800,26 @@ export class PostgresStore implements KomodoStore {
         // the position it already had in the history.
         `INSERT INTO reviews
            (id, version, "prId", "headSha", seq, provider, model, summary, walkthrough,
-            confidence, effort, "verdictLine", diagram, "recordId", "createdAt")
+            confidence, effort, "verdictLine", diagram, "recordId",
+            depth, "depthReason", passes, "costUsd", "createdAt")
          VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (id) DO UPDATE SET
            version = EXCLUDED.version,
            provider = EXCLUDED.provider, model = EXCLUDED.model,
            summary = EXCLUDED.summary, walkthrough = EXCLUDED.walkthrough,
            confidence = EXCLUDED.confidence, effort = EXCLUDED.effort,
            "verdictLine" = EXCLUDED."verdictLine", diagram = EXCLUDED.diagram,
-           "recordId" = EXCLUDED."recordId"`,
+           "recordId" = EXCLUDED."recordId",
+           depth = EXCLUDED.depth, "depthReason" = EXCLUDED."depthReason",
+           passes = EXCLUDED.passes, "costUsd" = EXCLUDED."costUsd"`,
         [
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
-          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId, now,
+          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId,
+          input.depth ?? "standard", input.depthReason ?? "", input.passes ?? 1,
+          input.costUsd ?? null, now,
         ],
       );
 
@@ -2060,6 +2073,10 @@ function toReview(r: Row): Review {
     verdictLine: str(r.verdictLine),
     diagram: readDiagram(r.diagram),
     recordId: str(r.recordId),
+    depth: (r.depth == null ? "standard" : str(r.depth)) as Review["depth"],
+    depthReason: r.depthReason == null ? "" : str(r.depthReason),
+    passes: r.passes == null ? 1 : num(r.passes),
+    costUsd: r.costUsd == null ? null : num(r.costUsd),
     receiptUrl: r.receiptUrl == null ? null : str(r.receiptUrl),
     receiptPostedAt: r.receiptPostedAt == null ? null : num(r.receiptPostedAt),
     createdAt: num(r.createdAt),
@@ -2263,6 +2280,7 @@ function toAIReviewJob(r: Row): AIReviewJob {
     workerId: r.workerId == null ? null : str(r.workerId),
     leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
     lastError: r.lastError == null ? null : str(r.lastError),
+    depth: r.depth == null ? null : (str(r.depth) as AIReviewJob["depth"]),
   };
 }
 
