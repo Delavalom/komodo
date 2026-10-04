@@ -54,6 +54,7 @@ import type {
   RepoCluster,
   Repository,
   Review,
+  ReviewDepth,
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,
@@ -527,6 +528,9 @@ const DEFAULT_ORG: Organization = {
 type Row = Record<string, unknown>;
 
 const str = (v: unknown): string => String(v ?? "");
+/** An unknown string must not reach code that indexes DEPTH_PASSES by it. */
+const asDepth = (v: unknown): ReviewDepth | null =>
+  v === "standard" || v === "deep" || v === "thorough" ? v : null;
 /** BIGINT comes back as a string from pg — every timestamp needs coercing. */
 const num = (v: unknown): number => Number(v ?? 0);
 const bool = (v: unknown): boolean => v === true || v === "t" || v === 1;
@@ -2073,7 +2077,7 @@ function toReview(r: Row): Review {
     verdictLine: str(r.verdictLine),
     diagram: readDiagram(r.diagram),
     recordId: str(r.recordId),
-    depth: (r.depth == null ? "standard" : str(r.depth)) as Review["depth"],
+    depth: asDepth(r.depth) ?? "standard",
     depthReason: r.depthReason == null ? "" : str(r.depthReason),
     passes: r.passes == null ? 1 : num(r.passes),
     costUsd: r.costUsd == null ? null : num(r.costUsd),
@@ -2280,7 +2284,7 @@ function toAIReviewJob(r: Row): AIReviewJob {
     workerId: r.workerId == null ? null : str(r.workerId),
     leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
     lastError: r.lastError == null ? null : str(r.lastError),
-    depth: r.depth == null ? null : (str(r.depth) as AIReviewJob["depth"]),
+    depth: asDepth(r.depth),
   };
 }
 

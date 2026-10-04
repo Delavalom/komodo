@@ -34,27 +34,32 @@ describe("review depth migration", () => {
 
   it("does the same on Postgres", async () => {
     const pg = new PGlite();
-    const sql = {
-      query: async <T,>(text: string, params?: unknown[]) => ({
-        rows: (await pg.query(text, params as never[])).rows as T[],
-      }),
-      exec: async (text: string) => {
-        await pg.exec(text);
-      },
-    };
-    await pg.exec(`CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, "appliedAt" BIGINT NOT NULL);
-      CREATE TABLE reviews (id TEXT PRIMARY KEY);
-      CREATE TABLE ai_review_jobs (id TEXT PRIMARY KEY);
-      INSERT INTO reviews VALUES ('r1');
-      INSERT INTO ai_review_jobs VALUES ('j1');`);
-    for (const m of others) {
-      await pg.query(`INSERT INTO schema_migrations (id, "appliedAt") VALUES ($1, 1)`, [m.id]);
+    try {
+      const sql = {
+        query: async <T,>(text: string, params?: unknown[]) => ({
+          rows: (await pg.query(text, params as never[])).rows as T[],
+        }),
+        exec: async (text: string) => {
+          await pg.exec(text);
+        },
+      };
+      await pg.exec(`CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, "appliedAt" BIGINT NOT NULL);
+        CREATE TABLE reviews (id TEXT PRIMARY KEY);
+        CREATE TABLE ai_review_jobs (id TEXT PRIMARY KEY);
+        INSERT INTO reviews VALUES ('r1');
+        INSERT INTO ai_review_jobs VALUES ('j1');`);
+      for (const m of others) {
+        await pg.query(`INSERT INTO schema_migrations (id, "appliedAt") VALUES ($1, 1)`, [m.id]);
+      }
+
+      await runPostgresMigrations(sql, 2);
+
+      const { rows } = await pg.query(`SELECT depth, "depthReason", passes, "costUsd" FROM reviews`);
+      expect(rows[0]).toEqual({ depth: "standard", depthReason: "", passes: 1, costUsd: null });
+      const jobs = await pg.query(`SELECT depth FROM ai_review_jobs`);
+      expect(jobs.rows[0]).toEqual({ depth: null });
+    } finally {
+      await pg.close();
     }
-
-    await runPostgresMigrations(sql, 2);
-
-    const { rows } = await pg.query(`SELECT depth, "depthReason", passes, "costUsd" FROM reviews`);
-    expect(rows[0]).toEqual({ depth: "standard", depthReason: "", passes: 1, costUsd: null });
-    await pg.close();
   }, 30_000);
 });

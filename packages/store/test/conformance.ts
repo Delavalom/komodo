@@ -244,6 +244,39 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect((await store.listAIReviewJobs())[0].depth).toBe("thorough");
     });
 
+    it("keeps a requested depth through an automatic re-request of the same head", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "thorough" });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "new_commit", requestedAt: T0 + 1 });
+      expect((await store.listAIReviewJobs())[0].depth).toBe("thorough");
+    });
+
+    it("hands the run back to the rules when an explicit request names no depth", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "thorough" });
+      const claim = await store.claimNextAIReview({ workerId: "w1", now: T0 + 1, leaseMs: 60_000 });
+      await store.finishAIReviewJob({
+        jobId: claim!.job.id, workerId: "w1", state: "completed", finishedAt: T0 + 2,
+      });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0 + 3 });
+      expect((await store.listAIReviewJobs())[0].depth).toBeNull();
+    });
+
+    it("hands a retriggered run back to the rules", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const judgmentId = await store.upsertJudgment({
+        prId, headSha: "aaa111", verdict: "ship",
+        status: "completed", impact: "low", score: 90,
+      });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "thorough" });
+      const claim = await store.claimNextAIReview({ workerId: "w1", now: T0 + 1, leaseMs: 60_000 });
+      await store.finishAIReviewJob({
+        jobId: claim!.job.id, workerId: "w1", state: "completed", finishedAt: T0 + 2,
+      });
+      await store.retriggerReviews([judgmentId]);
+      expect((await store.listAIReviewJobs())[0].depth).toBeNull();
+    });
+
     it("round-trips how hard a run looked", async () => {
       const prId = await store.upsertPullRequest(pr());
       const reviewId = await store.saveReview(
