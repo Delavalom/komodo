@@ -40,6 +40,9 @@ export async function runPasses(opts: {
   const turnBudget = DEPTH_TURNS[depth];
 
   const run = async (pass: ReviewPass): Promise<ReviewResult> => {
+    // Passes run in parallel at thorough depth, so each one's progress says
+    // which pass spoke.
+    const tag = pass.kind === "lens" ? pass.focus : pass.kind;
     const result = await provider.review(
       {
         ...input,
@@ -51,7 +54,7 @@ export async function runPasses(opts: {
           }
         },
       },
-      onProgress,
+      onProgress && ((m: string) => onProgress(`  [${tag}] ${m}`)),
     );
     tally.passes++;
     return result;
@@ -81,7 +84,16 @@ export async function runPasses(opts: {
   let merged: ReviewResult;
   if (depth === "thorough") {
     onProgress?.("  running the base pass and three focused passes in parallel…");
-    const [base, ...lenses] = await Promise.all([run({ kind: "base" }), ...LENSES.map(lens)]);
+    const lensRuns = LENSES.map(lens);
+    // A failed base pass fails the run, but not before the lenses have
+    // settled: they are agent processes reading a checkout the next review
+    // may re-checkout, and the provider interface has no way to cancel them
+    // yet. Lenses never reject, so this only waits.
+    const base = await run({ kind: "base" }).catch(async (err) => {
+      await Promise.all(lensRuns);
+      throw err;
+    });
+    const lenses = await Promise.all(lensRuns);
     merged = mergeResults(
       base,
       lenses.filter((r): r is ReviewResult => r !== null),

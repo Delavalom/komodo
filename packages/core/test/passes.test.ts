@@ -145,4 +145,56 @@ describe("runPasses", () => {
     expect(run.passes).toBe(4);
     expect(run.costUsd).toBeCloseTo(0.5);
   });
+
+  it("settles every lens before a failed base pass rejects the run", async () => {
+    const finished: string[] = [];
+    const provider: ReviewProvider = {
+      name: "fake",
+      async review(pass) {
+        if (pass.pass?.kind === "lens") {
+          await new Promise((r) => setTimeout(r, 20));
+          finished.push(pass.pass.focus);
+          return result([]);
+        }
+        throw new Error("boom");
+      },
+    };
+    await expect(runPasses({ provider, input, depth: "thorough" })).rejects.toThrow("boom");
+    expect(finished.sort()).toEqual(["architecture", "scope", "tests"]);
+  });
+
+  it("returns base and second look only when every lens fails", async () => {
+    const { provider } = fake({ fail: (i) => i.pass?.kind === "lens" });
+    const run = await runPasses({ provider, input, depth: "thorough" });
+    expect(run.passes).toBe(2);
+    expect(run.result.judgements.map((j) => j.title)).toEqual(["Base.", "Second look."]);
+  });
+
+  it("returns the base result when only the second look fails at deep depth", async () => {
+    const { provider } = fake({ fail: (i) => i.pass?.kind === "second-look" });
+    const run = await runPasses({ provider, input, depth: "deep" });
+    expect(run.passes).toBe(1);
+    expect(run.result.judgements.map((j) => j.title)).toEqual(["Base."]);
+  });
+
+  it("says so through onProgress when an optional pass fails", async () => {
+    const { provider } = fake({ fail: (i) => i.pass?.kind === "second-look" });
+    const lines: string[] = [];
+    await runPasses({ provider, input, depth: "deep", onProgress: (m) => lines.push(m) });
+    expect(lines.some((l) => l.includes("failed"))).toBe(true);
+  });
+
+  it("tags a pass's own progress with the pass that spoke", async () => {
+    const lines: string[] = [];
+    const provider: ReviewProvider = {
+      name: "fake",
+      async review(pass, onProgress) {
+        onProgress?.("reading");
+        return fake().provider.review(pass);
+      },
+    };
+    await runPasses({ provider, input, depth: "deep", onProgress: (m) => lines.push(m) });
+    expect(lines).toContain("  [base] reading");
+    expect(lines).toContain("  [second-look] reading");
+  });
 });
