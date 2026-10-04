@@ -23,6 +23,10 @@ import {
   type HumanReviewEvent,
   type PRRef,
 } from "@komodo/core";
+import {
+  isReviewDepth,
+  validDepthRule,
+} from "@/lib/data/depth-settings";
 
 /**
  * The review events this deployment will submit, named at runtime.
@@ -79,6 +83,18 @@ export async function setRepoEnabled(
 export async function updateOrgSettings(
   patch: Partial<OrgSettings>,
 ): Promise<void> {
+  // The form only sends valid depth settings, but a server action is a public
+  // endpoint: refuse here what packages/ingest/src/settings.ts would
+  // otherwise drop without telling anyone.
+  if ("reviewDepth" in patch && !isReviewDepth(patch.reviewDepth)) {
+    throw new Error("That is not a review depth.");
+  }
+  if (
+    "depthRules" in patch &&
+    !(Array.isArray(patch.depthRules) && patch.depthRules.every(validDepthRule))
+  ) {
+    throw new Error("That depth rule is not valid.");
+  }
   await (await getStore()).saveSettings(patch);
   revalidatePath("/", "layout");
 }

@@ -24,6 +24,8 @@ import { useOrgSettings, useOrganization } from "@/lib/data/queries";
 import { useUpdateOrgSettings } from "@/lib/data/mutations";
 import { SUMMARY_ROWS } from "@/components/review/summary-rows";
 
+import { ReviewDepthSection } from "./review-depth-section";
+
 /**
  * Strictness is a floor on severity — see MIN_SEVERITY in
  * packages/ingest/src/settings.ts, which is where this turns into config the
@@ -203,6 +205,8 @@ export function ReviewSettingsView() {
           </Card>
         </Card>
       </section>
+
+      <ReviewDepthSection />
 
       {/* ── PR Summaries ──────────────────────────────────────────────── */}
       <section className="space-y-4">
