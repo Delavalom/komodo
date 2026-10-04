@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DiagramSpecSchema } from "@komodo/diagram";
+import { REVIEW_DEPTHS } from "./depth.js";
 
 export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
 
@@ -257,6 +258,21 @@ export const ReviewRecordSchema = z.object({
       { message: "Two files in this record have the same path." },
     ),
   result: ReviewResultSchema,
+  /**
+   * How hard this run looked — see ./depth.ts.
+   *
+   * Optional because records written before depth existed, and records an
+   * older CLI pushes, carry none. A run that says nothing about its depth was
+   * a single standard pass, and the store reads it as one.
+   */
+  run: z
+    .object({
+      depth: z.enum(REVIEW_DEPTHS),
+      depthReason: z.string(),
+      passes: z.number().int().min(1),
+      costUsd: z.number().nonnegative().nullable(),
+    })
+    .optional(),
   posted: z.boolean(),
 });
 

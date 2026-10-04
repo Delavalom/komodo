@@ -4,6 +4,8 @@ import { effectivePathFilters, type KomodoConfig } from "./config.js";
 import { selectSharedContext, type ResolvedContextSource } from "./context-sources.js";
 import { commentableLines, filterPaths } from "./diff.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
+import { resolveDepth, type DepthRequest } from "./depth-rules.js";
+import { runPasses } from "./passes.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -59,6 +61,12 @@ export interface RunReviewOptions {
   outDir?: string;
   onProgress?: (msg: string) => void;
   model?: string;
+  /**
+   * A depth someone chose for this run. Overrides the deployment default and
+   * every rule in `config.depth` — someone asking for a thorough review of a
+   * one-line change gets one. Omitted, the rules decide.
+   */
+  depthRequest?: DepthRequest | null;
 }
 
 export interface RunReviewOutcome {
@@ -111,10 +119,17 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     onProgress?.(`  ${shared.needsClusters.length} shared context document(s) skipped: scoped to a repo cluster, which this caller cannot resolve.`);
   }
 
-  const result = await provider.review(
-    { pr, files, config, repoDir: opts.repoDir, memories: opts.memories, sharedContext: shared.docs },
+  // Decided on the reviewable set, after path filters: a lockfile rewrite is
+  // not a reason to look harder at the code.
+  const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
+  onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
+  const passRun = await runPasses({
+    provider,
+    input: { pr, files, config, repoDir: opts.repoDir, memories: opts.memories, sharedContext: shared.docs },
+    depth: decision.depth,
     onProgress,
-  );
+  });
+  const result = passRun.result;
 
   const { valid, dropped } = validateJudgements(result, files, config);
   const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
@@ -144,6 +159,12 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
       patch,
     })),
     result: finalResult,
+    run: {
+      depth: decision.depth,
+      depthReason: decision.reason,
+      passes: passRun.passes,
+      costUsd: passRun.costUsd,
+    },
     posted: false,
   };
 
