@@ -109,3 +109,14 @@ export {
   META_WATCH_LAST_CHECKED_AT,
 } from "./meta.js";
 export { DEFAULT_ORG_SETTINGS, mergeSettings } from "./settings.js";
+export {
+  DEPTH_LABEL,
+  DEPTH_PASSES,
+  REVIEW_DEPTH_ORDER,
+  SIZE_BANDS,
+  describeDepth,
+  sizeBand,
+  summarizeDepthOutcomes,
+  type DepthCell,
+  type SizeBand,
+} from "./depth.js";
