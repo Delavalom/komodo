@@ -109,3 +109,45 @@ describe("buildRereadPrompt", () => {
     expect(prompt).toContain(VOICE_STYLE);
   });
 });
+
+describe("buildReviewPrompt — passes", () => {
+  const config = KomodoConfigSchema.parse({});
+
+  it("leaves a standard prompt byte-for-byte as it was", () => {
+    expect(buildReviewPrompt({ pr, files, config, pass: { kind: "base" } })).toBe(
+      buildReviewPrompt({ pr, files, config }),
+    );
+  });
+
+  it("adds nothing for a standard single pass", () => {
+    expect(buildReviewPrompt({ pr, files, config })).not.toContain("## This pass");
+    expect(buildReviewPrompt({ pr, files, config, pass: { kind: "base" } })).not.toContain(
+      "## This pass",
+    );
+  });
+
+  it("narrows a lens pass to its one question", () => {
+    const prompt = buildReviewPrompt({ pr, files, config, pass: { kind: "lens", focus: "tests" } });
+    expect(prompt).toContain("## This pass");
+    expect(prompt).toContain("Only judgements with focus `tests`");
+  });
+
+  it("hands a second look what was already raised, and tells it not to repeat it", () => {
+    const prior = [
+      {
+        path: "src/settings.tsx",
+        line: 1,
+        focus: "code",
+        title: "The new value is never saved.",
+      },
+    ] as unknown as Judgement[];
+    const prompt = buildReviewPrompt({
+      pr,
+      files,
+      config,
+      pass: { kind: "second-look", prior },
+    });
+    expect(prompt).toContain("Do not repeat them");
+    expect(prompt).toContain("- [code] src/settings.tsx:1 — The new value is never saved.");
+  });
+});
