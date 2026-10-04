@@ -142,6 +142,19 @@ describe.each(DRIVERS)("seedStore on $name", ({ open }) => {
     // render on GitHub, and the dev dataset should show some.
     expect(unpostable).toBeGreaterThan(0);
   });
+
+  it("seeds runs at more than one depth, through the port", async () => {
+    const runs = (await store.snapshot()).reviewRuns;
+    expect(runs.length).toBeGreaterThan(0);
+    expect(new Set(runs.map((r) => r.depth)).size).toBeGreaterThan(1);
+    for (const r of runs) {
+      expect(r.passes).toBe({ standard: 1, deep: 2, thorough: 5 }[r.depth]);
+    }
+    // The depth panel counts a run as upheld only for answers given after the
+    // run was saved. Seeded answers go through recordAnswer like real ones, so
+    // the dev dataset has to give that panel something to show.
+    expect(runs.some((r) => r.upheld > 0)).toBe(true);
+  });
 });
 
 it("re-seeds in place rather than doubling the dataset", async () => {

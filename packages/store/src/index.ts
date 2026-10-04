@@ -13,6 +13,7 @@ export type {
   AIReviewJobState,
   ApiKey,
   Bucket,
+  DepthRuleSetting,
   Finding,
   FindingStatus,
   EvidenceKind,

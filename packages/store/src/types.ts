@@ -413,6 +413,18 @@ export type SummarySectionKey =
   | "diagram";
 
 /**
+ * One row of the settings screen's "Go deeper when" list. Mirrors one rule in
+ * komodo.yaml's `depth.rules`; packages/ingest/src/settings.ts translates.
+ */
+export interface DepthRuleSetting {
+  /** What is measured: changed files, changed lines, a path glob, or a label. */
+  kind: "files" | "lines" | "path" | "label";
+  /** A whole number of at least 1 for files and lines; a glob or a label otherwise. */
+  value: string;
+  depth: ReviewDepth;
+}
+
+/**
  * How this deployment reviews.
  *
  * Edited on /settings/review and read by the ingester on every pass, so
@@ -456,6 +468,13 @@ export interface OrgSettings {
    * review, and turning the whole set off is faster than finding which one.
    */
   memoryEnabled: boolean;
+  /** The depth a review runs at when no rule and no person says otherwise. */
+  reviewDepth: ReviewDepth;
+  /**
+   * Reasons to spend more on a review. The deepest matching rule wins, and
+   * none of them can take a review below `reviewDepth`.
+   */
+  depthRules: DepthRuleSetting[];
   orgDisplayName: string;
 }
 
