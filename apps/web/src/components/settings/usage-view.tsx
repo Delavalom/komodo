@@ -9,8 +9,18 @@ import { Avatar } from "@/components/ui/display";
 import { DataTable, TD, TH, THead, TR } from "@/components/ui/table";
 import { Sparkline, UsageBarChart } from "@/components/charts/bar-chart";
 import { InfoHint } from "@/components/analytics/panels";
-import { useMembers, useUsageDays, useUsageWindow } from "@/lib/data/queries";
+import {
+  useCreditsByAuthor,
+  useMembers,
+  useUsageCost,
+  useUsageDays,
+  useUsageWindow,
+} from "@/lib/data/queries";
 import { monthDay, ordinalRange } from "@/lib/utils";
+
+/** Same rule as the review footer: a real cost is never shown as $0.00. */
+const formatUsd = (usd: number) =>
+  usd > 0 && usd < 0.01 ? "<$0.01" : `$${usd.toFixed(2)}`;
 
 const SERIES = [
   { key: "codeReviewCredits", name: "Code Review", color: "hsl(155 78% 45%)" },
@@ -21,6 +31,8 @@ export function UsageView() {
   const days = useUsageDays();
   const window = useUsageWindow();
   const members = useMembers();
+  const creditsByAuthor = useCreditsByAuthor();
+  const reportedCost = useUsageCost();
   const [team, setTeam] = React.useState("all");
   const [unit, setUnit] = React.useState<"credits" | "reviews">("credits");
 
@@ -43,8 +55,6 @@ export function UsageView() {
         : 0,
     values: series[i].values,
   }));
-
-  const creditsByDeveloper = totals[0].credits;
 
   return (
     <div className="space-y-8 pb-12">
@@ -102,7 +112,13 @@ export function UsageView() {
                   Reviews
                 </th>
                 <th className="w-[120px] px-5 py-2.5 text-right font-normal">
-                  Credits
+                  <span className="inline-flex items-center gap-1.5">
+                    Credits
+                    <InfoHint>
+                      One credit is one model pass: standard reviews take 1,
+                      deep 2, thorough 5. A pass that failed costs nothing.
+                    </InfoHint>
+                  </span>
                 </th>
               </tr>
             </thead>
@@ -128,6 +144,11 @@ export function UsageView() {
               ))}
             </tbody>
           </table>
+          {reportedCost !== null ? (
+            <p className="border-t border-border px-5 py-2.5 text-sm text-muted-foreground">
+              Providers reported {formatUsd(reportedCost)} for this window&apos;s runs.
+            </p>
+          ) : null}
         </div>
       </Card>
 
@@ -162,7 +183,11 @@ export function UsageView() {
                     {member.name.split(" ")[0]}
                   </span>
                 </TD>
-                <TD>{creditsByDeveloper}</TD>
+                <TD>
+                  {member.githubLogin
+                    ? (creditsByAuthor.get(member.githubLogin) ?? 0)
+                    : 0}
+                </TD>
                 <TD>
                   <button
                     type="button"

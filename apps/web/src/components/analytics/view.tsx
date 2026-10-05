@@ -5,11 +5,14 @@ import {
   Bug,
   Check,
   GitMerge,
+  Layers,
   MessageSquare,
   ThumbsDown,
   ThumbsUp,
   Users,
 } from "lucide-react";
+
+import { DEPTH_LABEL, REVIEW_DEPTH_ORDER, SIZE_BANDS } from "@komodo/store";
 
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/controls";
@@ -40,6 +43,7 @@ import {
   useBugsSeries,
   useCommentRatings,
   useContributorsSeries,
+  useDepthOutcomes,
   useFindings,
   useFindingsSummary,
   useLeaderboards,
@@ -215,6 +219,7 @@ function ReviewsTab({ query, orgSlug }: { query: Query; orgSlug: string }) {
   const addressedTotals = useAddressedRateTotals(query);
   const ratings = useCommentRatings(query);
   const boards = useLeaderboards(query);
+  const depthOutcomes = useDepthOutcomes(query);
 
   return (
     <div className="mt-6 space-y-6">
@@ -370,6 +375,47 @@ function ReviewsTab({ query, orgSlug }: { query: Query; orgSlug: string }) {
           )}
         </Panel>
       </div>
+
+      <Panel
+        icon={<Layers className="h-4 w-4" />}
+        title="What deeper reviews found"
+        hint="Critical and major judgements a person answered Blocks or Agreed, per review run, by pull request size. A dash means no run at that depth and size yet, not zero."
+      >
+        <DataTable>
+          <THead>
+            <tr>
+              <TH>Pull request size</TH>
+              {REVIEW_DEPTH_ORDER.map((depth) => (
+                <TH key={depth}>{DEPTH_LABEL[depth]}</TH>
+              ))}
+            </tr>
+          </THead>
+          <tbody>
+            {SIZE_BANDS.map((band) => (
+              <TR key={band.key}>
+                <TD>{band.label}</TD>
+                {REVIEW_DEPTH_ORDER.map((depth) => {
+                  const cell = depthOutcomes[band.key][depth];
+                  return (
+                    <TD key={depth}>
+                      {cell.severeUpheldPerRun === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <>
+                          {cell.severeUpheldPerRun.toFixed(2)}
+                          <span className="text-muted-foreground">
+                            {" "}per run · {cell.runs} {cell.runs === 1 ? "run" : "runs"}
+                          </span>
+                        </>
+                      )}
+                    </TD>
+                  );
+                })}
+              </TR>
+            ))}
+          </tbody>
+        </DataTable>
+      </Panel>
     </div>
   );
 }
