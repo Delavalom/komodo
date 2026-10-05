@@ -39,7 +39,7 @@ export function resolveDepth(
   if (request) {
     return {
       depth: request.depth,
-      reason: request.by ? `requested by ${request.by}` : "requested",
+      reason: (request.by ? `requested by ${request.by}` : "requested").slice(0, 200),
     };
   }
 
@@ -48,7 +48,9 @@ export function resolveDepth(
     // Strictly deeper only: the first rule to reach a depth keeps the reason.
     if (DEPTH_RANK[rule.depth] <= DEPTH_RANK[best.depth]) continue;
     const why = matchRule(rule, subject);
-    if (why) best = { depth: rule.depth, reason: why };
+    // A path or label rule quotes the user's own string; the record caps the
+    // reason at 200 characters, so a long one must not invalidate the run.
+    if (why) best = { depth: rule.depth, reason: why.slice(0, 200) };
   }
   return best;
 }

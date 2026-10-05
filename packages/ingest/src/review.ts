@@ -113,7 +113,10 @@ export async function reviewPending(
     const claim = await store.claimNextAIReview({
       workerId,
       now: Date.now(),
-      leaseMs: 15 * 60_000,
+      // Long enough for a thorough run (five passes at up to 80 turns each).
+      // The depth is only known after the claim, and a lease only matters
+      // when a worker dies, so one ceiling for every depth is enough.
+      leaseMs: 45 * 60_000,
     });
     if (!claim) break;
     const { job, pr } = claim;
