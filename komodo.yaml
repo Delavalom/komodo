@@ -40,6 +40,20 @@ min_severity: minor   # critical | major | minor | trivial
 #     mode: exclude
 #     tokens: ["dependabot[bot]"]
 
+# How hard a review looks. Standard is one pass; deep adds a second look for
+# what the first missed; thorough gives architecture, scope and tests a pass
+# each, then a second look. One pass is one credit. The deepest matching rule
+# wins, no rule goes below `default`, and a depth picked from the Review with
+# AI menu overrides both. Read from this file only on a store's first boot;
+# after that Settings → Review owns it — a deployment started before depth
+# existed sets it there.
+# depth:
+#   default: standard
+#   rules:
+#     - { files: 28, depth: thorough }           # counted after path_filters
+#     - { path: "**/migrations/**", depth: deep }
+#     - { label: needs-deep-review, depth: thorough }
+
 post:
   # What GitHub gets. The review itself lives in Komodo, where a judgement can
   # actually be answered.

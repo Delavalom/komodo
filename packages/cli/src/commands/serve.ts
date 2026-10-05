@@ -66,6 +66,16 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   // so a restart cannot quietly undo what the team changed there.
   if (await initializeSettings(store, config)) {
     dim("Adopted komodo.yaml's review settings; the settings screen owns them now.");
+  } else if (config.depth.default !== "standard" || config.depth.rules.length > 0) {
+    // A store that predates depth never adopted this block, and a restart
+    // will not: say so, or the file looks like it is being read.
+    const stored = await store.loadSettings();
+    if (
+      config.depth.default !== stored.reviewDepth ||
+      config.depth.rules.length !== stored.depthRules.length
+    ) {
+      dim("komodo.yaml sets a review depth, but Settings → Review already owns it; the settings screen wins.");
+    }
   }
 
   const team = await applyTeamConfig(store, config);
