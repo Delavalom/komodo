@@ -5,8 +5,11 @@ import {
   type VerificationCheck,
 } from "./schema.js";
 
-/** How many lines apart two judgements can sit and still be one concern. */
-const SAME_SPOT = 3;
+/**
+ * How many lines apart two judgements can sit and still be one concern. The
+ * second-look prompt quotes it, so the model is told the rule it is held to.
+ */
+export const SAME_SPOT = 3;
 
 /**
  * Whether two judgements are the same concern raised twice.
@@ -49,9 +52,14 @@ export function mergeResults(
 ): ReviewResult {
   const judgements = [...base.judgements];
   for (const extra of extras) {
-    const earlier = judgements.length;
+    // Matched against what stood before this pass, not against the slots it
+    // has already rewritten: a replacement sits on its own line, and matching
+    // the next candidate against it would compare the pass with itself — a
+    // finding three lines below a replacement, and six below the concern it
+    // replaced, would vanish into it.
+    const before = judgements.slice();
     for (const candidate of extra.judgements) {
-      const at = judgements.findIndex((j, i) => i < earlier && sameConcern(j, candidate));
+      const at = before.findIndex((j) => sameConcern(j, candidate));
       if (at === -1) judgements.push(candidate);
       else if (
         SEVERITY_RANK[candidate.severity] > SEVERITY_RANK[judgements[at].severity] &&
