@@ -1,7 +1,7 @@
 {
   "name": "komodo",
   "description": "Review the current branch with the Claude instance you are already talking to, and answer the judgements in a local queue.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "author": {
     "name": "Delavalom"
   },
@@ -12,5 +12,14 @@
     "code-review",
     "pull-request",
     "git"
-  ]
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cli": {
+      "type": "string",
+      "title": "komodo-review command",
+      "description": "How to run the Komodo CLI, split on spaces. Point it at a checkout's build while developing Komodo itself.",
+      "default": "npx --yes komodo-review@0.7.0"
+    }
+  }
 }

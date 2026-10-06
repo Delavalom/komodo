@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import pc from "picocolors";
-import { z } from "zod";
 
 import {
   buildReviewRecord,
@@ -10,7 +9,6 @@ import {
   loadConfig,
   LocalGitDiffSource,
   normalizeHost,
-  RemoteClaimSchema,
   ReviewResultSchema,
   saveReviewRecord,
   type ReviewRecord,
@@ -18,41 +16,19 @@ import {
 import { toFindings, toJudgment, toReview } from "@komodo/ingest";
 import { connectStore, isPostgresUrl } from "@komodo/store/connect";
 
+import { readClaimFile, readJson } from "../claim-file.js";
 import { readCredentials, RemoteKomodo } from "../remote.js";
-
-const LocalClaimSchema = z.object({
-  version: z.literal(1),
-  database: z.string().min(1),
-  workerId: z.string().min(1),
-  jobId: z.string().min(1),
-  headSha: z.string().min(1),
-  prId: z.string().min(1),
-  repoId: z.string().min(1),
-  number: z.number().int().positive(),
-  url: z.string(),
-  title: z.string(),
-  author: z.string(),
-  claimedAt: z.number(),
-});
-
-/**
- * Either kind of claim.
- *
- * `database` and `host` are what tell them apart, and the union is discriminated
- * on which one is present rather than on a `kind` field — the local shape was
- * already on disk in other people's working directories before the remote one
- * existed, and it has to keep parsing.
- */
-const ClaimSchema = z.union([LocalClaimSchema, RemoteClaimSchema]);
 
 /** Validate and commit an interactive agent's result to the claimed job. */
 export async function submitCommand(
   claimPath: string,
   resultPath: string,
-  opts: { base?: string; apiKey?: string },
+  opts: { base?: string; apiKey?: string; json?: boolean },
 ): Promise<void> {
-  const claim = ClaimSchema.parse(readJson(resolve(claimPath)));
-  const raw = readJson(resolve(resultPath)) as { result?: unknown };
+  const claim = readClaimFile(claimPath);
+  const raw = (resultPath === "-" ? readStdinJson() : readJson(resolve(resultPath))) as {
+    result?: unknown;
+  };
   const result = ReviewResultSchema.parse(raw.result ?? raw);
 
   const record = await buildRecordForClaim(claim, result, opts.base);
@@ -73,9 +49,11 @@ export async function submitCommand(
     const submitted = await remote.submitClaimed(claim.jobId, claim.workerId, record);
 
     const recordPath = saveReviewRecord(record);
-    console.log(pc.green(`Review completed: ${submitted.reviewId}`));
-    if (submitted.url) console.log(submitted.url);
-    console.log(recordPath);
+    reportSubmitted(opts.json, {
+      reviewId: submitted.reviewId,
+      url: submitted.url,
+      recordPath,
+    });
     return;
   }
 
@@ -105,11 +83,38 @@ export async function submitCommand(
     }
 
     const recordPath = saveReviewRecord(record);
-    console.log(pc.green(`Review completed: ${reviewId}`));
-    console.log(recordPath);
+    reportSubmitted(opts.json, { reviewId, recordPath });
   } finally {
     store.close();
   }
+}
+
+/**
+ * A ReviewResult piped in, which is how the Claude Code mod hands one over: the
+ * tool call's input goes straight to standard input, with no temp file for a
+ * second process to find.
+ */
+function readStdinJson(): unknown {
+  try {
+    return JSON.parse(readFileSync(0, "utf8"));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not read a ReviewResult as JSON from standard input: ${detail}`);
+  }
+}
+
+/** The one place a finished submission is reported, for a person or as one line of JSON. */
+function reportSubmitted(
+  json: boolean | undefined,
+  done: { reviewId: string; url?: string; recordPath: string },
+): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(done)}\n`);
+    return;
+  }
+  console.log(pc.green(`Review completed: ${done.reviewId}`));
+  if (done.url) console.log(done.url);
+  console.log(done.recordPath);
 }
 
 /**
@@ -198,14 +203,5 @@ function sameHost(a: string, b: string): boolean {
     return normalizeHost(a) === normalizeHost(b);
   } catch {
     return false;
-  }
-}
-
-function readJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Could not read JSON from ${path}: ${detail}`);
   }
 }
