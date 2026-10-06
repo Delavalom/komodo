@@ -228,12 +228,17 @@ export function QueueView() {
           placeholder="Search the queue or click to add filters"
         />
 
-        <DataTable>
+        {/* Fixed layout, so the widths below are what the columns get. Under
+            the automatic layout a truncated title still claims its whole
+            unwrapped width, the widths were ignored, and at 1280px the table
+            ran past its container. AI preflight is sized for Review with AI
+            and its depth menu side by side. */}
+        <DataTable className="table-fixed">
           <THead>
             <tr>
               <TH>Pull request</TH>
               <TH className="w-[124px]">Checks</TH>
-              <TH className="w-[132px]">AI preflight</TH>
+              <TH className="w-[164px]">AI preflight</TH>
               <TH className="w-[132px]">Verification</TH>
               <TH className="w-[144px]">Human review</TH>
               <TH className="w-[96px]">Size</TH>
