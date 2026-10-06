@@ -36,14 +36,17 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
   /**
    * One structured-output completion. Returns the call's own usage, and
    * records it on `lastUsage` for callers that make a single call at a time.
-   * `statedCost` is the cost the response actually gave, undefined when it
-   * gave none — `usage.cost` falls back to 0 and so cannot tell the two apart.
+   *
+   * `onCost` hears the cost the response actually stated — never the 0
+   * `usage.cost` falls back to — and hears it before the content is parsed:
+   * a reply that is not JSON, or not the schema, was still billed.
    */
   private async complete(
     prompt: string,
     schemaName: string,
     jsonSchema: Record<string, unknown>,
-  ): Promise<{ payload: unknown; usage: OpenRouterUsage; statedCost?: number }> {
+    onCost?: (costUsd: number) => void,
+  ): Promise<{ payload: unknown; usage: OpenRouterUsage }> {
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -84,6 +87,7 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
     // runs passes in parallel on one instance, so the pass's own usage is
     // returned rather than read back off a field another pass may overwrite.
     this.lastUsage = usageRow;
+    if (typeof usage.cost === "number") onCost?.(usage.cost);
     const content: string = data.choices?.[0]?.message?.content ?? "";
     const jsonStart = content.indexOf("{");
     const jsonEnd = content.lastIndexOf("}");
@@ -91,19 +95,17 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
     return {
       payload: JSON.parse(content.slice(jsonStart, jsonEnd + 1)),
       usage: usageRow,
-      statedCost: typeof usage.cost === "number" ? usage.cost : undefined,
     };
   }
 
   async review(input: ReviewInput, onProgress?: (msg: string) => void): Promise<ReviewResult> {
     onProgress?.(`Calling ${this.model} via OpenRouter…`);
-    const { payload, statedCost } = await this.complete(
+    const { payload } = await this.complete(
       buildReviewPrompt(input),
       "review_result",
       reviewResultJsonSchema(),
+      input.onUsage && ((costUsd) => input.onUsage?.({ costUsd })),
     );
-    // Reported before parsing: a payload that fails the schema still cost money.
-    if (statedCost !== undefined) input.onUsage?.({ costUsd: statedCost });
     return ReviewResultSchema.parse(payload);
   }
 
