@@ -67,6 +67,8 @@ describe("verification entry order migration", () => {
     }
   });
 
+  // PGlite starts in parallel with the other Postgres-backed test files, so
+  // leave the same startup allowance as the depth migration beside it.
   it(
     "backfills Postgres entries and advances the sequence default",
     async () => {
@@ -117,6 +119,6 @@ describe("verification entry order migration", () => {
         await db.close();
       }
     },
-    15000,
+    30_000,
   );
 });
