@@ -25,7 +25,7 @@ import {
   type PRMeta,
 } from "@komodo/core";
 
-export async function promptCommand(opts: { base?: string }): Promise<void> {
+export async function promptCommand(opts: { base?: string; json?: boolean }): Promise<void> {
   const { config, path: configPath } = loadConfig();
 
   let source: InstanceType<typeof LocalGitDiffSource>;
@@ -89,8 +89,18 @@ export async function promptCommand(opts: { base?: string }): Promise<void> {
     );
   }
 
+  const reviewPrompt = buildReviewPrompt({ pr: meta, files, config, sharedContext: shared.docs });
+
+  // A caller with a structured channel (the Claude Code mod's submit_review
+  // tool) takes the schema as that tool's input schema, so its prompt carries
+  // no "write the JSON yourself" section for the tool to contradict.
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify({ prompt: reviewPrompt, schema: reviewResultJsonSchema() })}\n`);
+    return;
+  }
+
   process.stdout.write(
-    `${buildReviewPrompt({ pr: meta, files, config, sharedContext: shared.docs })}
+    `${reviewPrompt}
 
 ## Output format
 

@@ -28,6 +28,23 @@ voice section inline; follow that instead.
 Use this mode when the user asks to work through a Komodo queue — their own
 `komodo dev` on this machine, or the team's deployment.
 
+### In Claude Code with mods: `/komodo-claim`
+
+If this session has the `/komodo-claim` command (Claude Code 2.1.287 or later
+with this plugin installed), ask the user to run it instead of steps 1–3. It
+claims one job, checks out the exact head, hands you the review prompt, and
+gives you a `submit_review` tool whose input is the ReviewResult itself — call
+it once, when the review is done, and never write the result to a file. If the
+tool refuses the result, read the reason, correct it, and call it again.
+
+`/komodo-claim <claim.json>` resumes a claim after a restart or a refused
+checkout. `/komodo-job` shows what is claimed; `/komodo-job forget` drops it
+from the session without releasing its lease. Step 0 still applies to a team
+deployment.
+
+Everything below still works, and is the path everywhere else — the VS Code
+chat panel, `claude -p`, and other agents.
+
 ### 0. Point at the deployment, once
 
 Skip this if the queue is the local `.komodo/komodo.db` — that is the default
