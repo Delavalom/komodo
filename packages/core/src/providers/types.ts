@@ -1,7 +1,7 @@
 import type { KomodoConfig } from "../config.js";
 import type { SharedContextDoc } from "../context-sources.js";
 import type { PRFile, PRMeta } from "../github.js";
-import type { ReviewResult } from "../schema.js";
+import type { Judgement, ReviewResult } from "../schema.js";
 
 /**
  * One thing this team has taught Komodo, selected because it applies here.
@@ -16,6 +16,28 @@ export interface ReviewMemory {
   text: string;
   /** Where it came from, for the "sources" a judgement has to cite. */
   label: string;
+}
+
+/** The three dimensions a thorough review gives a pass of their own. */
+export type LensFocus = "architecture" | "scope" | "tests";
+
+/**
+ * Which pass of a review this is.
+ *
+ * `base` is the ordinary review, and the only pass asked for the summary,
+ * walkthrough and scores. `lens` asks one question across the whole change.
+ * `second-look` is handed everything already raised and asked only for what
+ * is missing. See `runPasses` in ../passes.ts.
+ */
+export type ReviewPass =
+  | { kind: "base" }
+  | { kind: "lens"; focus: LensFocus }
+  | { kind: "second-look"; prior: Judgement[] };
+
+/** What a provider reports about a pass it just ran. */
+export interface PassUsage {
+  /** In USD, as the provider stated it. Absent when it states nothing. */
+  costUsd?: number;
 }
 
 export interface ReviewInput {
@@ -38,6 +60,16 @@ export interface ReviewInput {
    * section rather than a bullet — see `buildReviewPrompt`.
    */
   sharedContext?: SharedContextDoc[];
+  /** Which pass this is. Absent means a standard single pass. */
+  pass?: ReviewPass;
+  /** Agent turns this pass may take, for providers that run an agent loop. */
+  turnBudget?: number;
+  /**
+   * Called with what the pass cost, when the provider reports it. Call it at
+   * most once per review call, and call it even if the pass then fails — the
+   * cost was still spent.
+   */
+  onUsage?: (usage: PassUsage) => void;
 }
 
 export interface ReviewProvider {

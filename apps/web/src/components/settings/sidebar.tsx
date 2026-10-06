@@ -8,6 +8,7 @@ import {
   FileText,
   GitBranch,
   KeyRound,
+  Layers,
   MessageSquare,
   Rocket,
   ScrollText,
@@ -59,6 +60,11 @@ export function SettingsSidebar({ orgSlug }: { orgSlug: string }) {
               href: `${base}/review#when-reviews`,
               label: "When Komodo Reviews",
               icon: <SlidersHorizontal className="h-4 w-4" />,
+            },
+            {
+              href: `${base}/review#review-depth`,
+              label: "Review Depth",
+              icon: <Layers className="h-4 w-4" />,
             },
             {
               href: `${base}/review#pr-summaries`,

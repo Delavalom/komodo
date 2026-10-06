@@ -1,6 +1,10 @@
 export * from "./schema.js";
 export * from "./store.js";
 export * from "./config.js";
+export * from "./depth.js";
+export * from "./depth-rules.js";
+export * from "./merge.js";
+export * from "./passes.js";
 export * from "./voice.js";
 export * from "./context-sources.js";
 export * from "./diff.js";
@@ -12,3 +16,4 @@ export * from "./providers/index.js";
 export * from "./render/markdown.js";
 export * from "./pipeline.js";
 export * from "./verification-status.js";
+export * from "./eval.js";

@@ -10,6 +10,7 @@
  * byte-identical rows and two runs stay comparable.
  */
 import type { DiagramSpec } from "@komodo/diagram";
+import { DEPTH_PASSES } from "./depth.js";
 import { DAY_MS, pick, rng } from "./rand.js";
 import type { FindingInput, KomodoStore, ReviewInput } from "./port.js";
 import type {
@@ -18,6 +19,7 @@ import type {
   JudgementSeverity,
   Member,
   PullRequestState,
+  ReviewDepth,
   ReviewStatus,
   Severity,
   Verdict,
@@ -417,22 +419,33 @@ export async function seedStore(
       !merged && next() < 0.14 ? [pick(next, others)] : [];
 
     const headSha = fakeSha(next);
+    // Drawn here rather than inside the object below, because the review's
+    // depth is derived from the size after the upsert. The order is the order
+    // the literal used to make them in, so every later draw is unchanged.
+    const title = pick(next, TITLE_SHAPES)(next);
+    const isDraft = state === "open" && next() < 0.08;
+    const additions = Math.floor(next() * 400);
+    const deletions = Math.floor(next() * 160);
+    // Skewed so a few pull requests are large: the depth panel's 28+ band is
+    // the one that matters, and an even 1-18 spread never reaches it. Still
+    // one draw, in the same place, so every later draw is unchanged.
+    const changedFiles = 1 + Math.floor(Math.pow(next(), 3) * 60);
     const prId = await store.upsertPullRequest({
       id: `${repoId}#${number}`,
       repoId,
       number,
-      title: pick(next, TITLE_SHAPES)(next),
+      title,
       author,
       url: `https://github.com/${OWNER}/${repoName}/pull/${number}`,
       headSha,
       state,
-      isDraft: state === "open" && next() < 0.08,
+      isDraft,
       requestedReviewers,
       approvals,
       changesRequested,
-      additions: Math.floor(next() * 400),
-      deletions: Math.floor(next() * 160),
-      changedFiles: 1 + Math.floor(next() * 18),
+      additions,
+      deletions,
+      changedFiles,
       createdAt,
       updatedAt,
       mergedAt: merged ? updatedAt : null,
@@ -492,7 +505,7 @@ export async function seedStore(
       const reviewId = await store.saveReview(
         // The dev dataset has no provider login behind it, and saying so beats
         // claiming a subscription nobody connected.
-        buildReview({ prId, headSha, judgements, score, provider: "seed" }),
+        buildReview({ prId, headSha, judgements, score, provider: "seed", changedFiles }),
       );
       // After the review: a finding names the judgement it summarises, and
       // that id is `${reviewId}:${ordinal}`.
@@ -738,14 +751,33 @@ function buildDiagram(seedKey: string): DiagramSpec | null {
   return SAMPLE_DIAGRAMS[Math.floor(next() * SAMPLE_DIAGRAMS.length)];
 }
 
+/**
+ * The depth the sample deployment's rules would pick.
+ *
+ * Deterministic from the pull request's size rather than drawn, so the dev
+ * dataset reads like a deployment that has these rules switched on - 11+
+ * files deep, 28+ thorough - and the depth panel has every band to show.
+ */
+function seededDepth(changedFiles: number): { depth: ReviewDepth; reason: string } {
+  if (changedFiles >= 28) {
+    return { depth: "thorough", reason: `${changedFiles} files changed (rule: at least 28)` };
+  }
+  if (changedFiles >= 11) {
+    return { depth: "deep", reason: `${changedFiles} files changed (rule: at least 11)` };
+  }
+  return { depth: "standard", reason: "deployment default" };
+}
+
 function buildReview(args: {
   prId: string;
   headSha: string;
   judgements: SeededJudgement[];
   score: number;
   provider: string;
+  changedFiles: number;
 }): ReviewInput {
-  const { prId, headSha, judgements, score, provider } = args;
+  const { prId, headSha, judgements, score, provider, changedFiles } = args;
+  const { depth, reason } = seededDepth(changedFiles);
   const paths = [...new Set(judgements.map((j) => j.path))];
   return {
     version: 3,
@@ -769,6 +801,10 @@ function buildReview(args: {
       : "Nothing here needs a decision.",
     diagram: buildDiagram(`${prId}@${headSha}`),
     recordId: `seed-${prId}@${headSha}`,
+    depth,
+    depthReason: reason,
+    passes: DEPTH_PASSES[depth],
+    costUsd: null,
     files: paths.map((path) => ({
       path,
       additions: 0,

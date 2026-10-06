@@ -169,6 +169,12 @@ export function toReview(
     verdictLine: result.verdict,
     diagram: result.diagram ?? null,
     recordId: record.id,
+    // A record without `run` was written before depth existed, or pushed by
+    // an older CLI. Either way it was one standard pass.
+    depth: record.run?.depth ?? "standard",
+    depthReason: record.run?.depthReason ?? "",
+    passes: record.run?.passes ?? 1,
+    costUsd: record.run?.costUsd ?? null,
     files: record.files.map((f) => ({
       path: f.path,
       additions: f.additions,

@@ -34,14 +34,16 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
   ) {}
 
   /**
-   * One structured-output completion. Records usage on `lastUsage` so the
-   * caller can charge credits for whatever it just asked for.
+   * One structured-output completion. Returns the call's own usage, and
+   * records it on `lastUsage` for callers that make a single call at a time.
+   * `statedCost` is the cost the response actually gave, undefined when it
+   * gave none — `usage.cost` falls back to 0 and so cannot tell the two apart.
    */
   private async complete(
     prompt: string,
     schemaName: string,
     jsonSchema: Record<string, unknown>,
-  ): Promise<unknown> {
+  ): Promise<{ payload: unknown; usage: OpenRouterUsage; statedCost?: number }> {
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -72,29 +74,45 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
     }
     const data = (await res.json()) as any;
     const usage = data.usage ?? {};
-    this.lastUsage = {
+    const usageRow: OpenRouterUsage = {
       promptTokens: usage.prompt_tokens ?? 0,
       completionTokens: usage.completion_tokens ?? 0,
       cost: usage.cost ?? 0,
       generationId: data.id ?? "",
     };
+    // Kept for callers that read it after a single call. A thorough review
+    // runs passes in parallel on one instance, so the pass's own usage is
+    // returned rather than read back off a field another pass may overwrite.
+    this.lastUsage = usageRow;
     const content: string = data.choices?.[0]?.message?.content ?? "";
     const jsonStart = content.indexOf("{");
     const jsonEnd = content.lastIndexOf("}");
     if (jsonStart === -1) throw new Error("OpenRouter returned no JSON payload.");
-    return JSON.parse(content.slice(jsonStart, jsonEnd + 1));
+    return {
+      payload: JSON.parse(content.slice(jsonStart, jsonEnd + 1)),
+      usage: usageRow,
+      statedCost: typeof usage.cost === "number" ? usage.cost : undefined,
+    };
   }
 
   async review(input: ReviewInput, onProgress?: (msg: string) => void): Promise<ReviewResult> {
     onProgress?.(`Calling ${this.model} via OpenRouter…`);
-    return ReviewResultSchema.parse(
-      await this.complete(buildReviewPrompt(input), "review_result", reviewResultJsonSchema()),
+    const { payload, statedCost } = await this.complete(
+      buildReviewPrompt(input),
+      "review_result",
+      reviewResultJsonSchema(),
     );
+    // Reported before parsing: a payload that fails the schema still cost money.
+    if (statedCost !== undefined) input.onUsage?.({ costUsd: statedCost });
+    return ReviewResultSchema.parse(payload);
   }
 
   async reread(input: RereadInput): Promise<RereadResult> {
-    return RereadResultSchema.parse(
-      await this.complete(buildRereadPrompt(input), "reread_result", rereadJsonSchema()),
+    const { payload } = await this.complete(
+      buildRereadPrompt(input),
+      "reread_result",
+      rereadJsonSchema(),
     );
+    return RereadResultSchema.parse(payload);
   }
 }

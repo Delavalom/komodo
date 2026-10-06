@@ -60,6 +60,11 @@ export const DEFAULT_ORG_SETTINGS: OrgSettings = {
   postStatusComments: false,
   autoEnableNewRepos: false,
   memoryEnabled: true,
+  // One pass and no rules, matching @komodo/core's `depth` defaults: a
+  // deployment that never opens this screen reviews exactly as it did before
+  // depth existed, and spends no more of its subscription.
+  reviewDepth: "standard",
+  depthRules: [],
   orgDisplayName: "",
 };
 

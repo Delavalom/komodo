@@ -7,6 +7,8 @@
  * files it read, and the closing verdict built from the answers given so far.
  * The queue is the way through a review; this is the way around it.
  */
+import { describeDepth } from "@komodo/store";
+
 import { Badge } from "@/components/ui/display";
 import { cn } from "@/lib/utils";
 import type { Answer, ReviewDetail, ReviewFile } from "@/lib/types";
@@ -163,12 +165,20 @@ export function WholeReview({
 
         <p className="mt-8 text-xs text-muted-foreground">
           Run {review.id} · {review.provider}
-          {review.model ? ` · ${review.model}` : ""} · head{" "}
-          <span className="font-mono">{review.headSha.slice(0, 7)}</span>
+          {review.model ? ` · ${review.model}` : ""} · {describeDepth(review)}
+          {review.costUsd !== null
+            ? ` · ${formatCost(review.costUsd)} reported by the provider`
+            : ""}{" "}
+          · head <span className="font-mono">{review.headSha.slice(0, 7)}</span>
         </p>
       </div>
     </div>
   );
+}
+
+/** Whatever the provider reported, to the cent; a fraction of one says so. */
+function formatCost(usd: number): string {
+  return usd > 0 && usd < 0.01 ? "<$0.01" : `$${usd.toFixed(2)}`;
 }
 
 function Section({

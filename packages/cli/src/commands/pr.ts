@@ -5,8 +5,11 @@ import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
 import {
   createProvider,
+  DEPTH_LABEL,
+  DEPTH_PASSES,
   GitHubClient,
   loadConfig,
+  parseDepth,
   parsePRRef,
   resolveContextSources,
   runReview,
@@ -18,12 +21,14 @@ import { connectStore, isPostgresUrl } from "@komodo/store/connect";
 
 export async function prCommand(
   ref: string,
-  opts: { localOnly: boolean; provider?: string; model?: string },
+  opts: { localOnly: boolean; provider?: string; model?: string; depth?: string },
 ): Promise<void> {
   const prRef = parsePRRef(ref);
   const { config, path: configPath } = loadConfig();
   if (opts.model) config.model = opts.model;
   const provider = createProvider(config, opts.provider);
+  // Parsed before any work starts, so a typo costs nothing.
+  const depth = opts.depth ? parseDepth(opts.depth) : null;
   const github = new GitHubClient();
 
   const repoDir = resolveRepoDir(prRef);
@@ -51,6 +56,7 @@ export async function prCommand(
     post: !opts.localOnly,
     onProgress: spin,
     model: config.model,
+    depthRequest: depth ? { depth } : null,
   });
 
   if (outcome.sharedContext.length) {
@@ -67,6 +73,20 @@ export async function prCommand(
   const r = outcome.record.result;
   console.log(pc.bold(`\n🦎 Komodo review — ${prRef.owner}/${prRef.repo}#${prRef.number}`));
   console.log(`${"🟩".repeat(r.confidence)}${"⬜".repeat(5 - r.confidence)} ${pc.bold(`${r.confidence}/5`)} — ${r.verdict}`);
+  // What the review cost to make and why it was that deep, so a thin result
+  // from a standard run is not mistaken for a thorough one.
+  const run = outcome.record.run;
+  if (run) {
+    const planned = DEPTH_PASSES[run.depth];
+    const count = run.passes === planned ? String(run.passes) : `${run.passes} of ${planned}`;
+    const noun = planned === 1 && run.passes === 1 ? "pass" : "passes";
+    console.log(
+      pc.dim(
+        `  ${DEPTH_LABEL[run.depth]} · ${count} ${noun} — ${run.depthReason}` +
+          (run.costUsd != null ? ` · $${run.costUsd.toFixed(2)} reported` : ""),
+      ),
+    );
+  }
   if (r.judgements.length) {
     console.log("");
     for (const j of r.judgements) {

@@ -1,0 +1,23 @@
+# Seeded defects Komodo should raise, one pull request per case.
+# Run: komodo-review eval eval/playground.yaml
+# Every case is a real model run per depth — this spends quota on purpose.
+depths: [standard, deep, thorough]
+cases:
+  - pr: Delavalom/komodo-playground#1
+    expect:
+      - name: searchUsers builds SQL by string interpolation
+        path: src/db.js
+        lines: [13, 18]
+        match: "inject|interpolat|parameteri|escap"
+      - name: pageCount drops a final partial page
+        path: src/pagination.js
+        lines: [9, 11]
+        match: "floor|ceil|partial|last page|\\bround"
+      - name: lastItemIndexOnPage is one past the end
+        path: src/pagination.js
+        lines: [13, 15]
+        match: "off.by.one|one past|exclusive|inclusive|- ?1\\b"
+      - name: credit and transfer race on the balance
+        path: src/wallet.js
+        lines: [9, 22]
+        match: "race|concurren|interleav|stale|read.modify|atomic|lost update"

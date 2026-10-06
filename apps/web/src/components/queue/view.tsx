@@ -41,7 +41,7 @@ import {
   useRepositories,
 } from "@/lib/data/queries";
 import { useUrlState } from "@/lib/use-url-state";
-import { useRequestAIReview } from "@/lib/data/mutations";
+import { RequestReviewButton } from "@/components/review/request-review-button";
 import { canRequestAiReview } from "@komodo/store";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
@@ -324,8 +324,6 @@ function QueueRowCells({
   onToggle: () => void;
 }) {
   const now = useNow();
-  const requestAIReview = useRequestAIReview();
-  const [requesting, startRequest] = React.useTransition();
 
   return (
     <>
@@ -423,16 +421,7 @@ function QueueRowCells({
               {AI_STATE_LABEL[row.aiState]}
             </StatusPill>
             {canRequestAiReview(row.aiState) ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={requesting}
-                onClick={() =>
-                  startRequest(() => requestAIReview(row.id, row.headSha))
-                }
-              >
-                {requesting ? "Queuing…" : "Review with AI"}
-              </Button>
+              <RequestReviewButton prId={row.id} headSha={row.headSha} label="Review with AI" />
             ) : null}
           </div>
         )}

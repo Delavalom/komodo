@@ -51,6 +51,12 @@ export type AIReviewJobState =
   | "failed"
   | "cancelled";
 
+/**
+ * How hard a review run looked. Mirrors @komodo/core's REVIEW_DEPTHS;
+ * packages/ingest/test/settings.test.ts asserts the two lists agree.
+ */
+export type ReviewDepth = "standard" | "deep" | "thorough";
+
 /** Durable intent to review one immutable pull-request head. */
 export interface AIReviewJob {
   id: string;
@@ -64,6 +70,11 @@ export interface AIReviewJob {
   workerId: string | null;
   leaseExpiresAt: number | null;
   lastError: string | null;
+  /**
+   * The depth someone picked when they asked for this run. Null for a job the
+   * poller started, and for a request that left the depth to the rules.
+   */
+  depth: ReviewDepth | null;
 }
 
 export interface Organization {
@@ -402,6 +413,18 @@ export type SummarySectionKey =
   | "diagram";
 
 /**
+ * One row of the settings screen's "Go deeper when" list. Mirrors one rule in
+ * komodo.yaml's `depth.rules`; packages/ingest/src/settings.ts translates.
+ */
+export interface DepthRuleSetting {
+  /** What is measured: changed files, changed lines, a path glob, or a label. */
+  kind: "files" | "lines" | "path" | "label";
+  /** A whole number of at least 1 for files and lines; a glob or a label otherwise. */
+  value: string;
+  depth: ReviewDepth;
+}
+
+/**
  * How this deployment reviews.
  *
  * Edited on /settings/review and read by the ingester on every pass, so
@@ -445,6 +468,13 @@ export interface OrgSettings {
    * review, and turning the whole set off is faster than finding which one.
    */
   memoryEnabled: boolean;
+  /** The depth a review runs at when no rule and no person says otherwise. */
+  reviewDepth: ReviewDepth;
+  /**
+   * Reasons to spend more on a review. The deepest matching rule wins, and
+   * none of them can take a review below `reviewDepth`.
+   */
+  depthRules: DepthRuleSetting[];
   orgDisplayName: string;
 }
 
@@ -515,6 +545,14 @@ export interface Review {
   diagram: DiagramSpec | null;
   /** The `.komodo/reviews/<id>.json` this row was built from. */
   recordId: string;
+  /** How hard this run looked. A run from before depth existed reads as standard. */
+  depth: ReviewDepth;
+  /** Why it ran at that depth — a rule, a person, or the default. Empty when unknown. */
+  depthReason: string;
+  /** Model passes that returned a result. Fewer than the depth plans means one failed. */
+  passes: number;
+  /** What the provider said the run cost, in USD. Null when it said nothing. */
+  costUsd: number | null;
   /**
    * The GitHub comment carrying the answered outcome, once someone has closed
    * the review out. Null until then, and the pair is what lets the closing
@@ -523,6 +561,33 @@ export interface Review {
   receiptUrl: string | null;
   receiptPostedAt: number | null;
   createdAt: number;
+}
+
+/**
+ * One review run and what people made of it.
+ *
+ * The row the depth panel and the usage screen count from. Every number is
+ * derived at read time from the run's own judgements and the answer ledger
+ * (AGENTS.md rule 4) — none of it is a column anything writes.
+ */
+export interface ReviewRunOutcome {
+  reviewId: string;
+  prId: string;
+  repoId: string;
+  author: string;
+  createdAt: number;
+  depth: ReviewDepth;
+  depthReason: string;
+  passes: number;
+  costUsd: number | null;
+  /** The pull request's changed files as GitHub last reported them. */
+  changedFiles: number;
+  judgements: number;
+  /** Critical or major. */
+  severeJudgements: number;
+  /** Judgements whose newest answer is Blocks or Agreed: a person said it was real. */
+  upheld: number;
+  severeUpheld: number;
 }
 
 /** One file the run read, with the patch it read. */

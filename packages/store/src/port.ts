@@ -31,6 +31,8 @@ import type {
   PullRequestWatchEvent,
   Repository,
   Review,
+  ReviewDepth,
+  ReviewRunOutcome,
   ReviewDetail,
   ReviewFile,
   JudgementVote,
@@ -68,6 +70,8 @@ export interface QueueSnapshot {
   /** Durable AI intent, separate from results in judgments. */
   aiReviewJobs: AIReviewJob[];
   judgments: Judgment[];
+  /** Every review run, oldest first, with its outcome derived from the ledger. */
+  reviewRuns: ReviewRunOutcome[];
   findings: Finding[];
   /** What the team has taught Komodo, with its counted usage figures. */
   memoryRules: MemoryRuleStats[];
@@ -258,6 +262,11 @@ export interface ReviewInput {
   verdictLine: string;
   diagram?: DiagramSpec | null;
   recordId: string;
+  /** Omitted by callers that predate depth; stored as one standard pass. */
+  depth?: ReviewDepth;
+  depthReason?: string;
+  passes?: number;
+  costUsd?: number | null;
   /** In the order they should be answered. Ordinals are assigned here. */
   judgements: Omit<ReviewJudgement, "id" | "reviewId" | "ordinal">[];
   verificationRequirements: Omit<
@@ -391,6 +400,12 @@ export interface StoreWriter {
     trigger: ReviewTrigger;
     requestedBy?: string | null;
     requestedAt: number;
+    /**
+     * A depth the requester picked. An explicit request replaces the job's
+     * depth, so omitting it hands the run back to the rules; an automatic
+     * re-request changes nothing, like every other field.
+     */
+    depth?: ReviewDepth | null;
   }): Promise<string>;
 
   /** Atomically leases the next queued or abandoned job. */
@@ -464,7 +479,10 @@ export interface StoreWriter {
 
   setRepoEnabled(repoId: string, enabled: boolean): Promise<void>;
 
-  /** Marks judgments pending so the ingester picks them up again. */
+  /**
+   * Marks judgments pending so the ingester picks them up again. A retrigger
+   * is an explicit request without a depth, so the run falls back to the rules.
+   */
   retriggerReviews(judgmentIds: string[]): Promise<void>;
 
   saveTeam(team: Omit<Team, "id"> & { id?: string }): Promise<string>;

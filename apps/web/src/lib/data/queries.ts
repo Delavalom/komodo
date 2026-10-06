@@ -14,7 +14,12 @@
  */
 import { useMemo } from "react";
 
-import { deriveAiState, easyWin, needsReviewFrom } from "@komodo/store";
+import {
+  deriveAiState,
+  easyWin,
+  needsReviewFrom,
+  summarizeDepthOutcomes,
+} from "@komodo/store";
 
 import { useNow, useSnapshot } from "@/lib/data/provider";
 import { useDataStore } from "@/lib/data/store";
@@ -45,6 +50,7 @@ import type {
   PersonalSettings,
   QueueQuery,
   QueueRow,
+  ReviewRunOutcome,
   PullRequestWatch,
   PullRequestWatchEvent,
   RepoCluster,
@@ -967,6 +973,40 @@ export function useLeaderboards(query: AnalyticsQuery) {
   }, [scoped, findings, repoIndex]);
 }
 
+/* ── Analytics: review depth ───────────────────────────────────────────── */
+
+/**
+ * Runs inside the analytics scope, by when the run happened rather than when
+ * its pull request last moved — a run is the event being measured.
+ */
+function useScopedRuns(query: AnalyticsQuery): ReviewRunOutcome[] {
+  const runs = useSnapshot().reviewRuns;
+  const repoIndex = useRepoIndex();
+  const { from, to } = timeframeWindow(query.timeframe, useNow());
+  const repos = query.repos;
+  const authors = query.authors;
+
+  return useMemo(() => {
+    const repoAllow = repos?.length ? new Set(repos) : null;
+    const authorAllow = authors?.length ? new Set(authors) : null;
+    return runs.filter((run) => {
+      if (run.createdAt < from || run.createdAt > to) return false;
+      if (authorAllow && !authorAllow.has(run.author)) return false;
+      if (repoAllow) {
+        const repo = repoIndex.get(run.repoId);
+        if (!repo || !repoAllow.has(fullName(repo))) return false;
+      }
+      return true;
+    });
+  }, [runs, repoIndex, from, to, repos, authors]);
+}
+
+/** Upheld critical and major judgements per run, by PR size and depth. */
+export function useDepthOutcomes(query: AnalyticsQuery) {
+  const runs = useScopedRuns(query);
+  return useMemo(() => summarizeDepthOutcomes(runs), [runs]);
+}
+
 /* ── Analytics: Bugs Caught tab ─────────────────────────────────────────── */
 
 export function useFindingsSummary(query: AnalyticsQuery): FindingsSummary {
@@ -1181,38 +1221,35 @@ export function useUsageWindow(): { from: number; to: number } {
 }
 
 /**
- * Review volume, day by day.
+ * Review volume and credits, day by day.
  *
- * Every figure here is counted from the judgments that produced it. It used to
- * be counted from a seeded PRNG — `cliCredits` was literally `next() < 0.1`,
- * a number no event in the system could ever have caused, on a screen whose
- * whole job is to say what was spent. A deployment running on its own
- * subscription has no credits to report; what it has is runs, and those are
+ * Counted from review runs. A credit is one model pass that returned, so a
+ * thorough run that lost a lens costs four, not five. A deployment on its own
+ * subscription has no invoice to show; what it has is passes, and those are
  * real.
  */
 export function useUsageDays(): UsageDay[] {
-  const prs = useSnapshot().judgments;
+  const runs = useSnapshot().reviewRuns;
   const { from, to } = useUsageWindow();
 
   return useMemo(() => {
-    const reviewed = new Map<number, { prs: number; runs: number }>();
-    for (const pr of prs) {
-      if (pr.reviewCount === 0) continue;
-      const day = startOfDay(pr.updatedAt);
+    const byDay = new Map<number, { runs: number; passes: number }>();
+    for (const run of runs) {
+      const day = startOfDay(run.createdAt);
       if (day < from || day > to) continue;
-      const row = reviewed.get(day) ?? { prs: 0, runs: 0 };
-      row.prs++;
-      row.runs += pr.reviewCount;
-      reviewed.set(day, row);
+      const row = byDay.get(day) ?? { runs: 0, passes: 0 };
+      row.runs++;
+      row.passes += run.passes;
+      byDay.set(day, row);
     }
 
     const out: UsageDay[] = [];
     for (let d = from; d <= to; d += DAY_MS) {
-      const row = reviewed.get(d) ?? { prs: 0, runs: 0 };
+      const row = byDay.get(d) ?? { runs: 0, passes: 0 };
       out.push({
         date: d,
-        reviews: row.prs,
-        codeReviewCredits: row.runs,
+        reviews: row.runs,
+        codeReviewCredits: row.passes,
         // A run started from a laptop lands in the same store through the same
         // port, and nothing distinguishes it from one the poller started. Until
         // a run records where it came from, this cannot honestly be anything
@@ -1221,5 +1258,39 @@ export function useUsageDays(): UsageDay[] {
       });
     }
     return out;
-  }, [prs, from, to]);
+  }, [runs, from, to]);
+}
+
+/** Credits by pull request author, over the usage window. */
+export function useCreditsByAuthor(): Map<string, number> {
+  const runs = useSnapshot().reviewRuns;
+  const { from, to } = useUsageWindow();
+  return useMemo(() => {
+    const out = new Map<string, number>();
+    for (const run of runs) {
+      const day = startOfDay(run.createdAt);
+      if (day < from || day > to) continue;
+      out.set(run.author, (out.get(run.author) ?? 0) + run.passes);
+    }
+    return out;
+  }, [runs, from, to]);
+}
+
+/**
+ * What providers said the window's runs cost, in USD. Null when no run in the
+ * window reported one — Codex never does — so the screen can say nothing
+ * rather than show a zero nobody measured.
+ */
+export function useUsageCost(): number | null {
+  const runs = useSnapshot().reviewRuns;
+  const { from, to } = useUsageWindow();
+  return useMemo(() => {
+    let total: number | null = null;
+    for (const run of runs) {
+      const day = startOfDay(run.createdAt);
+      if (day < from || day > to || run.costUsd === null) continue;
+      total = (total ?? 0) + run.costUsd;
+    }
+    return total;
+  }, [runs, from, to]);
 }

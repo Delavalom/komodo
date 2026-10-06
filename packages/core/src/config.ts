@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import { SEVERITIES } from "./schema.js";
+import { REVIEW_DEPTHS } from "./depth.js";
 
 export const DEFAULT_PATH_FILTERS = [
   "!**/node_modules/**",
@@ -70,6 +71,48 @@ export const PathContextSourceSchema = z.object({
 export const ContextSourceSchema = z.discriminatedUnion("type", [PathContextSourceSchema]);
 export type ContextSource = z.infer<typeof ContextSourceSchema>;
 
+/**
+ * One reason to spend more on a review.
+ *
+ * Exactly one condition per rule. Two conditions on one rule would have to
+ * mean AND or OR, and whichever this file picked, the settings screen — one
+ * row, one condition — could not show it. Several rules are how a team says
+ * OR; the deepest matching rule wins.
+ */
+export const DepthRuleSchema = z
+  .object({
+    depth: z.enum(REVIEW_DEPTHS),
+    /** Matches when at least this many reviewable files changed. */
+    files: z.number().int().min(1).optional(),
+    /** Matches when at least this many reviewable lines changed (added + deleted). */
+    lines: z.number().int().min(1).optional(),
+    /**
+     * Matches when any reviewable file matches this glob. A leading `!` is
+     * refused: picomatch reads it as "any file not matching", the opposite of
+     * what it means in `path_filters`, so a copied exclusion would escalate
+     * nearly every pull request.
+     */
+    path: z
+      .string()
+      .trim()
+      .min(1)
+      .refine((p) => !p.startsWith("!"), {
+        message:
+          "A depth rule's path is a glob of files to look harder at; use path_filters to exclude files.",
+      })
+      .optional(),
+    /** Matches when the pull request carries this label, case-insensitively. */
+    label: z.string().trim().min(1).optional(),
+  })
+  .strict()
+  .refine(
+    (rule) =>
+      [rule.files, rule.lines, rule.path, rule.label].filter((v) => v !== undefined)
+        .length === 1,
+    { message: "A depth rule names exactly one condition: files, lines, path or label." },
+  );
+export type DepthRule = z.infer<typeof DepthRuleSchema>;
+
 export const KomodoConfigSchema = z.object({
   provider: z.enum(["auto", "claude", "codex", "openrouter"]).default("auto"),
   model: z.string().optional(),
@@ -88,6 +131,21 @@ export const KomodoConfigSchema = z.object({
     .prefault({}),
   profile: z.enum(["chill", "assertive"]).default("chill"),
   min_severity: z.enum(SEVERITIES).default("minor"),
+  /**
+   * How hard a review looks — see ./depth.ts.
+   *
+   * `default` is what every review gets. `rules` raise it for the pull
+   * requests that warrant more: a large change, a sensitive path, a label
+   * someone applied. A person who picks a depth from the Review with AI menu
+   * overrides both for that one run. Settings → Review owns these once the
+   * store has adopted this file.
+   */
+  depth: z
+    .object({
+      default: z.enum(REVIEW_DEPTHS).default("standard"),
+      rules: z.array(DepthRuleSchema).default([]),
+    })
+    .prefault({}),
   path_filters: z.array(z.string()).default([]),
   path_instructions: z
     .array(z.object({ path: z.string(), instructions: z.string() }))

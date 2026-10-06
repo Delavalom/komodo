@@ -58,6 +58,8 @@ import type {
   RepoCluster,
   Repository,
   Review,
+  ReviewDepth,
+  ReviewRunOutcome,
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,
@@ -223,7 +225,8 @@ CREATE TABLE IF NOT EXISTS ai_review_jobs (
   updatedAt      INTEGER NOT NULL,
   workerId       TEXT,
   leaseExpiresAt INTEGER,
-  lastError      TEXT
+  lastError      TEXT,
+  depth          TEXT
 );
 CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
   ON ai_review_jobs (state, leaseExpiresAt, requestedAt);
@@ -282,6 +285,14 @@ CREATE TABLE IF NOT EXISTS reviews (
   -- written by saveReview, so re-running the same head does not forget it.
   receiptUrl      TEXT,
   receiptPostedAt INTEGER,
+  depth       TEXT NOT NULL DEFAULT 'standard',
+  depthReason TEXT NOT NULL DEFAULT '',
+  passes      INTEGER NOT NULL DEFAULT 1,
+  costUsd     REAL,
+  -- When this row's judgements were last written. createdAt and seq keep their
+  -- first-insert values across a re-run of the same head; this does not, so an
+  -- answer older than it was given to the run it replaced.
+  savedAt     INTEGER NOT NULL DEFAULT 0,
   createdAt   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reviews_pr ON reviews (prId, seq DESC);
@@ -480,6 +491,9 @@ const bool = (v: unknown): boolean => Boolean(v);
 const list = (v: unknown): string[] => JSON.parse(String(v ?? "[]")) as string[];
 const num = (v: unknown): number => Number(v ?? 0);
 const str = (v: unknown): string => String(v ?? "");
+/** An unknown string must not reach code that indexes DEPTH_PASSES by it. */
+const asDepth = (v: unknown): ReviewDepth | null =>
+  v === "standard" || v === "deep" || v === "thorough" ? v : null;
 
 /**
  * `diagram` holds free-text Mermaid source in rows written before this column
@@ -544,6 +558,7 @@ export class SqliteStore implements KomodoStore {
       pullRequests: await this.listPullRequests(),
       aiReviewJobs: await this.listAIReviewJobs(),
       judgments: this.readJudgments(),
+      reviewRuns: this.readReviewRuns(),
       findings: this.readFindings(),
       memoryRules: await this.listMemoryRules(),
       repoClusters: await this.listRepoClusters(),
@@ -1225,6 +1240,71 @@ export class SqliteStore implements KomodoStore {
     }));
   }
 
+  private readReviewRuns(): ReviewRunOutcome[] {
+    // Upheld means the newest ledger entry says Blocks or Agreed — the same
+    // "newest answer wins" rule readJudgments uses, so withdrawing an answer
+    // un-upholds it here too. An answer older than the run's last save was
+    // given to the run it replaced (a re-run of the same head keeps its
+    // judgement ids), so it does not count.
+    //
+    // The judgements are aggregated once, grouped by review, and joined back
+    // to the reviews. A per-review correlated subquery over this CTE walks
+    // every answer for every run, which is quadratic and ran on every snapshot.
+    const rows = this.db
+      .prepare(
+        `WITH newest_answer AS (
+           SELECT judgementId, bucket, createdAt,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY judgementId ORDER BY createdAt DESC, id DESC
+                  ) AS rn
+           FROM answers
+         ),
+         judged AS (
+           SELECT q.reviewId,
+                  COUNT(*) AS judgements,
+                  SUM(CASE WHEN q.severity IN ('critical', 'major') THEN 1 ELSE 0 END)
+                    AS severeJudgements,
+                  SUM(CASE WHEN a.bucket IN ('Blocks', 'Agreed') THEN 1 ELSE 0 END) AS upheld,
+                  SUM(CASE WHEN a.bucket IN ('Blocks', 'Agreed')
+                            AND q.severity IN ('critical', 'major') THEN 1 ELSE 0 END)
+                    AS severeUpheld
+           FROM review_judgements q
+           JOIN reviews rv ON rv.id = q.reviewId
+           LEFT JOIN newest_answer a
+             ON a.judgementId = q.id AND a.rn = 1 AND a.createdAt >= rv.savedAt
+           GROUP BY q.reviewId
+         )
+         SELECT r.id AS reviewId, r.prId, p.repoId, p.author, r.createdAt,
+                r.depth, r.depthReason, r.passes, r.costUsd, p.changedFiles,
+                COALESCE(j.judgements, 0) AS judgements,
+                COALESCE(j.severeJudgements, 0) AS severeJudgements,
+                COALESCE(j.upheld, 0) AS upheld,
+                COALESCE(j.severeUpheld, 0) AS severeUpheld
+         FROM reviews r
+         JOIN pull_requests p ON p.id = r.prId
+         LEFT JOIN judged j ON j.reviewId = r.id
+         ORDER BY r.seq`,
+      )
+      .all() as Row[];
+
+    return rows.map((r) => ({
+      reviewId: str(r.reviewId),
+      prId: str(r.prId),
+      repoId: str(r.repoId),
+      author: str(r.author),
+      createdAt: num(r.createdAt),
+      depth: asDepth(r.depth) ?? "standard",
+      depthReason: str(r.depthReason),
+      passes: num(r.passes),
+      costUsd: r.costUsd == null ? null : num(r.costUsd),
+      changedFiles: num(r.changedFiles),
+      judgements: num(r.judgements),
+      severeJudgements: num(r.severeJudgements),
+      upheld: num(r.upheld),
+      severeUpheld: num(r.severeUpheld),
+    }));
+  }
+
   private readJudgments(): Judgment[] {
     // The flat read-model the UI consumes: the judgment's own columns plus the
     // git facts joined in from the pull request it judges. The judgment id is
@@ -1610,13 +1690,14 @@ export class SqliteStore implements KomodoStore {
     trigger: AIReviewJob["trigger"];
     requestedBy?: string | null;
     requestedAt: number;
+    depth?: AIReviewJob["depth"];
   }): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     this.db.prepare(
       `INSERT INTO ai_review_jobs
          (id, prId, headSha, trigger, state, requestedBy, requestedAt,
-          updatedAt, workerId, leaseExpiresAt, lastError)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, NULL, NULL, NULL)
+          updatedAt, workerId, leaseExpiresAt, lastError, depth)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, NULL, NULL, NULL, ?)
        ON CONFLICT (id) DO UPDATE SET
          trigger = excluded.trigger,
          state = 'queued',
@@ -1625,7 +1706,8 @@ export class SqliteStore implements KomodoStore {
          updatedAt = excluded.updatedAt,
          workerId = NULL,
          leaseExpiresAt = NULL,
-         lastError = NULL
+         lastError = NULL,
+         depth = excluded.depth
        WHERE excluded.trigger IN ('manual', 'interactive')
          AND ai_review_jobs.state != 'running'`,
     ).run(
@@ -1636,6 +1718,7 @@ export class SqliteStore implements KomodoStore {
       input.requestedBy ?? null,
       input.requestedAt,
       input.requestedAt,
+      input.depth ?? null,
     );
     return id;
   }
@@ -1765,22 +1848,28 @@ export class SqliteStore implements KomodoStore {
           // keeps the position it already had in the history.
           `INSERT INTO reviews
              (id, version, prId, headSha, seq, provider, model, summary, walkthrough,
-              confidence, effort, verdictLine, diagram, recordId, createdAt)
+              confidence, effort, verdictLine, diagram, recordId,
+              depth, depthReason, passes, costUsd, createdAt, savedAt)
            VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id) DO UPDATE SET
              version = excluded.version,
              provider = excluded.provider, model = excluded.model,
              summary = excluded.summary, walkthrough = excluded.walkthrough,
              confidence = excluded.confidence, effort = excluded.effort,
              verdictLine = excluded.verdictLine, diagram = excluded.diagram,
-             recordId = excluded.recordId`,
+             recordId = excluded.recordId,
+             depth = excluded.depth, depthReason = excluded.depthReason,
+             passes = excluded.passes, costUsd = excluded.costUsd,
+             savedAt = excluded.savedAt`,
         )
         .run(
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
-          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId, now,
+          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId,
+          input.depth ?? "standard", input.depthReason ?? "", input.passes ?? 1,
+          input.costUsd ?? null, now, now,
         );
 
       // A re-run of the same head replaces its own bodies. The answer rows
@@ -2107,6 +2196,7 @@ function toAIReviewJob(r: Row): AIReviewJob {
     workerId: r.workerId == null ? null : str(r.workerId),
     leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
     lastError: r.lastError == null ? null : str(r.lastError),
+    depth: asDepth(r.depth),
   };
 }
 
@@ -2125,6 +2215,10 @@ function toReview(r: Row): Review {
     verdictLine: str(r.verdictLine),
     diagram: readDiagram(r.diagram),
     recordId: str(r.recordId),
+    depth: asDepth(r.depth) ?? "standard",
+    depthReason: r.depthReason == null ? "" : str(r.depthReason),
+    passes: r.passes == null ? 1 : num(r.passes),
+    costUsd: r.costUsd == null ? null : num(r.costUsd),
     receiptUrl: r.receiptUrl == null ? null : str(r.receiptUrl),
     receiptPostedAt: r.receiptPostedAt == null ? null : num(r.receiptPostedAt),
     createdAt: num(r.createdAt),

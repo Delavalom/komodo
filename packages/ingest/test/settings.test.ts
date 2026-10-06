@@ -7,8 +7,20 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { KomodoConfigSchema, type KomodoConfig } from "@komodo/core";
-import { DEFAULT_ORG_SETTINGS, type OrgSettings } from "@komodo/store";
+import {
+  DEPTH_LABEL as CORE_DEPTH_LABEL,
+  DEPTH_PASSES as CORE_DEPTH_PASSES,
+  KomodoConfigSchema,
+  REVIEW_DEPTHS,
+  type KomodoConfig,
+} from "@komodo/core";
+import {
+  DEFAULT_ORG_SETTINGS,
+  DEPTH_LABEL as STORE_DEPTH_LABEL,
+  DEPTH_PASSES as STORE_DEPTH_PASSES,
+  REVIEW_DEPTH_ORDER,
+  type OrgSettings,
+} from "@komodo/store";
 
 import { applySettings, configToSettings } from "../src/settings.js";
 
@@ -143,5 +155,96 @@ describe("configToSettings", () => {
     expect(adopted.auto_review.max_files).toBe(25);
     expect(adopted.post.status_check).toBe(true);
     expect(adopted.post.header).toBe("Heads up.");
+  });
+});
+
+describe("review depth", () => {
+  it("hands the screen's default and rules to the reviewer", () => {
+    const config = applySettings(
+      baseConfig(),
+      settings({
+        reviewDepth: "deep",
+        depthRules: [
+          { kind: "files", value: "28", depth: "thorough" },
+          { kind: "path", value: "migrations/**", depth: "thorough" },
+          { kind: "label", value: "needs-deep-review", depth: "thorough" },
+          { kind: "lines", value: "800", depth: "thorough" },
+        ],
+      }),
+    );
+    expect(config.depth).toEqual({
+      default: "deep",
+      rules: [
+        { depth: "thorough", files: 28 },
+        { depth: "thorough", path: "migrations/**" },
+        { depth: "thorough", label: "needs-deep-review" },
+        { depth: "thorough", lines: 800 },
+      ],
+    });
+  });
+
+  it("drops a rule no pull request could satisfy rather than handing it on", () => {
+    const config = applySettings(
+      baseConfig(),
+      settings({
+        depthRules: [
+          { kind: "files", value: "0", depth: "deep" },
+          { kind: "lines", value: "lots", depth: "deep" },
+          { kind: "path", value: "  ", depth: "deep" },
+          // A leading "!" is negation to the glob matcher, the opposite of
+          // what a path_filters-style author means.
+          { kind: "path", value: "!**/*.md", depth: "deep" },
+        ],
+      }),
+    );
+    expect(config.depth.rules).toEqual([]);
+  });
+
+  it("refuses a malformed setting rather than handing it on", () => {
+    // updateOrgSettings is a server action with no runtime validation, so the
+    // row can hold anything a client chose to send.
+    const bad = (value: unknown) => value as never;
+    const config = applySettings(
+      baseConfig({ depth: { default: "deep" } }),
+      settings({
+        reviewDepth: bad("max"),
+        depthRules: [
+          { kind: "label", value: "risky", depth: bad("max") },
+          { kind: bad("owner"), value: "marco", depth: "deep" },
+          { kind: "label", value: bad(7), depth: "deep" },
+        ],
+      }),
+    );
+    expect(config.depth).toEqual({ default: "deep", rules: [] });
+  });
+
+  it("survives a row whose rules are not a list", () => {
+    const config = applySettings(
+      baseConfig(),
+      settings({ depthRules: null as unknown as OrgSettings["depthRules"] }),
+    );
+    expect(config.depth.rules).toEqual([]);
+  });
+
+  it("round-trips komodo.yaml's depth through the stored row", () => {
+    const file = baseConfig({
+      depth: {
+        default: "deep",
+        rules: [
+          { files: 28, depth: "thorough" },
+          { lines: 800, depth: "deep" },
+          { path: "migrations/**", depth: "thorough" },
+          { label: "risky", depth: "thorough" },
+        ],
+      },
+    });
+    const adopted = applySettings(baseConfig(), settings(configToSettings(file)));
+    expect(adopted.depth).toEqual(file.depth);
+  });
+
+  it("keeps the store's depth tables in step with core's", () => {
+    expect([...REVIEW_DEPTH_ORDER]).toEqual([...REVIEW_DEPTHS]);
+    expect(STORE_DEPTH_PASSES).toEqual(CORE_DEPTH_PASSES);
+    expect(STORE_DEPTH_LABEL).toEqual(CORE_DEPTH_LABEL);
   });
 });

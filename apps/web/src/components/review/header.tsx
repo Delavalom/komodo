@@ -14,14 +14,13 @@ import { Eye } from "lucide-react";
 
 import { canRequestAiReview } from "@komodo/store";
 import { Avatar, GithubIcon } from "@/components/ui/display";
-import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/controls";
+import { RequestReviewButton } from "@/components/review/request-review-button";
 import { useUrlState } from "@/lib/use-url-state";
 import { cn, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
 import { usePullRequestWatch } from "@/lib/data/queries";
 import {
-  useRequestAIReview,
   useUnwatchPullRequest,
   useUpdateWatchMode,
   useWatchPullRequest,
@@ -200,27 +199,10 @@ export function ReviewHeader({
           </Tab>
         </nav>
         {canRequestAiReview(aiState) ? (
-          <AskAIReviewButton prId={pr.id} headSha={pr.headSha} />
+          <RequestReviewButton prId={pr.id} headSha={pr.headSha} label="Ask AI review" />
         ) : null}
       </div>
     </div>
-  );
-}
-
-/** Same request the queue's row button makes — see `view.tsx`'s "Review with AI". */
-function AskAIReviewButton({ prId, headSha }: { prId: string; headSha: string }) {
-  const requestReview = useRequestAIReview();
-  const [requesting, startRequest] = React.useTransition();
-
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled={requesting}
-      onClick={() => startRequest(() => requestReview(prId, headSha))}
-    >
-      {requesting ? "Queuing…" : "Ask AI review"}
-    </Button>
   );
 }
 

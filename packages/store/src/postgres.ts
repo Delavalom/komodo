@@ -54,6 +54,8 @@ import type {
   RepoCluster,
   Repository,
   Review,
+  ReviewDepth,
+  ReviewRunOutcome,
   ReviewDetail,
   ReviewFile,
   ReviewJudgement,
@@ -218,7 +220,8 @@ CREATE TABLE IF NOT EXISTS ai_review_jobs (
   "updatedAt"      BIGINT NOT NULL,
   "workerId"       TEXT,
   "leaseExpiresAt" BIGINT,
-  "lastError"      TEXT
+  "lastError"      TEXT,
+  depth            TEXT
 );
 CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
   ON ai_review_jobs (state, "leaseExpiresAt", "requestedAt");
@@ -277,6 +280,14 @@ CREATE TABLE IF NOT EXISTS reviews (
   -- written by saveReview, so re-running the same head does not forget it.
   "receiptUrl"      TEXT,
   "receiptPostedAt" BIGINT,
+  depth         TEXT NOT NULL DEFAULT 'standard',
+  "depthReason" TEXT NOT NULL DEFAULT '',
+  passes        INTEGER NOT NULL DEFAULT 1,
+  "costUsd"     DOUBLE PRECISION,
+  -- When this row's judgements were last written. createdAt and seq keep their
+  -- first-insert values across a re-run of the same head; this does not, so an
+  -- answer older than it was given to the run it replaced.
+  "savedAt"     BIGINT NOT NULL DEFAULT 0,
   "createdAt"   BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reviews_pr ON reviews ("prId", seq DESC);
@@ -522,6 +533,9 @@ const DEFAULT_ORG: Organization = {
 type Row = Record<string, unknown>;
 
 const str = (v: unknown): string => String(v ?? "");
+/** An unknown string must not reach code that indexes DEPTH_PASSES by it. */
+const asDepth = (v: unknown): ReviewDepth | null =>
+  v === "standard" || v === "deep" || v === "thorough" ? v : null;
 /** BIGINT comes back as a string from pg — every timestamp needs coercing. */
 const num = (v: unknown): number => Number(v ?? 0);
 const bool = (v: unknown): boolean => v === true || v === "t" || v === 1;
@@ -575,6 +589,7 @@ export class PostgresStore implements KomodoStore {
       pullRequests,
       aiReviewJobs,
       judgments,
+      reviewRuns,
       findings,
       memoryRules,
       repoClusters,
@@ -593,6 +608,7 @@ export class PostgresStore implements KomodoStore {
       this.listPullRequests(),
       this.listAIReviewJobs(),
       this.readJudgments(),
+      this.readReviewRuns(),
       this.readFindings(),
       this.listMemoryRules(),
       this.listRepoClusters(),
@@ -612,6 +628,7 @@ export class PostgresStore implements KomodoStore {
       pullRequests,
       aiReviewJobs,
       judgments,
+      reviewRuns,
       findings,
       memoryRules,
       repoClusters,
@@ -1284,6 +1301,65 @@ export class PostgresStore implements KomodoStore {
     }));
   }
 
+  private async readReviewRuns(): Promise<ReviewRunOutcome[]> {
+    // The mirror of the SQLite driver's query, and aggregated once for the same
+    // reason: correlated subqueries over the answers CTE rescan it per run.
+    // An answer older than the run's last save was given to the run it
+    // replaced, so it does not count. COUNT is cast because Postgres returns
+    // bigint, which the driver hands back as a string.
+    const { rows } = await this.sql.query<Row>(
+      `WITH newest_answer AS (
+         SELECT "judgementId", bucket, "createdAt",
+                ROW_NUMBER() OVER (
+                  PARTITION BY "judgementId" ORDER BY "createdAt" DESC, id DESC
+                ) AS rn
+         FROM answers
+       ),
+       judged AS (
+         SELECT q."reviewId",
+                COUNT(*)::int AS judgements,
+                (COUNT(*) FILTER (WHERE q.severity IN ('critical', 'major')))::int
+                  AS "severeJudgements",
+                (COUNT(*) FILTER (WHERE a.bucket IN ('Blocks', 'Agreed')))::int AS upheld,
+                (COUNT(*) FILTER (WHERE a.bucket IN ('Blocks', 'Agreed')
+                                    AND q.severity IN ('critical', 'major')))::int
+                  AS "severeUpheld"
+         FROM review_judgements q
+         JOIN reviews rv ON rv.id = q."reviewId"
+         LEFT JOIN newest_answer a
+           ON a."judgementId" = q.id AND a.rn = 1 AND a."createdAt" >= rv."savedAt"
+         GROUP BY q."reviewId"
+       )
+       SELECT r.id AS "reviewId", r."prId", p."repoId", p.author, r."createdAt",
+              r.depth, r."depthReason", r.passes, r."costUsd", p."changedFiles",
+              COALESCE(j.judgements, 0) AS judgements,
+              COALESCE(j."severeJudgements", 0) AS "severeJudgements",
+              COALESCE(j.upheld, 0) AS upheld,
+              COALESCE(j."severeUpheld", 0) AS "severeUpheld"
+       FROM reviews r
+       JOIN pull_requests p ON p.id = r."prId"
+       LEFT JOIN judged j ON j."reviewId" = r.id
+       ORDER BY r.seq`,
+    );
+
+    return rows.map((r) => ({
+      reviewId: str(r.reviewId),
+      prId: str(r.prId),
+      repoId: str(r.repoId),
+      author: str(r.author),
+      createdAt: num(r.createdAt),
+      depth: asDepth(r.depth) ?? "standard",
+      depthReason: str(r.depthReason),
+      passes: num(r.passes),
+      costUsd: r.costUsd == null ? null : num(r.costUsd),
+      changedFiles: num(r.changedFiles),
+      judgements: num(r.judgements),
+      severeJudgements: num(r.severeJudgements),
+      upheld: num(r.upheld),
+      severeUpheld: num(r.severeUpheld),
+    }));
+  }
+
   private async readJudgments(): Promise<Judgment[]> {
     // Every engagement number here is DERIVED, not stored — the mirror of the
     // SQLite driver's query, and for the same reason: these were columns only
@@ -1637,13 +1713,14 @@ export class PostgresStore implements KomodoStore {
     trigger: AIReviewJob["trigger"];
     requestedBy?: string | null;
     requestedAt: number;
+    depth?: AIReviewJob["depth"];
   }): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     await this.sql.query(
       `INSERT INTO ai_review_jobs
          (id, "prId", "headSha", trigger, state, "requestedBy",
-          "requestedAt", "updatedAt", "workerId", "leaseExpiresAt", "lastError")
-       VALUES ($1,$2,$3,$4,'queued',$5,$6,$6,NULL,NULL,NULL)
+          "requestedAt", "updatedAt", "workerId", "leaseExpiresAt", "lastError", depth)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6,$6,NULL,NULL,NULL,$7)
        ON CONFLICT (id) DO UPDATE SET
          trigger = EXCLUDED.trigger,
          state = 'queued',
@@ -1652,7 +1729,8 @@ export class PostgresStore implements KomodoStore {
          "updatedAt" = EXCLUDED."updatedAt",
          "workerId" = NULL,
          "leaseExpiresAt" = NULL,
-         "lastError" = NULL
+         "lastError" = NULL,
+         depth = EXCLUDED.depth
        WHERE EXCLUDED.trigger IN ('manual', 'interactive')
          AND ai_review_jobs.state != 'running'`,
       [
@@ -1662,6 +1740,7 @@ export class PostgresStore implements KomodoStore {
         input.trigger,
         input.requestedBy ?? null,
         input.requestedAt,
+        input.depth ?? null,
       ],
     );
     return id;
@@ -1792,21 +1871,27 @@ export class PostgresStore implements KomodoStore {
         // the position it already had in the history.
         `INSERT INTO reviews
            (id, version, "prId", "headSha", seq, provider, model, summary, walkthrough,
-            confidence, effort, "verdictLine", diagram, "recordId", "createdAt")
+            confidence, effort, "verdictLine", diagram, "recordId",
+            depth, "depthReason", passes, "costUsd", "createdAt", "savedAt")
          VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)
          ON CONFLICT (id) DO UPDATE SET
            version = EXCLUDED.version,
            provider = EXCLUDED.provider, model = EXCLUDED.model,
            summary = EXCLUDED.summary, walkthrough = EXCLUDED.walkthrough,
            confidence = EXCLUDED.confidence, effort = EXCLUDED.effort,
            "verdictLine" = EXCLUDED."verdictLine", diagram = EXCLUDED.diagram,
-           "recordId" = EXCLUDED."recordId"`,
+           "recordId" = EXCLUDED."recordId",
+           depth = EXCLUDED.depth, "depthReason" = EXCLUDED."depthReason",
+           passes = EXCLUDED.passes, "costUsd" = EXCLUDED."costUsd",
+           "savedAt" = EXCLUDED."savedAt"`,
         [
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
           input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
-          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId, now,
+          input.diagram ? JSON.stringify(input.diagram) : null, input.recordId,
+          input.depth ?? "standard", input.depthReason ?? "", input.passes ?? 1,
+          input.costUsd ?? null, now,
         ],
       );
 
@@ -2060,6 +2145,10 @@ function toReview(r: Row): Review {
     verdictLine: str(r.verdictLine),
     diagram: readDiagram(r.diagram),
     recordId: str(r.recordId),
+    depth: asDepth(r.depth) ?? "standard",
+    depthReason: r.depthReason == null ? "" : str(r.depthReason),
+    passes: r.passes == null ? 1 : num(r.passes),
+    costUsd: r.costUsd == null ? null : num(r.costUsd),
     receiptUrl: r.receiptUrl == null ? null : str(r.receiptUrl),
     receiptPostedAt: r.receiptPostedAt == null ? null : num(r.receiptPostedAt),
     createdAt: num(r.createdAt),
@@ -2263,6 +2352,7 @@ function toAIReviewJob(r: Row): AIReviewJob {
     workerId: r.workerId == null ? null : str(r.workerId),
     leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
     lastError: r.lastError == null ? null : str(r.lastError),
+    depth: asDepth(r.depth),
   };
 }
 

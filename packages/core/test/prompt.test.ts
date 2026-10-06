@@ -109,3 +109,65 @@ describe("buildRereadPrompt", () => {
     expect(prompt).toContain(VOICE_STYLE);
   });
 });
+
+describe("buildReviewPrompt — passes", () => {
+  const config = KomodoConfigSchema.parse({});
+
+  it("leaves a standard prompt byte-for-byte as it was", () => {
+    expect(buildReviewPrompt({ pr, files, config, pass: { kind: "base" } })).toBe(
+      buildReviewPrompt({ pr, files, config }),
+    );
+  });
+
+  it("adds nothing for a standard single pass", () => {
+    expect(buildReviewPrompt({ pr, files, config })).not.toContain("## This pass");
+    expect(buildReviewPrompt({ pr, files, config, pass: { kind: "base" } })).not.toContain(
+      "## This pass",
+    );
+  });
+
+  it("narrows a lens pass to its one question", () => {
+    const prompt = buildReviewPrompt({ pr, files, config, pass: { kind: "lens", focus: "tests" } });
+    expect(prompt).toContain("## This pass");
+    expect(prompt).toContain("Only judgements with focus `tests`");
+  });
+
+  it("hands a second look what was already raised, and tells it not to repeat it", () => {
+    const prior = [
+      {
+        path: "src/settings.tsx",
+        line: 1,
+        focus: "code",
+        title: "The new value is never saved.",
+      },
+    ] as unknown as Judgement[];
+    const prompt = buildReviewPrompt({
+      pr,
+      files,
+      config,
+      pass: { kind: "second-look", prior },
+    });
+    expect(prompt).toContain("Do not repeat them");
+    expect(prompt).toContain("- [code] src/settings.tsx:1 — The new value is never saved.");
+  });
+
+  it("lists file-level and cross-cutting entries without a bogus line number", () => {
+    const prior = [
+      { path: "src/settings.tsx", line: 0, focus: "tests", title: "No test\n  reaches   this." },
+      { path: "", line: 0, focus: "scope", title: "Rewrites the logger." },
+    ] as unknown as Judgement[];
+    const prompt = buildReviewPrompt({ pr, files, config, pass: { kind: "second-look", prior } });
+    expect(prompt).toContain("- [tests] src/settings.tsx — No test reaches this.");
+    expect(prompt).toContain("- [scope] (cross-cutting) — Rewrites the logger.");
+    expect(prompt).not.toContain(":0");
+  });
+
+  it("keeps outside-the-diff reading conditional on a checkout, and 'new' to the second look", () => {
+    const lens = buildReviewPrompt({ pr, files, config, pass: { kind: "lens", focus: "architecture" } });
+    expect(lens).toContain("If a repository checkout is available, read the configuration");
+    expect(lens).not.toContain("Only new judgements");
+    const second = buildReviewPrompt({ pr, files, config, pass: { kind: "second-look", prior: [] } });
+    expect(second).toContain("Only new judgements");
+    expect(second).toContain("when a checkout is available, files the change depends on");
+  });
+});

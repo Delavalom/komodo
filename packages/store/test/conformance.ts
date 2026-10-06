@@ -221,6 +221,87 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       });
     });
 
+    it("carries a requested depth from the button to the worker", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({
+        prId, headSha: "aaa111", trigger: "manual",
+        requestedBy: "renata", requestedAt: T0, depth: "thorough",
+      });
+      const claim = await store.claimNextAIReview({ workerId: "w1", now: T0 + 1, leaseMs: 60_000 });
+      expect(claim?.job.depth).toBe("thorough");
+    });
+
+    it("leaves an automatic job's depth to the rules", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "new_pull_request", requestedAt: T0 });
+      expect((await store.listAIReviewJobs())[0].depth).toBeNull();
+    });
+
+    it("lets a second explicit request change the depth it asked for", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "deep" });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0 + 1, depth: "thorough" });
+      expect((await store.listAIReviewJobs())[0].depth).toBe("thorough");
+    });
+
+    it("keeps a requested depth through an automatic re-request of the same head", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "thorough" });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "new_commit", requestedAt: T0 + 1 });
+      expect((await store.listAIReviewJobs())[0].depth).toBe("thorough");
+    });
+
+    it("hands the run back to the rules when an explicit request names no depth", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "thorough" });
+      const claim = await store.claimNextAIReview({ workerId: "w1", now: T0 + 1, leaseMs: 60_000 });
+      await store.finishAIReviewJob({
+        jobId: claim!.job.id, workerId: "w1", state: "completed", finishedAt: T0 + 2,
+      });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0 + 3 });
+      expect((await store.listAIReviewJobs())[0].depth).toBeNull();
+    });
+
+    it("hands a retriggered run back to the rules", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const judgmentId = await store.upsertJudgment({
+        prId, headSha: "aaa111", verdict: "ship",
+        status: "completed", impact: "low", score: 90,
+      });
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "manual", requestedAt: T0, depth: "thorough" });
+      const claim = await store.claimNextAIReview({ workerId: "w1", now: T0 + 1, leaseMs: 60_000 });
+      await store.finishAIReviewJob({
+        jobId: claim!.job.id, workerId: "w1", state: "completed", finishedAt: T0 + 2,
+      });
+      await store.retriggerReviews([judgmentId]);
+      expect((await store.listAIReviewJobs())[0].depth).toBeNull();
+    });
+
+    it("round-trips how hard a run looked", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(
+        review({
+          prId, depth: "thorough",
+          depthReason: "31 files changed (rule: at least 28)",
+          passes: 4, costUsd: 1.25,
+        }),
+      );
+      expect((await store.loadReview(reviewId))?.review).toMatchObject({
+        depth: "thorough",
+        depthReason: "31 files changed (rule: at least 28)",
+        passes: 4,
+        costUsd: 1.25,
+      });
+    });
+
+    it("reads a run that never said how hard it looked as one standard pass", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(review({ prId }));
+      expect((await store.loadReview(reviewId))?.review).toMatchObject({
+        depth: "standard", depthReason: "", passes: 1, costUsd: null,
+      });
+    });
+
     it("leases a job once, reclaims an expired lease, and enforces ownership", async () => {
       const prId = await store.upsertPullRequest(pr());
       await store.requestAIReview({
@@ -666,6 +747,107 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(current?.verificationRequirements[0].id).not.toBe(first.id);
       expect(current?.verifications).toEqual([]);
       expect(await store.listVerificationEntries(reviewId)).toHaveLength(1);
+    });
+
+    describe("review run outcomes", () => {
+      it("derives upheld counts from each judgement's newest answer", async () => {
+        const prId = await store.upsertPullRequest(pr({ changedFiles: 31 }));
+        // The fixture's judgement 0 is major and judgement 1 is minor.
+        const reviewId = await store.saveReview(review({ prId, depth: "deep", passes: 2, costUsd: 0.3 }));
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Blocks", optionLabel: "No",
+        });
+        await store.recordAnswer({
+          judgementId: `${reviewId}:1`, actorLogin: "renata", bucket: "Passed on", optionLabel: "Not my call",
+        });
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run).toMatchObject({
+          reviewId, prId, repoId: "acme/api", author: "renata",
+          depth: "deep", passes: 2, costUsd: 0.3, changedFiles: 31,
+          judgements: 2, severeJudgements: 1, upheld: 1, severeUpheld: 1,
+        });
+      });
+
+      it("stops counting a judgement as upheld once the answer is withdrawn", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Agreed", optionLabel: "Yes",
+        });
+        await store.recordAnswer({ judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: null });
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run.upheld).toBe(0);
+      });
+
+      it("lists every reviewed head, oldest first, not only each pull request's newest", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        await store.saveReview(review({ prId }));
+        await store.saveReview(review({ prId, headSha: "bbb222", depth: "thorough", passes: 5 }));
+
+        const runs = (await store.snapshot()).reviewRuns;
+        expect(runs.map((r) => r.depth)).toEqual(["standard", "thorough"]);
+      });
+
+      it("reports a run with no judgements as zero rather than dropping it", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        await store.saveReview(review({ prId, judgements: [] }));
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run).toMatchObject({ judgements: 0, severeJudgements: 0, upheld: 0, severeUpheld: 0 });
+      });
+
+      it("keeps each run's answers to itself", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        await store.saveReview(review({ prId }));
+        const second = await store.saveReview(review({ prId, headSha: "bbb222" }));
+        await store.recordAnswer({
+          judgementId: `${second}:0`, actorLogin: "renata", bucket: "Blocks", optionLabel: "No",
+        });
+
+        const runs = (await store.snapshot()).reviewRuns;
+        expect(runs.map((r) => r.upheld)).toEqual([0, 1]);
+      });
+
+      it("counts an answer that moves from Passed on to Agreed", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        const reviewId = await store.saveReview(review({ prId }));
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Passed on", optionLabel: "Not my call",
+        });
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Agreed", optionLabel: "Yes",
+        });
+
+        const [run] = (await store.snapshot()).reviewRuns;
+        expect(run.upheld).toBe(1);
+      });
+
+      it("does not credit a re-run with an answer given to the run it replaced", async () => {
+        // A re-run of the same head keeps its id, and a judgement id is
+        // `<review id>:<ordinal>`, so the new :0 shares a ledger key with the
+        // old :0. The answer was a verdict on the old findings.
+        const clock = vi.spyOn(Date, "now").mockReturnValue(T0);
+        try {
+          const prId = await store.upsertPullRequest(pr());
+          const reviewId = await store.saveReview(review({ prId, depth: "standard" }));
+          clock.mockReturnValue(T0 + 1_000);
+          await store.recordAnswer({
+            judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Blocks", optionLabel: "No",
+          });
+          expect((await store.snapshot()).reviewRuns[0].upheld).toBe(1);
+
+          clock.mockReturnValue(T0 + 2_000);
+          await store.saveReview(review({ prId, depth: "thorough", passes: 5 }));
+
+          const runs = (await store.snapshot()).reviewRuns;
+          expect(runs).toHaveLength(1);
+          expect(runs[0]).toMatchObject({ depth: "thorough", upheld: 0, severeUpheld: 0 });
+        } finally {
+          clock.mockRestore();
+        }
+      });
     });
 
     describe("the ingester work list", () => {

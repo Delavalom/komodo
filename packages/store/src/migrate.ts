@@ -499,6 +499,36 @@ CREATE TABLE IF NOT EXISTS github_identities (
   "lastError"   TEXT
 )`,
   },
+  {
+    id: "016-review-depth",
+    // A run written before depth existed was one standard pass, which is
+    // exactly what these defaults say — so no backfill is needed.
+    addColumns: [
+      { table: "ai_review_jobs", column: "depth", sqlite: "TEXT", postgres: "TEXT" },
+      {
+        table: "reviews",
+        column: "depth",
+        sqlite: "TEXT NOT NULL DEFAULT 'standard'",
+        postgres: "TEXT NOT NULL DEFAULT 'standard'",
+      },
+      {
+        table: "reviews",
+        column: "depthReason",
+        sqlite: "TEXT NOT NULL DEFAULT ''",
+        postgres: "TEXT NOT NULL DEFAULT ''",
+      },
+      {
+        table: "reviews",
+        column: "passes",
+        sqlite: "INTEGER NOT NULL DEFAULT 1",
+        postgres: "INTEGER NOT NULL DEFAULT 1",
+      },
+      { table: "reviews", column: "costUsd", sqlite: "REAL", postgres: "DOUBLE PRECISION" },
+      // Added to this migration rather than a new one: it is unreleased. 0 on a
+      // legacy row means every answer it has counts, which is how it behaved.
+      { table: "reviews", column: "savedAt", sqlite: "INTEGER NOT NULL DEFAULT 0", postgres: "BIGINT NOT NULL DEFAULT 0" },
+    ],
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

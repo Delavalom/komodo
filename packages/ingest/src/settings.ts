@@ -21,9 +21,10 @@
  *     the roster, local.url — comes from komodo.yaml on every pass. Those are
  *     deployment facts, not preferences.
  */
-import type { KomodoConfig, Severity } from "@komodo/core";
+import { REVIEW_DEPTHS } from "@komodo/core";
+import type { DepthRule, KomodoConfig, ReviewDepth, Severity } from "@komodo/core";
 import { META_SETTINGS_INITIALIZED } from "@komodo/store";
-import type { KomodoStore, OrgSettings } from "@komodo/store";
+import type { DepthRuleSetting, KomodoStore, OrgSettings } from "@komodo/store";
 
 /**
  * Strictness as a floor on severity.
@@ -63,6 +64,13 @@ export function applySettings(
   return {
     ...config,
     min_severity: MIN_SEVERITY[settings.strictness],
+    depth: {
+      // updateOrgSettings has no runtime validation, so the row can hold
+      // anything a client sent. Fall back to the file rather than hand the
+      // reviewer a depth it has no passes for.
+      default: isDepth(settings.reviewDepth) ? settings.reviewDepth : config.depth.default,
+      rules: Array.isArray(settings.depthRules) ? settings.depthRules.flatMap(toConfigRule) : [],
+    },
     // The screen's box replaces the file's text rather than appending to it:
     // two sources of repository instructions silently concatenated is a
     // prompt nobody wrote.
@@ -123,6 +131,8 @@ export function configToSettings(config: KomodoConfig): Partial<OrgSettings> {
     postStatusComments: config.post.status_comments,
     commentHeader: config.post.header,
     promptToFixWithAi: config.post.include_fix_prompts,
+    reviewDepth: config.depth.default,
+    depthRules: config.depth.rules.map(toSettingRule),
     orgDisplayName: config.team.name,
   };
 }
@@ -151,4 +161,41 @@ export async function effectiveConfig(
   config: KomodoConfig,
 ): Promise<KomodoConfig> {
   return applySettings(config, await store.loadSettings());
+}
+
+const isDepth = (d: unknown): d is ReviewDepth =>
+  (REVIEW_DEPTHS as readonly unknown[]).includes(d);
+
+/**
+ * A rule off the screen, in the shape komodo.yaml spells it.
+ *
+ * A number box holding "lots" or "0" is a rule nothing can satisfy. The
+ * screen refuses to save one; this is the backstop, so a hand-edited row
+ * can't hand the reviewer a condition that silently never matches.
+ *
+ * This object is built directly rather than parsed, so the config schema's
+ * own refusals do not protect it and the same ones are repeated here.
+ */
+function toConfigRule(rule: DepthRuleSetting): DepthRule[] {
+  if (!isDepth(rule.depth) || typeof rule.value !== "string") return [];
+  const value = rule.value.trim();
+  if (!value) return [];
+  if (rule.kind === "files" || rule.kind === "lines") {
+    if (!/^\d+$/.test(value) || Number(value) < 1) return [];
+    const n = Number(value);
+    return [rule.kind === "files" ? { depth: rule.depth, files: n } : { depth: rule.depth, lines: n }];
+  }
+  // A leading "!" is negation to the glob matcher: the opposite of a
+  // path_filters entry, which is what someone typing one expects.
+  if (rule.kind === "path" && value.startsWith("!")) return [];
+  if (rule.kind === "path") return [{ depth: rule.depth, path: value }];
+  if (rule.kind === "label") return [{ depth: rule.depth, label: value }];
+  return [];
+}
+
+function toSettingRule(rule: DepthRule): DepthRuleSetting {
+  if (rule.files !== undefined) return { kind: "files", value: String(rule.files), depth: rule.depth };
+  if (rule.lines !== undefined) return { kind: "lines", value: String(rule.lines), depth: rule.depth };
+  if (rule.path !== undefined) return { kind: "path", value: rule.path, depth: rule.depth };
+  return { kind: "label", value: rule.label ?? "", depth: rule.depth };
 }
