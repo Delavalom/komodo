@@ -7,7 +7,7 @@
     "build": "next build && node scripts/copy-standalone.mjs",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@komodo/core": "workspace:*",
