@@ -146,17 +146,24 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
   describe(name, () => {
     let store: KomodoStore;
 
-    beforeEach(async () => {
-      store = await make();
-      await store.upsertRepository({
-        id: "acme/api",
-        owner: "acme",
-        name: "api",
-        provider: "github",
-        enabled: true,
-        reviewCount: 0,
-      });
-    });
+    beforeEach(
+      async () => {
+        store = await make();
+        await store.upsertRepository({
+          id: "acme/api",
+          owner: "acme",
+          name: "api",
+          provider: "github",
+          enabled: true,
+          reviewCount: 0,
+        });
+      },
+      // PGlite compiles Postgres to WASM. Its first store can cross Vitest's
+      // 10-second hook default when the migration tests initialize their own
+      // PGlite instances in parallel; the same setup takes under two seconds
+      // by itself.
+      30_000,
+    );
 
     afterEach(() => store.close());
 
@@ -847,6 +854,34 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
         } finally {
           clock.mockRestore();
         }
+      });
+
+      it("dates a re-run by its last save, and keeps when the head was first reviewed", async () => {
+        // A re-run replaces the row's passes and cost, so the credits it
+        // carries were spent at the last save — that is what usage dates by.
+        const clock = vi.spyOn(Date, "now").mockReturnValue(T0);
+        try {
+          const prId = await store.upsertPullRequest(pr());
+          await store.saveReview(review({ prId }));
+          expect((await store.snapshot()).reviewRuns[0]).toMatchObject({ createdAt: T0, savedAt: T0 });
+
+          clock.mockReturnValue(T0 + 86_400_000);
+          await store.saveReview(review({ prId, depth: "deep", passes: 2 }));
+          expect((await store.snapshot()).reviewRuns[0]).toMatchObject({
+            createdAt: T0, savedAt: T0 + 86_400_000, passes: 2,
+          });
+        } finally {
+          clock.mockRestore();
+        }
+      });
+
+      it("stamps a run with the moment it is given instead of now", async () => {
+        const prId = await store.upsertPullRequest(pr());
+        await store.saveReview(review({ prId, at: T0 }));
+        expect((await store.snapshot()).reviewRuns[0]).toMatchObject({ createdAt: T0, savedAt: T0 });
+
+        await store.saveReview(review({ prId, at: T0 + 5_000 }));
+        expect((await store.snapshot()).reviewRuns[0]).toMatchObject({ createdAt: T0, savedAt: T0 + 5_000 });
       });
     });
 

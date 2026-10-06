@@ -1,4 +1,5 @@
 import { annotatePatch } from "../diff.js";
+import { SAME_SPOT } from "../merge.js";
 import type { Judgement } from "../schema.js";
 import { voiceSection } from "../voice.js";
 import type { LensFocus, ReviewInput, ReviewPass } from "./types.js";
@@ -30,10 +31,16 @@ export function passSection(pass: ReviewPass | undefined): string {
 
   const prior = pass.prior.length
     ? pass.prior
-        .map((j) => `- [${j.focus}] ${where(j)} — ${j.title.replace(/\s+/g, " ").trim()}`)
+        .map(
+          (j) =>
+            `- [${j.focus}, ${j.severity}] ${where(j)} — ${j.title.replace(/\s+/g, " ").trim()}`,
+        )
         .join("\n")
     : "- (none)";
-  return `\n## This pass\nEarlier passes over this pull request already raised the judgements below. Do not repeat them, reword them or argue with them. Look for what they missed — most often behaviour that only appears under particular configuration, limits or input sizes, a changed path no test reaches, and, when a checkout is available, files the change depends on outside the diff. Only new judgements and verification checks are kept from this pass. ${rest}\n\nAlready raised:\n${prior}\n`;
+  // Every sentence about what is kept is a rule mergeResults applies; a
+  // prompt that promised otherwise would have the model write judgements the
+  // merge silently drops.
+  return `\n## This pass\nEarlier passes over this pull request already raised the judgements below. Do not repeat them or reword them. Look for what they missed — most often behaviour that only appears under particular configuration, limits or input sizes, a changed path no test reaches, and, when a checkout is available, files the change depends on outside the diff. ${rest}\n\nHow this pass is merged: a judgement with the same focus in the same file within ${SAME_SPOT} lines of one below — or, with no line, the same title — is the same concern. It replaces the earlier one only when its severity is higher, so raise one again only to say it is more serious than listed; otherwise it is dropped. A verification check with the same title as an earlier one is not added again; it can only make that check required.\n\nAlready raised:\n${prior}\n`;
 }
 
 /** Where a judgement sits: `path:line`, `path` when file-level, or a marker when it has no file. */

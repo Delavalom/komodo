@@ -31,6 +31,7 @@ export {
 export {
   applySettings,
   configToSettings,
+  depthDiffersFromFile,
   effectiveConfig,
   initializeSettings,
 } from "./settings.js";

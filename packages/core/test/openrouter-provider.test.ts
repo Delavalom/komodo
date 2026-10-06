@@ -32,7 +32,9 @@ function stubFetch(content: unknown, usage: Record<string, number>) {
         JSON.stringify({
           id: "gen-1",
           usage,
-          choices: [{ message: { content: JSON.stringify(content) } }],
+          choices: [
+            { message: { content: typeof content === "string" ? content : JSON.stringify(content) } },
+          ],
         }),
         { status: 200 },
       ),
@@ -52,6 +54,17 @@ describe("OpenRouterProvider usage", () => {
       new OpenRouterProvider("k", "m").review({ ...input, onUsage: (u) => usage.push(u) }),
     ).rejects.toThrow();
     expect(usage).toEqual([{ costUsd: 0.07 }]);
+  });
+
+  it("reports the stated cost when the reply is not JSON at all", async () => {
+    for (const content of ["I could not review this.", "{ not json }"]) {
+      stubFetch(content, { prompt_tokens: 10, completion_tokens: 5, cost: 0.04 });
+      const usage: unknown[] = [];
+      await expect(
+        new OpenRouterProvider("k", "m").review({ ...input, onUsage: (u) => usage.push(u) }),
+      ).rejects.toThrow();
+      expect(usage).toEqual([{ costUsd: 0.04 }]);
+    }
   });
 
   it("reports nothing when the response states no cost", async () => {

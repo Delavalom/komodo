@@ -976,8 +976,9 @@ export function useLeaderboards(query: AnalyticsQuery) {
 /* ── Analytics: review depth ───────────────────────────────────────────── */
 
 /**
- * Runs inside the analytics scope, by when the run happened rather than when
- * its pull request last moved — a run is the event being measured.
+ * Runs inside the analytics scope, by when the run was last saved rather than
+ * when its pull request last moved — a run is the event being measured, and a
+ * re-run of the same head replaces it.
  */
 function useScopedRuns(query: AnalyticsQuery): ReviewRunOutcome[] {
   const runs = useSnapshot().reviewRuns;
@@ -990,7 +991,7 @@ function useScopedRuns(query: AnalyticsQuery): ReviewRunOutcome[] {
     const repoAllow = repos?.length ? new Set(repos) : null;
     const authorAllow = authors?.length ? new Set(authors) : null;
     return runs.filter((run) => {
-      if (run.createdAt < from || run.createdAt > to) return false;
+      if (run.savedAt < from || run.savedAt > to) return false;
       if (authorAllow && !authorAllow.has(run.author)) return false;
       if (repoAllow) {
         const repo = repoIndex.get(run.repoId);
@@ -1227,6 +1228,11 @@ export function useUsageWindow(): { from: number; to: number } {
  * thorough run that lost a lens costs four, not five. A deployment on its own
  * subscription has no invoice to show; what it has is passes, and those are
  * real.
+ *
+ * Dated by `savedAt`: a run is one row per head, and re-running a head
+ * replaces that row's passes and cost with the new run's. The earlier run's
+ * credits stop being counted — the count is what the store still holds, not a
+ * ledger of every run ever made.
  */
 export function useUsageDays(): UsageDay[] {
   const runs = useSnapshot().reviewRuns;
@@ -1235,7 +1241,7 @@ export function useUsageDays(): UsageDay[] {
   return useMemo(() => {
     const byDay = new Map<number, { runs: number; passes: number }>();
     for (const run of runs) {
-      const day = startOfDay(run.createdAt);
+      const day = startOfDay(run.savedAt);
       if (day < from || day > to) continue;
       const row = byDay.get(day) ?? { runs: 0, passes: 0 };
       row.runs++;
@@ -1268,7 +1274,7 @@ export function useCreditsByAuthor(): Map<string, number> {
   return useMemo(() => {
     const out = new Map<string, number>();
     for (const run of runs) {
-      const day = startOfDay(run.createdAt);
+      const day = startOfDay(run.savedAt);
       if (day < from || day > to) continue;
       out.set(run.author, (out.get(run.author) ?? 0) + run.passes);
     }
@@ -1287,7 +1293,7 @@ export function useUsageCost(): number | null {
   return useMemo(() => {
     let total: number | null = null;
     for (const run of runs) {
-      const day = startOfDay(run.createdAt);
+      const day = startOfDay(run.savedAt);
       if (day < from || day > to || run.costUsd === null) continue;
       total = (total ?? 0) + run.costUsd;
     }

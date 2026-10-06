@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { KomodoConfigSchema } from "../src/config.js";
+import { SAME_SPOT } from "../src/merge.js";
 import type { PRMeta } from "../src/github.js";
 import { buildReviewPrompt } from "../src/providers/prompt.js";
 import { buildRereadPrompt } from "../src/providers/reread.js";
@@ -138,6 +139,7 @@ describe("buildReviewPrompt — passes", () => {
         path: "src/settings.tsx",
         line: 1,
         focus: "code",
+        severity: "major",
         title: "The new value is never saved.",
       },
     ] as unknown as Judgement[];
@@ -148,26 +150,36 @@ describe("buildReviewPrompt — passes", () => {
       pass: { kind: "second-look", prior },
     });
     expect(prompt).toContain("Do not repeat them");
-    expect(prompt).toContain("- [code] src/settings.tsx:1 — The new value is never saved.");
+    expect(prompt).toContain("- [code, major] src/settings.tsx:1 — The new value is never saved.");
   });
 
   it("lists file-level and cross-cutting entries without a bogus line number", () => {
     const prior = [
-      { path: "src/settings.tsx", line: 0, focus: "tests", title: "No test\n  reaches   this." },
-      { path: "", line: 0, focus: "scope", title: "Rewrites the logger." },
+      { path: "src/settings.tsx", line: 0, focus: "tests", severity: "minor", title: "No test\n  reaches   this." },
+      { path: "", line: 0, focus: "scope", severity: "major", title: "Rewrites the logger." },
     ] as unknown as Judgement[];
     const prompt = buildReviewPrompt({ pr, files, config, pass: { kind: "second-look", prior } });
-    expect(prompt).toContain("- [tests] src/settings.tsx — No test reaches this.");
-    expect(prompt).toContain("- [scope] (cross-cutting) — Rewrites the logger.");
+    expect(prompt).toContain("- [tests, minor] src/settings.tsx — No test reaches this.");
+    expect(prompt).toContain("- [scope, major] (cross-cutting) — Rewrites the logger.");
     expect(prompt).not.toContain(":0");
   });
 
-  it("keeps outside-the-diff reading conditional on a checkout, and 'new' to the second look", () => {
+  it("keeps outside-the-diff reading conditional on a checkout, and merge rules to the second look", () => {
     const lens = buildReviewPrompt({ pr, files, config, pass: { kind: "lens", focus: "architecture" } });
     expect(lens).toContain("If a repository checkout is available, read the configuration");
-    expect(lens).not.toContain("Only new judgements");
+    expect(lens).not.toContain("How this pass is merged");
     const second = buildReviewPrompt({ pr, files, config, pass: { kind: "second-look", prior: [] } });
-    expect(second).toContain("Only new judgements");
     expect(second).toContain("when a checkout is available, files the change depends on");
+  });
+
+  it("tells the second look the rules its judgements are merged by", () => {
+    // Each sentence here is a branch of mergeResults. If the merge changes and
+    // this prompt does not, the model is promised something the merge undoes.
+    const second = buildReviewPrompt({ pr, files, config, pass: { kind: "second-look", prior: [] } });
+    expect(second).toContain(`within ${SAME_SPOT} lines`);
+    expect(second).toContain("the same title");
+    expect(second).toContain("replaces the earlier one only when its severity is higher");
+    expect(second).toContain("it can only make that check required");
+    expect(second).not.toContain("argue with them");
   });
 });

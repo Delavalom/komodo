@@ -123,6 +123,33 @@ describe("mergeResults", () => {
     expect(merged.judgements).toHaveLength(2);
   });
 
+  it("never matches a finding against a replacement the same pass just made", () => {
+    // Line 13 replaces the base's line 10. Line 16 is six lines from the base
+    // and three from the replacement: a different concern, and it stays.
+    const base = result({ judgements: [judgement({ line: 10, severity: "minor" })] });
+    const extra = result({
+      judgements: [
+        judgement({ line: 13, severity: "major", title: "Replacement." }),
+        judgement({ line: 16, severity: "critical", title: "Separate." }),
+      ],
+    });
+    const merged = mergeResults(base, [extra]);
+    expect(merged.judgements.map((j) => j.title)).toEqual(["Replacement.", "Separate."]);
+  });
+
+  it("keeps the most severe reading when one pass repeats an earlier concern twice", () => {
+    const base = result({ judgements: [judgement({ line: 10, severity: "minor" })] });
+    const extra = result({
+      judgements: [
+        judgement({ line: 11, severity: "major", title: "Major." }),
+        judgement({ line: 9, severity: "critical", title: "Critical." }),
+        judgement({ line: 12, severity: "minor", title: "Minor." }),
+      ],
+    });
+    const merged = mergeResults(base, [extra]);
+    expect(merged.judgements.map((j) => j.title)).toEqual(["Critical."]);
+  });
+
   it("still collapses a repeat across two extra passes", () => {
     const one = result({ judgements: [judgement({ focus: "tests", severity: "minor" })] });
     const two = result({ judgements: [judgement({ focus: "tests", severity: "major", line: 13 })] });

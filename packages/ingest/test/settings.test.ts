@@ -22,7 +22,7 @@ import {
   type OrgSettings,
 } from "@komodo/store";
 
-import { applySettings, configToSettings } from "../src/settings.js";
+import { applySettings, configToSettings, depthDiffersFromFile } from "../src/settings.js";
 
 const baseConfig = (over: Record<string, unknown> = {}): KomodoConfig =>
   KomodoConfigSchema.parse(over);
@@ -240,6 +240,40 @@ describe("review depth", () => {
     });
     const adopted = applySettings(baseConfig(), settings(configToSettings(file)));
     expect(adopted.depth).toEqual(file.depth);
+  });
+
+  describe("depthDiffersFromFile", () => {
+    const file = baseConfig({
+      depth: {
+        default: "deep",
+        rules: [
+          { files: 28, depth: "thorough" },
+          { label: "risky", depth: "thorough" },
+        ],
+      },
+    });
+
+    it("agrees with the row it adopted, whatever order the rules are in", () => {
+      const row = configToSettings(file);
+      expect(depthDiffersFromFile(file, settings(row))).toBe(false);
+      const reversed = settings({ ...row, depthRules: [...(row.depthRules ?? [])].reverse() });
+      expect(depthDiffersFromFile(file, reversed)).toBe(false);
+    });
+
+    it("notices a changed threshold or depth even when the rule count matches", () => {
+      const row = configToSettings(file);
+      const [first, second] = row.depthRules ?? [];
+      expect(
+        depthDiffersFromFile(file, settings({ ...row, depthRules: [{ ...first, value: "40" }, second] })),
+      ).toBe(true);
+      expect(
+        depthDiffersFromFile(file, settings({ ...row, depthRules: [first, { ...second, depth: "deep" }] })),
+      ).toBe(true);
+    });
+
+    it("notices a different default", () => {
+      expect(depthDiffersFromFile(file, settings({ ...configToSettings(file), reviewDepth: "standard" }))).toBe(true);
+    });
   });
 
   it("keeps the store's depth tables in step with core's", () => {

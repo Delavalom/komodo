@@ -17,6 +17,7 @@ import type { ReviewProvider, WatchTriageProvider } from "@komodo/core";
 import {
   applyTeamConfig,
   createCheckout,
+  depthDiffersFromFile,
   initializeSettings,
   recordContextSources,
   runIngestLoop,
@@ -69,11 +70,7 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   } else if (config.depth.default !== "standard" || config.depth.rules.length > 0) {
     // A store that predates depth never adopted this block, and a restart
     // will not: say so, or the file looks like it is being read.
-    const stored = await store.loadSettings();
-    if (
-      config.depth.default !== stored.reviewDepth ||
-      config.depth.rules.length !== stored.depthRules.length
-    ) {
+    if (depthDiffersFromFile(config, await store.loadSettings())) {
       dim("komodo.yaml sets a review depth, but Settings → Review already owns it; the settings screen wins.");
     }
   }

@@ -576,7 +576,15 @@ export interface ReviewRunOutcome {
   repoId: string;
   author: string;
   createdAt: number;
+  /**
+   * When this run was last saved. A re-run of the same head replaces the row
+   * — its passes and cost included — so this, not `createdAt`, is when the
+   * credits it carries were spent. `createdAt` for a row saved before the
+   * column existed.
+   */
+  savedAt: number;
   depth: ReviewDepth;
+  /** Empty when Komodo did not decide the depth: see `summarizeDepthOutcomes`. */
   depthReason: string;
   passes: number;
   costUsd: number | null;

@@ -31,6 +31,8 @@ const RULE_PLACEHOLDER: Record<DepthRuleKind, string> = {
   label: "needs-deep-review",
 };
 
+const rank = (d: ReviewDepth) => REVIEW_DEPTH_ORDER.indexOf(d);
+
 /**
  * Settings → Review → Review Depth.
  *
@@ -46,11 +48,17 @@ export function ReviewDepthSection() {
   const update = useUpdateOrgSettings();
   const [kind, setKind] = React.useState<DepthRuleKind>("files");
   const [value, setValue] = React.useState("");
-  const [depth, setDepth] = React.useState<ReviewDepth>("thorough");
+  const [picked, setPicked] = React.useState<ReviewDepth>("thorough");
+  // A rule only ever raises a review (resolveDepth skips one at or below the
+  // default), so the menu offers nothing that would be a no-op. The pick is
+  // derived rather than reset: raising the default can take the remembered
+  // choice off the menu, and the deepest remaining one stands in for it.
+  const deeper = REVIEW_DEPTH_ORDER.filter((d) => rank(d) > rank(settings.reviewDepth));
+  const depth = deeper.includes(picked) ? picked : deeper.at(-1);
   const problem = depthRuleProblem(kind, value);
 
   function addRule() {
-    if (problem) return;
+    if (problem || !depth) return;
     update({ depthRules: [...settings.depthRules, { kind, value: value.trim(), depth }] });
     setValue("");
   }
@@ -99,6 +107,12 @@ export function ReviewDepthSection() {
                 {RULE_KIND_LABEL[rule.kind]}{" "}
                 <span className="font-mono">{rule.value}</span> →{" "}
                 {DEPTH_LABEL[rule.depth]}
+                {rank(rule.depth) <= rank(settings.reviewDepth) ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · no effect while the default is {DEPTH_LABEL[settings.reviewDepth]}
+                  </span>
+                ) : null}
               </span>
               <Button
                 variant="ghost"
@@ -113,39 +127,46 @@ export function ReviewDepthSection() {
             </div>
           ))}
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Select
-            size="md"
-            className="w-[220px]"
-            value={kind}
-            onChange={setKind}
-            options={DEPTH_RULE_KINDS.map((k) => ({ value: k, label: RULE_KIND_LABEL[k] }))}
-          />
-          <Input
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                addRule();
-              }
-            }}
-            placeholder={RULE_PLACEHOLDER[kind]}
-            aria-label="Rule value"
-            className="w-[200px]"
-          />
-          <Select
-            size="md"
-            className="w-[140px]"
-            value={depth}
-            onChange={setDepth}
-            options={REVIEW_DEPTH_ORDER.map((d) => ({ value: d, label: DEPTH_LABEL[d] }))}
-          />
-          <Button onClick={addRule} disabled={Boolean(problem)}>
-            Add rule
-          </Button>
-        </div>
-        {value && problem ? (
+        {depth ? (
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Select
+              size="md"
+              className="w-[220px]"
+              value={kind}
+              onChange={setKind}
+              options={DEPTH_RULE_KINDS.map((k) => ({ value: k, label: RULE_KIND_LABEL[k] }))}
+            />
+            <Input
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addRule();
+                }
+              }}
+              placeholder={RULE_PLACEHOLDER[kind]}
+              aria-label="Rule value"
+              className="w-[200px]"
+            />
+            <Select
+              size="md"
+              className="w-[140px]"
+              value={depth}
+              onChange={setPicked}
+              options={deeper.map((d) => ({ value: d, label: DEPTH_LABEL[d] }))}
+            />
+            <Button onClick={addRule} disabled={Boolean(problem)}>
+              Add rule
+            </Button>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Every review already runs at the deepest depth, so no rule can raise
+            it. Lower the default to add one.
+          </p>
+        )}
+        {depth && value && problem ? (
           <p className="mt-2 text-sm text-[hsl(var(--error))]">{problem}</p>
         ) : null}
       </Card>
