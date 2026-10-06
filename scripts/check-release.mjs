@@ -65,6 +65,20 @@ if (source !== "./plugin") {
   process.exit(1);
 }
 
+// The mod runs the CLI by the command its manifest defaults to. Unpinned, that
+// is whatever npm last published, and a plugin release that passes a flag the
+// published CLI lacks fails on every claim. Pinned to anything but this
+// release, it is the drift this file exists to stop, one layer down.
+const cliDefault = plugin.userConfig?.cli?.default;
+const release = [...distinct][0];
+if (cliDefault !== undefined && !cliDefault.endsWith(`komodo-review@${release}`)) {
+  console.error(
+    `plugin.json userConfig.cli defaults to "${cliDefault}", but this release is ${release}. ` +
+      `Pin it to komodo-review@${release}.`,
+  );
+  process.exit(1);
+}
+
 // A skill without SKILL.md is not registered, and the plugin installs
 // looking exactly as healthy as one that works.
 for (const dir of listing("plugin/skills")) {

@@ -10,6 +10,7 @@ import { validateCommand } from "./commands/validate.js";
 import { configCommand } from "./commands/config.js";
 import { contextCommand } from "./commands/context.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { checkoutCommand } from "./commands/checkout.js";
 import { claimCommand } from "./commands/claim.js";
 import { loginCommand } from "./commands/login.js";
 import { pushCommand } from "./commands/push.js";
@@ -86,6 +87,7 @@ program
   .command("prompt")
   .description("Print the review prompt for the current branch (used by the skill)")
   .option("--base <branch>", "base branch to diff against (default: auto-detect)")
+  .option("--json", "print { prompt, schema } for a caller with a structured channel", false)
   .action(promptCommand);
 
 program
@@ -136,15 +138,25 @@ program
   .option("--api-key <key>", "API key for --host")
   .option("--db <path>", "local Komodo database (default .komodo/komodo.db)")
   .option("--out <path>", "claim context JSON path")
+  .option("--checkout", "check out the claimed head in this directory", false)
+  .option("--json", "print the claim as one line of JSON", false)
   .action(claimCommand);
+
+program
+  .command("checkout")
+  .argument("<claim>", "claim context JSON from komodo-review claim")
+  .description("Check out a claimed head in this directory, after a refusal or to resume")
+  .option("--json", "print the claim as one line of JSON", false)
+  .action(checkoutCommand);
 
 program
   .command("submit")
   .argument("<claim>", "claim context JSON from komodo-review claim")
-  .argument("<result>", "ReviewResult JSON written by the interactive agent")
+  .argument("<result>", "ReviewResult JSON written by the interactive agent, or - for standard input")
   .description("Validate an interactive review and complete its Komodo job")
   .option("--base <branch>", "base branch to diff against (default: auto-detect)")
   .option("--api-key <key>", "API key, when the claim names a remote deployment")
+  .option("--json", "print the outcome as one line of JSON", false)
   .action(submitCommand);
 
 program.parseAsync().catch((err) => {

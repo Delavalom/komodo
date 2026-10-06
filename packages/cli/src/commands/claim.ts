@@ -5,6 +5,8 @@ import pc from "picocolors";
 import { INTERACTIVE_LEASE_MS } from "@komodo/core";
 import { connectStore } from "@komodo/store/connect";
 
+import { checkoutClaim } from "../checkout.js";
+import { claimOutput } from "../claim-file.js";
 import { RemoteKomodo, resolveTarget } from "../remote.js";
 
 /**
@@ -35,6 +37,8 @@ export async function claimCommand(opts: {
   out?: string;
   host?: string;
   apiKey?: string;
+  checkout?: boolean;
+  json?: boolean;
 }): Promise<void> {
   const target = resolveTarget(opts);
 
@@ -44,7 +48,8 @@ export async function claimCommand(opts: {
       : await claimLocal(target.database);
 
   if (!claim) {
-    console.log(pc.dim("No AI review job is queued."));
+    if (opts.json) process.stdout.write(`${JSON.stringify({ claimPath: null })}\n`);
+    else console.log(pc.dim("No AI review job is queued."));
     return;
   }
 
@@ -54,10 +59,30 @@ export async function claimCommand(opts: {
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, JSON.stringify(claim, null, 2));
 
+  // The job is leased from here on, so a refusal has to name the claim file:
+  // it is the only way back to this job without waiting out the lease.
+  if (opts.checkout) {
+    try {
+      checkoutClaim(claim, output);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Claimed ${claim.repoId}#${claim.number} (claim file: ${output}), but did not check it out. ${detail}`,
+      );
+    }
+  }
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(claimOutput(output, claim, Boolean(opts.checkout)))}\n`);
+    return;
+  }
+
   console.log(output);
   console.log(`${claim.repoId}#${claim.number} — ${claim.title}`);
   console.log(
-    `Check out this exact head, then submit with: komodo-review submit ${output} <result.json>`,
+    opts.checkout
+      ? `Checked out ${claim.headSha.slice(0, 12)}. Submit with: komodo-review submit ${output} <result.json>`
+      : `Check out this exact head, then submit with: komodo-review submit ${output} <result.json>`,
   );
 }
 

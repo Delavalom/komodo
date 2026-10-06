@@ -14,6 +14,7 @@
     "check:release": "node scripts/check-release.mjs",
     "check:voice": "node scripts/check-voice.mjs",
     "test": "pnpm check:release && pnpm check:voice && pnpm typecheck && pnpm -r --if-present test",
+    "test:plugin": "claude plugin validate plugin && claude plugin test plugin",
     "build:release": "pnpm --filter '@komodo/ingest...' build && pnpm -C apps/web build && pnpm -C packages/cli build",
     "test:e2e": "node scripts/test-packed-cli.mjs",
     "test:e2e:container": "node scripts/test-container.mjs",

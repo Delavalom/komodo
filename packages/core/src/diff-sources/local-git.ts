@@ -2,6 +2,19 @@ import { execFileSync } from "node:child_process";
 import { basename } from "node:path";
 import type { DiffFile, DiffMeta, DiffSource } from "../diff-source.js";
 
+/**
+ * `owner/repo` out of a git remote URL, https or ssh, or null.
+ *
+ * The same reading `getMeta` has always done, pulled out so that a command
+ * checking a checkout against a claim reads the remote exactly as the record
+ * that claim produces will.
+ */
+export function repoFromRemoteUrl(remote: string): { owner: string; repo: string } | null {
+  const m = /[:/]([^/]+)\/([^/.]+?)(?:\.git)?$/.exec(remote);
+  if (!m?.[1] || !m[2]) return null;
+  return { owner: m[1], repo: m[2] };
+}
+
 export class LocalGitDiffSource implements DiffSource {
   private repoDir: string;
   private baseBranch: string;
@@ -20,12 +33,10 @@ export class LocalGitDiffSource implements DiffSource {
     let owner = "local";
     let repo = basename(this.repoDir);
     const remote = this.gitOptional(["remote", "get-url", "origin"]);
-    if (remote) {
-      const m = /[:/]([^/]+)\/([^/.]+?)(?:\.git)?$/.exec(remote);
-      if (m) {
-        owner = m[1];
-        repo = m[2];
-      }
+    const parsed = remote ? repoFromRemoteUrl(remote) : null;
+    if (parsed) {
+      owner = parsed.owner;
+      repo = parsed.repo;
     }
 
     return {
