@@ -155,6 +155,28 @@ export async function initializeSettings(
   return true;
 }
 
+/**
+ * Whether the store's depth settings say something komodo.yaml's do not.
+ *
+ * Compared as the reviewer would read them — the stored row through
+ * `applySettings`, so a row the reviewer would refuse is compared as what it
+ * becomes — and every field of every rule, so swapping one rule's depth or
+ * threshold is a disagreement even when the count matches. Order is ignored:
+ * the deepest match wins either way.
+ */
+export function depthDiffersFromFile(config: KomodoConfig, settings: OrgSettings): boolean {
+  const stored = applySettings(config, settings).depth;
+  const key = (rules: DepthRule[]) =>
+    rules
+      .map(toSettingRule)
+      .map((r) => `${r.kind}\u0000${r.value}\u0000${r.depth}`)
+      .sort()
+      .join("\u0001");
+  return (
+    stored.default !== config.depth.default || key(stored.rules) !== key(config.depth.rules)
+  );
+}
+
 /** The config the reviewer should actually run with, this pass. */
 export async function effectiveConfig(
   store: KomodoStore,
