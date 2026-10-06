@@ -1330,7 +1330,7 @@ export class PostgresStore implements KomodoStore {
            ON a."judgementId" = q.id AND a.rn = 1 AND a."createdAt" >= rv."savedAt"
          GROUP BY q."reviewId"
        )
-       SELECT r.id AS "reviewId", r."prId", p."repoId", p.author, r."createdAt",
+       SELECT r.id AS "reviewId", r."prId", p."repoId", p.author, r."createdAt", r."savedAt",
               r.depth, r."depthReason", r.passes, r."costUsd", p."changedFiles",
               COALESCE(j.judgements, 0) AS judgements,
               COALESCE(j."severeJudgements", 0) AS "severeJudgements",
@@ -1348,6 +1348,8 @@ export class PostgresStore implements KomodoStore {
       repoId: str(r.repoId),
       author: str(r.author),
       createdAt: num(r.createdAt),
+      // 0 is a row saved before the column existed: it was saved when made.
+      savedAt: num(r.savedAt) || num(r.createdAt),
       depth: asDepth(r.depth) ?? "standard",
       depthReason: str(r.depthReason),
       passes: num(r.passes),
@@ -1864,7 +1866,7 @@ export class PostgresStore implements KomodoStore {
 
   async saveReview(input: ReviewInput): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
-    const now = Date.now();
+    const now = input.at ?? Date.now();
     await this.transaction(async () => {
       await this.sql.query(
         // `seq` is not in the DO UPDATE list: a re-run of the same head keeps

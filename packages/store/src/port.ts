@@ -267,6 +267,13 @@ export interface ReviewInput {
   depthReason?: string;
   passes?: number;
   costUsd?: number | null;
+  /**
+   * When the run happened, if not now. Only the seeder passes it, so a sample
+   * run lands on its pull request's timeline instead of every run in the
+   * dataset sharing the moment it was seeded. Stamps `savedAt`, and
+   * `createdAt` on a first save.
+   */
+  at?: number;
   /** In the order they should be answered. Ordinals are assigned here. */
   judgements: Omit<ReviewJudgement, "id" | "reviewId" | "ordinal">[];
   verificationRequirements: Omit<

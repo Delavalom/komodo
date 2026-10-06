@@ -379,7 +379,7 @@ function ReviewsTab({ query, orgSlug }: { query: Query; orgSlug: string }) {
       <Panel
         icon={<Layers className="h-4 w-4" />}
         title="What deeper reviews found"
-        hint="Critical and major judgements a person answered Blocks or Agreed, per review run, by pull request size. A dash means no run at that depth and size yet, not zero."
+        hint="Critical and major judgements a person answered Blocks or Agreed, per review run, by pull request size. Only runs whose depth Komodo chose are counted, so runs saved before depth was recorded and runs submitted from someone's own agent are left out. A dash means no run at that depth and size yet, not zero."
       >
         <DataTable>
           <THead>

@@ -5,7 +5,7 @@ import type { ReviewRunOutcome } from "../src/types.js";
 
 const run = (over: Partial<ReviewRunOutcome> = {}): ReviewRunOutcome => ({
   reviewId: "r", prId: "p", repoId: "acme/api", author: "renata", createdAt: 0,
-  depth: "standard", depthReason: "", passes: 1, costUsd: null, changedFiles: 3,
+  savedAt: 0, depth: "standard", depthReason: "deployment default", passes: 1, costUsd: null, changedFiles: 3,
   judgements: 2, severeJudgements: 1, upheld: 1, severeUpheld: 1,
   ...over,
 });
@@ -36,6 +36,16 @@ describe("summarizeDepthOutcomes", () => {
     expect(summarizeDepthOutcomes([]).medium.deep).toEqual({
       runs: 0, severeUpheld: 0, upheld: 0, passes: 0, costUsd: null, severeUpheldPerRun: null,
     });
+  });
+
+  it("leaves out runs whose depth Komodo did not decide", () => {
+    // Saved before depth existed, or submitted from someone's own agent: one
+    // standard pass is all that was observed, not a choice of standard.
+    const table = summarizeDepthOutcomes([
+      run({ changedFiles: 2, depthReason: "", severeUpheld: 4 }),
+      run({ changedFiles: 2, severeUpheld: 1 }),
+    ]);
+    expect(table.small.standard).toMatchObject({ runs: 1, severeUpheld: 1 });
   });
 });
 

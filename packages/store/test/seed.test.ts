@@ -155,6 +155,14 @@ describe.each(DRIVERS)("seedStore on $name", ({ open }) => {
     // the dev dataset has to give that panel something to show.
     expect(runs.some((r) => r.upheld > 0)).toBe(true);
   });
+
+  it("dates each run on its pull request's timeline, not at seed time", async () => {
+    const { reviewRuns, pullRequests } = await store.snapshot();
+    const updatedAt = new Map(pullRequests.map((p) => [p.id, p.updatedAt]));
+    for (const r of reviewRuns) expect(r.savedAt).toBe(updatedAt.get(r.prId));
+    const days = new Set(reviewRuns.map((r) => Math.floor(r.savedAt / 86_400_000)));
+    expect(days.size).toBeGreaterThan(10);
+  });
 });
 
 it("re-seeds in place rather than doubling the dataset", async () => {

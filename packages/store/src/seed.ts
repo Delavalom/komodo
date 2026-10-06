@@ -505,7 +505,10 @@ export async function seedStore(
       const reviewId = await store.saveReview(
         // The dev dataset has no provider login behind it, and saying so beats
         // claiming a subscription nobody connected.
-        buildReview({ prId, headSha, judgements, score, provider: "seed", changedFiles }),
+        // Dated when its pull request last moved — the push it reviewed — so
+        // usage and the depth panel see runs spread over the dataset's months,
+        // the same window "Total Reviews" counts, not all of them today.
+        { ...buildReview({ prId, headSha, judgements, score, provider: "seed", changedFiles }), at: updatedAt },
       );
       // After the review: a finding names the judgement it summarises, and
       // that id is `${reviewId}:${ordinal}`.

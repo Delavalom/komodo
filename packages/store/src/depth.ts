@@ -55,6 +55,13 @@ const emptyCell = (): DepthCell => ({
  *
  * "Upheld" is a person's answer — Blocks or Agreed — not the model's own
  * severity, so a depth that only produces more noise does not score better.
+ *
+ * Only runs whose depth Komodo decided are counted, and every decision
+ * records a reason. A run without one — saved before depth existed, or
+ * submitted from someone's own agent — is stored as one standard pass because
+ * that is all Komodo observed, not because anything chose standard for it.
+ * Counting it as Standard would credit that column with reviews nobody
+ * decided on.
  */
 export function summarizeDepthOutcomes(
   runs: readonly ReviewRunOutcome[],
@@ -67,6 +74,7 @@ export function summarizeDepthOutcomes(
   ) as Record<SizeBand, Record<ReviewDepth, DepthCell>>;
 
   for (const run of runs) {
+    if (!run.depthReason) continue;
     const cell = table[sizeBand(run.changedFiles)][run.depth];
     cell.runs++;
     cell.severeUpheld += run.severeUpheld;

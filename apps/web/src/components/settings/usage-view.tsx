@@ -117,6 +117,8 @@ export function UsageView() {
                     <InfoHint>
                       One credit is one model pass: standard reviews take 1,
                       deep 2, thorough 5. A pass that failed costs nothing.
+                      Re-running a commit replaces its earlier run, credits
+                      included.
                     </InfoHint>
                   </span>
                 </th>
