@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DIAGRAM_HEADLINE_BUDGET } from "@komodo/diagram";
 import { KomodoConfigSchema } from "../src/config.js";
 import { SAME_SPOT } from "../src/merge.js";
 import type { PRMeta } from "../src/github.js";
@@ -40,6 +41,19 @@ describe("buildReviewPrompt", () => {
     // voice living in the prompt is exactly the drift this asset exists to
     // stop, so a regression here should fail loudly.
     expect(prompt).not.toContain("Renewal tokens are saved in a form that can be read back");
+  });
+
+  /**
+   * The headline budget and the referential-integrity rule are enforced by
+   * @komodo/diagram's `superRefine`, which the JSON schema handed to the
+   * model can't carry — this prose is the only place a model ever sees
+   * either rule, so a regression here silently reopens the bug where an
+   * over-budget diagram threw away the whole review.
+   */
+  it("states the diagram headline budget and the dangling-id rule", () => {
+    const prompt = buildReviewPrompt({ pr, files, config: KomodoConfigSchema.parse({}) });
+    expect(prompt).toContain(`at most ${DIAGRAM_HEADLINE_BUDGET}`);
+    expect(prompt).toContain("dangling id fails validation");
   });
 
   it("appends a team's own vocabulary after the house voice", () => {

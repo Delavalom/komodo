@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { ReviewResultSchema, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
+import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { buildReviewPrompt } from "./prompt.js";
 import type { ReviewInput, ReviewProvider } from "./types.js";
 
@@ -55,7 +55,7 @@ export class CodexProvider implements ReviewProvider {
       } as any);
       const { readFileSync } = await import("node:fs");
       const last = readFileSync(outPath, "utf8");
-      return ReviewResultSchema.parse(JSON.parse(last));
+      return parseReviewResult(JSON.parse(last));
     } catch (err: any) {
       if (err?.code === "ENOENT") {
         throw new Error("Codex CLI not found. Install it (`npm i -g @openai/codex`) and run `codex login`.");

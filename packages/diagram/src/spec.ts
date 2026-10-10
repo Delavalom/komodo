@@ -8,6 +8,15 @@ import { z } from "zod";
  * renderer, which has no way to lay out a diagram past its grammar's limits.
  */
 
+/**
+ * How many elements one diagram may mark `headline: true` — the coral
+ * highlight. Same cap in all four diagram kinds, and the one number the
+ * prompt (providers/prompt.ts) and this schema must never disagree on: a
+ * cross-field cap like this can't be expressed in the JSON schema handed to
+ * the model, so the prompt's prose is the only place a model ever sees it.
+ */
+export const DIAGRAM_HEADLINE_BUDGET = 2;
+
 const IdSchema = z.string().min(1).max(64);
 const LabelSchema = z.string().min(1).max(80);
 
@@ -85,8 +94,8 @@ export const SequenceSpecSchema = z
       });
     }
     headlineCount = messages.filter((m) => m.headline).length;
-    if (headlineCount > 2) {
-      ctx.addIssue({ code: "custom", message: "sequence: at most 2 headline (coral) messages" });
+    if (headlineCount > DIAGRAM_HEADLINE_BUDGET) {
+      ctx.addIssue({ code: "custom", message: `sequence: at most ${DIAGRAM_HEADLINE_BUDGET} headline (coral) messages` });
     }
     for (const message of messages) {
       if (!actorIds.has(message.from) || !actorIds.has(message.to)) {
@@ -135,8 +144,8 @@ export const FlowchartSpecSchema = z
       }
     }
     const headlineCount = spec.nodes.filter((n) => n.headline).length;
-    if (headlineCount > 2) {
-      ctx.addIssue({ code: "custom", message: "flowchart: at most 2 headline (coral) elements" });
+    if (headlineCount > DIAGRAM_HEADLINE_BUDGET) {
+      ctx.addIssue({ code: "custom", message: `flowchart: at most ${DIAGRAM_HEADLINE_BUDGET} headline (coral) elements` });
     }
   });
 
@@ -175,8 +184,8 @@ export const StateSpecSchema = z
       }
     }
     const headlineCount = spec.states.filter((s) => s.headline).length;
-    if (headlineCount > 2) {
-      ctx.addIssue({ code: "custom", message: "state: at most 2 headline (coral) elements" });
+    if (headlineCount > DIAGRAM_HEADLINE_BUDGET) {
+      ctx.addIssue({ code: "custom", message: `state: at most ${DIAGRAM_HEADLINE_BUDGET} headline (coral) elements` });
     }
   });
 
@@ -221,8 +230,8 @@ export const ErSpecSchema = z
       }
     }
     const headlineCount = spec.entities.filter((e) => e.headline).length;
-    if (headlineCount > 2) {
-      ctx.addIssue({ code: "custom", message: "er: at most 2 headline (coral) elements" });
+    if (headlineCount > DIAGRAM_HEADLINE_BUDGET) {
+      ctx.addIssue({ code: "custom", message: `er: at most ${DIAGRAM_HEADLINE_BUDGET} headline (coral) elements` });
     }
   });
 

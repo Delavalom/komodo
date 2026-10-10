@@ -214,6 +214,33 @@ export type WalkthroughEntry = z.infer<typeof WalkthroughEntrySchema>;
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 
 /**
+ * Parses a model's structured output, dropping the diagram rather than
+ * failing the whole review when it alone is the problem.
+ *
+ * The diagram budgets (headline count, fragment shape, dangling ids — see
+ * @komodo/diagram's `superRefine` blocks) are cross-field checks that
+ * `reviewResultJsonSchema()` cannot carry into the model's output-format
+ * constraint, and the prompt never states them either — so a model has no
+ * signal, structural or written, that would keep it inside them. A miss
+ * there is a rendering-budget violation, not a reason to throw away a
+ * summary, walkthrough and judgements that were otherwise well-formed.
+ * Any other validation failure still throws: those fields ARE described to
+ * the model, so a miss there is worth surfacing as a real failure.
+ */
+export function parseReviewResult(raw: unknown): ReviewResult {
+  const parsed = ReviewResultSchema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  if (parsed.error.issues.every((issue) => issue.path[0] === "diagram") && isRecord(raw)) {
+    return ReviewResultSchema.parse({ ...raw, diagram: undefined });
+  }
+  throw parsed.error;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/**
  * A stored review run: result + the metadata the UI needs to render it.
  *
  * A schema rather than an interface because this shape now crosses a network.
