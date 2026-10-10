@@ -10,10 +10,11 @@
  */
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Eye } from "lucide-react";
 
 import { canRequestAiReview } from "@komodo/store";
-import { Avatar, GithubIcon } from "@/components/ui/display";
+import { Avatar, GithubIcon, StatusPill } from "@/components/ui/display";
 import { Select } from "@/components/ui/controls";
 import { RequestReviewButton } from "@/components/review/request-review-button";
 import { useUrlState } from "@/lib/use-url-state";
@@ -25,7 +26,7 @@ import {
   useUpdateWatchMode,
   useWatchPullRequest,
 } from "@/lib/data/mutations";
-import type { AiState, PullRequest, Review, WatchMode } from "@/lib/types";
+import type { AIReviewJob, AiState, PullRequest, Review, WatchMode } from "@/lib/types";
 
 const WATCH_MODE_OPTIONS: { value: WatchMode; label: string }[] = [
   { value: "notify", label: "Notify only" },
@@ -79,6 +80,7 @@ export function ReviewHeader({
   orgSlug,
   estimate,
   aiState,
+  aiJob,
 }: {
   pr: PullRequest;
   repoFullName: string;
@@ -87,6 +89,7 @@ export function ReviewHeader({
   orgSlug: string;
   estimate: string;
   aiState: AiState;
+  aiJob: AIReviewJob | null;
 }) {
   const now = useNow();
   const { get, set } = useUrlState();
@@ -198,12 +201,96 @@ export function ReviewHeader({
             Conversation
           </Tab>
         </nav>
-        {canRequestAiReview(aiState) ? (
-          <RequestReviewButton prId={pr.id} headSha={pr.headSha} label="Ask AI review" />
-        ) : null}
+        <div className="flex items-center gap-2">
+          <AiReviewStatus state={aiState} job={aiJob} now={now} />
+          {canRequestAiReview(aiState) ? (
+            <RequestReviewButton
+              prId={pr.id}
+              headSha={pr.headSha}
+              label={aiState === "failed" ? "Retry AI review" : "Ask AI review"}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
+}
+
+/** How often an in-flight review re-reads the store — and, with it, the clock. */
+const AI_REFRESH_MS = 5_000;
+
+/**
+ * Where the AI review of this head stands, while it is in flight or after it
+ * failed. There is no percentage: the provider is a CLI that reports nothing
+ * until it finishes, so a filling bar would be invented. What is real is how
+ * long it has been queued or running, and that is what this shows.
+ *
+ * Elapsed time comes from `useNow()` — rule 6 — which is why an in-flight job
+ * refreshes the route: each refresh is a new request, a new server clock and
+ * a fresh read of the job, so the timer advances and completion or failure
+ * lands without anyone reloading.
+ */
+function AiReviewStatus({
+  state,
+  job,
+  now,
+}: {
+  state: AiState;
+  job: AIReviewJob | null;
+  now: number;
+}) {
+  const active = state === "queued" || state === "running";
+  useRefreshWhile(active);
+
+  if (active) {
+    const since = job?.requestedAt ?? now;
+    return (
+      <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+        <span className="relative h-1 w-16 overflow-hidden rounded-full bg-muted">
+          <span className="absolute inset-y-0 w-1/3 animate-[komodo-indeterminate_1.4s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[hsl(var(--warn))]" />
+        </span>
+        <StatusPill tone="warn">{state === "queued" ? "Queued" : "Reviewing"}</StatusPill>
+        <span className="tabular-nums">{formatElapsed(now - since)}</span>
+        {job?.lastError ? <span className="truncate max-w-64">· {firstLine(job.lastError)}</span> : null}
+      </span>
+    );
+  }
+  if (state === "failed" && job?.lastError) {
+    return (
+      <span className="flex min-w-0 items-center gap-2 text-xs" role="status">
+        <StatusPill tone="error">Failed</StatusPill>
+        <span className="max-w-96 truncate text-muted-foreground" title={job.lastError}>
+          {firstLine(job.lastError)}
+        </span>
+      </span>
+    );
+  }
+  return null;
+}
+
+/** Re-render the route every AI_REFRESH_MS while `active`. No useEffect — rule 7. */
+function useRefreshWhile(active: boolean) {
+  const router = useRouter();
+  const subscribe = React.useCallback(() => {
+    if (!active) return () => {};
+    const timer = setInterval(() => router.refresh(), AI_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [active, router]);
+  React.useSyncExternalStore(subscribe, alwaysTrue, alwaysTrue);
+}
+
+const alwaysTrue = () => true;
+
+function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${String(seconds % 60).padStart(2, "0")}s` : `${seconds}s`;
+}
+
+/** Provider errors carry the whole command line; the first line is the part a person reads. */
+function firstLine(text: string): string {
+  const line = text.split("\n").find((l) => l.trim() && !l.startsWith("Command failed")) ?? text;
+  return line.trim();
 }
 
 function Tab({

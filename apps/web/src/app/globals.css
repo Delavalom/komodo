@@ -315,3 +315,9 @@ textarea::placeholder {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* An in-flight AI review: motion that says "working", never a fake percentage. */
+@keyframes komodo-indeterminate {
+  from { left: -33%; }
+  to { left: 100%; }
+}
