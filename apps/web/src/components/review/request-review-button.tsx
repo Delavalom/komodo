@@ -33,8 +33,10 @@ const PROVIDER_LABEL: Record<ReviewProviderName, string> = {
  * by `komodo serve` at startup). One means there is nothing to choose. Two
  * means the requester chooses, with a button each: they bill different
  * subscriptions, and which one a review spends is not Komodo's call. None
- * means no review can run here, and a button that queues a job nothing will
- * pick up would be a lie.
+ * means this server will not run the review itself, but the job still
+ * queues: an interactive Claude Code session claims it with `/komodo-claim`
+ * (or `komodo-review claim`), which is the whole point of a queue with no
+ * headless provider.
  */
 export function RequestReviewButton({
   prId,
@@ -57,17 +59,6 @@ export function RequestReviewButton({
     startRequest(() => request(prId, headSha, { depth, provider }));
   }
 
-  if (providers.length === 0) {
-    return (
-      <span
-        className="text-xs text-[hsl(var(--destructive))]"
-        title="Sign in to Claude Code (`claude`) or Codex (`codex login`) on the machine running Komodo, then restart it."
-      >
-        No AI provider available on the server
-      </span>
-    );
-  }
-
   return (
     <div className="flex items-center">
       {choices.length > 1 ? (
@@ -79,6 +70,11 @@ export function RequestReviewButton({
           variant="ghost"
           size="sm"
           disabled={requesting}
+          title={
+            providers.length === 0
+              ? "This server runs no reviews itself. The job waits for a Claude Code session to claim it with /komodo-claim."
+              : undefined
+          }
           onClick={() => ask(provider, null)}
         >
           {provider ? PROVIDER_LABEL[provider] : requesting ? "Queuing…" : label}
