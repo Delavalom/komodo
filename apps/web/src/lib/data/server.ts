@@ -12,6 +12,7 @@ import "server-only";
  * app.
  */
 import { connectStore } from "@komodo/store/connect";
+import { META_REVIEW_PROVIDERS, type ReviewProviderName } from "@komodo/store";
 import { seedStore } from "@komodo/store/seed";
 import { resolveActor } from "@/lib/data/actor";
 import type {
@@ -72,6 +73,23 @@ export function getStore(): Promise<KomodoStore> {
  */
 export function requestNow(): number {
   return Date.now();
+}
+
+/**
+ * The providers the running `komodo serve` published at startup. Empty when
+ * none is usable — or when no server has ever started against this store,
+ * which is the same answer: nothing here can run a review.
+ */
+export async function loadReviewProviders(): Promise<ReviewProviderName[]> {
+  const raw = await (await getStore()).getMeta(META_REVIEW_PROVIDERS);
+  try {
+    const parsed: unknown = JSON.parse(raw ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((p): p is ReviewProviderName => p === "claude" || p === "codex")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function loadSnapshot(): Promise<QueueSnapshot> {

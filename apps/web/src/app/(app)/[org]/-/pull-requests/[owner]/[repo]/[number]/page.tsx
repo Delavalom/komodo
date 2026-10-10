@@ -92,6 +92,7 @@ export default async function ReviewPage({
         orgSlug={organization.slug}
         estimate={estimateTime(detail?.judgements.length ?? 0)}
         aiState={deriveAiState(job ?? null, judgment?.status ?? null)}
+        aiJob={job ?? null}
       />
 
       {view === "conversation" ? (

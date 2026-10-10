@@ -11,6 +11,13 @@
 export const META_LAST_POLL_AT = "lastPollAt";
 
 /**
+ * JSON array of the review providers the running server can use, written at
+ * startup by `komodo serve`/`dev`. The web app reads it to decide whether a
+ * review request needs a provider picked, has only one, or cannot run at all.
+ */
+export const META_REVIEW_PROVIDERS = "review.providers";
+
+/**
  * Why the last pass failed, or absent if it succeeded. Cleared on success, so
  * its presence means the most recent pass is the one that broke.
  */

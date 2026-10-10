@@ -266,6 +266,44 @@ describe("reviewPending", () => {
     expect(pass).toMatchObject({ reviewed: 0, skipped: 1 });
     expect(reviewed).toEqual([]);
   });
+
+  /** Two subscriptions, one request: the one the person picked is the one billed. */
+  it("runs a request on the provider it named, and never on the other", async () => {
+    const { provider, github } = harness();
+    const used: string[] = [];
+    const named = (name: string): ReviewProvider => ({
+      name,
+      async review() {
+        used.push(name);
+        return result;
+      },
+    });
+
+    const store = await storeWith({}, "manual");
+    await store.requestAIReview({
+      prId: "acme/api#1", headSha: "aaa111", trigger: "manual", requestedAt: 2, provider: "codex",
+    });
+    const pass = await reviewPending({
+      store, github, provider, config: config(),
+      providers: { claude: named("claude"), codex: named("codex") },
+    });
+    expect(pass).toMatchObject({ reviewed: 1 });
+    expect(used).toEqual(["codex"]);
+
+    const missing = await storeWith({}, "manual");
+    await missing.requestAIReview({
+      prId: "acme/api#1", headSha: "aaa111", trigger: "manual", requestedAt: 2, provider: "codex",
+    });
+    const refused = await reviewPending({
+      store: missing, github, provider, config: config(),
+      providers: { claude: named("claude") },
+    });
+    expect(refused).toMatchObject({ reviewed: 0, failed: 1 });
+    expect(used).toEqual(["codex"]);
+    const [job] = await missing.listAIReviewJobs();
+    expect(job).toMatchObject({ state: "failed" });
+    expect(job.lastError).toMatch(/Codex is not available/);
+  });
 });
 
 describe("reviewPending — shared context", () => {

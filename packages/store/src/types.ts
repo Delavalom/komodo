@@ -57,6 +57,9 @@ export type AIReviewJobState =
  */
 export type ReviewDepth = "standard" | "deep" | "thorough";
 
+/** A subscription-backed CLI the reviewer can run. */
+export type ReviewProviderName = "claude" | "codex";
+
 /** Durable intent to review one immutable pull-request head. */
 export interface AIReviewJob {
   id: string;
@@ -75,6 +78,12 @@ export interface AIReviewJob {
    * poller started, and for a request that left the depth to the rules.
    */
   depth: ReviewDepth | null;
+  /**
+   * Which provider the person asked for. Null means the deployment's own
+   * choice — every automatic job, and a manual one on a server that has only
+   * one provider to offer.
+   */
+  provider: ReviewProviderName | null;
 }
 
 export interface Organization {

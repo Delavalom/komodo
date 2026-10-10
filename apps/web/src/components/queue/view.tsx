@@ -426,7 +426,11 @@ function QueueRowCells({
               {AI_STATE_LABEL[row.aiState]}
             </StatusPill>
             {canRequestAiReview(row.aiState) ? (
-              <RequestReviewButton prId={row.id} headSha={row.headSha} label="Review with AI" />
+              <RequestReviewButton
+                prId={row.id}
+                headSha={row.headSha}
+                label={row.aiState === "failed" ? "Retry" : "Review with AI"}
+              />
             ) : null}
           </div>
         )}

@@ -18,6 +18,7 @@ export type {
   AIReviewJob,
   AIReviewJobState,
   ApiKey,
+  ReviewProviderName,
   Bucket,
   ChecksState,
   DepthRuleSetting,

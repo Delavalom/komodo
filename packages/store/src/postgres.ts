@@ -221,7 +221,8 @@ CREATE TABLE IF NOT EXISTS ai_review_jobs (
   "workerId"       TEXT,
   "leaseExpiresAt" BIGINT,
   "lastError"      TEXT,
-  depth            TEXT
+  depth            TEXT,
+  provider         TEXT
 );
 CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
   ON ai_review_jobs (state, "leaseExpiresAt", "requestedAt");
@@ -1716,15 +1717,17 @@ export class PostgresStore implements KomodoStore {
     requestedBy?: string | null;
     requestedAt: number;
     depth?: AIReviewJob["depth"];
+    provider?: AIReviewJob["provider"];
   }): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     await this.sql.query(
       `INSERT INTO ai_review_jobs
          (id, "prId", "headSha", trigger, state, "requestedBy",
-          "requestedAt", "updatedAt", "workerId", "leaseExpiresAt", "lastError", depth)
-       VALUES ($1,$2,$3,$4,'queued',$5,$6,$6,NULL,NULL,NULL,$7)
+          "requestedAt", "updatedAt", "workerId", "leaseExpiresAt", "lastError", depth, provider)
+       VALUES ($1,$2,$3,$4,'queued',$5,$6,$6,NULL,NULL,NULL,$7,$8)
        ON CONFLICT (id) DO UPDATE SET
          trigger = EXCLUDED.trigger,
+         provider = EXCLUDED.provider,
          state = 'queued',
          "requestedBy" = EXCLUDED."requestedBy",
          "requestedAt" = EXCLUDED."requestedAt",
@@ -1743,6 +1746,7 @@ export class PostgresStore implements KomodoStore {
         input.requestedBy ?? null,
         input.requestedAt,
         input.depth ?? null,
+        input.provider ?? null,
       ],
     );
     return id;
@@ -2355,6 +2359,7 @@ function toAIReviewJob(r: Row): AIReviewJob {
     leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
     lastError: r.lastError == null ? null : str(r.lastError),
     depth: asDepth(r.depth),
+    provider: r.provider == null ? null : (str(r.provider) as AIReviewJob["provider"]),
   };
 }
 

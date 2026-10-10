@@ -529,6 +529,12 @@ CREATE TABLE IF NOT EXISTS github_identities (
       { table: "reviews", column: "savedAt", sqlite: "INTEGER NOT NULL DEFAULT 0", postgres: "BIGINT NOT NULL DEFAULT 0" },
     ],
   },
+  {
+    id: "017-ai-review-job-provider",
+    addColumns: [
+      { table: "ai_review_jobs", column: "provider", sqlite: "TEXT", postgres: "TEXT" },
+    ],
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

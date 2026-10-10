@@ -13,6 +13,7 @@ const job = (over: Partial<AIReviewJob> = {}): AIReviewJob => ({
   headSha: "aaa111",
   trigger: "manual",
   state: "running",
+  provider: null,
   requestedBy: null,
   requestedAt: 0,
   updatedAt: 0,

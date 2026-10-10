@@ -1,3 +1,4 @@
+import { DIAGRAM_HEADLINE_BUDGET } from "@komodo/diagram";
 import { annotatePatch } from "../diff.js";
 import { SAME_SPOT } from "../merge.js";
 import type { Judgement } from "../schema.js";
@@ -124,11 +125,13 @@ ${diffs}
    - effort: 1-5 estimated human review effort
    - verificationChecks: the smallest set of concrete results a human must exercise. Name the action, expected observation, acceptable evidence kinds, and whether it is required. A changed UI normally needs a preview or screenshot check. A changed command, migration, integration, or background job normally needs a real run or command-output check. Do not say a check passed; you did not run it.
    - diagram: a structured diagram ONLY if the PR's change fits one of these shapes — omit otherwise:
-     - \`sequence\`: a multi-actor request/response or protocol change (max 5 actors, 12 messages)
+     - \`sequence\`: a multi-actor request/response or protocol change (max 5 actors, 12 messages, at most 1 fragment — or 2 only if both are single-region opt/loop; an \`alt\` fragment takes 1 or 2 regions)
      - \`flowchart\`: branching/decision logic changed (max 9 nodes, decisions ≤3 exits)
      - \`state\`: a state machine's states or transitions changed (max 9 states)
      - \`er\`: a schema or data-model change (max 8 entities)
      Never invent one to fill the slot — most PRs get none. Emit structured nodes/edges/fields, not markup or Mermaid text.
+     Every id an edge/message/transition/relationship names (\`from\`, \`to\`) must be one you declared in \`actors\`/\`nodes\`/\`states\`/\`entities\` — a dangling id fails validation and drops the whole diagram.
+     \`headline: true\` puts coral emphasis on an element. Budget: at most ${DIAGRAM_HEADLINE_BUDGET} per diagram, across every type — spend them on the one or two things this diagram exists to show, not on everything that changed. A third \`headline: true\` is a validation error and the diagram is dropped from the review entirely, so when unsure, leave it \`false\`.
    - judgements: see below
 
 ## Judgements

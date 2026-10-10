@@ -15,7 +15,7 @@ import {
   type GitHubClient,
   type KomodoConfig,
 } from "@komodo/core";
-import type { ReviewProvider } from "@komodo/core";
+import type { ReviewProvider, ReviewProviderName } from "@komodo/core";
 import type {
   KomodoStore,
   PullRequest,
@@ -39,7 +39,13 @@ import {
 export interface ReviewRunnerOptions {
   store: KomodoStore;
   github: GitHubClient;
+  /** Runs every job that did not ask for a provider by name. */
   provider: ReviewProvider;
+  /**
+   * The providers a job may ask for by name. A job naming one missing here
+   * fails with that reason instead of silently running on `provider`.
+   */
+  providers?: Partial<Record<ReviewProviderName, ReviewProvider>>;
   config: KomodoConfig;
   /** Post the review back to GitHub. Off by default: the queue is the point. */
   post?: boolean;
@@ -159,8 +165,24 @@ export async function reviewPending(
       continue;
     }
 
+    // A person who picked a provider asked to spend that subscription, and
+    // quietly spending the other would be the one thing they asked us not to
+    // do. Not a provider-level pause either: the default can still run.
+    const provider = job.provider ? options.providers?.[job.provider] : options.provider;
+    if (!provider) {
+      await store.finishAIReviewJob({
+        jobId: job.id,
+        workerId,
+        state: "failed",
+        finishedAt: Date.now(),
+        error: `${job.provider === "codex" ? "Codex" : "Claude"} is not available on this server. Sign in to it where Komodo runs, or retry with the other provider.`,
+      });
+      failed++;
+      continue;
+    }
+
     const outcome = await reviewOne(
-      options,
+      { ...options, provider },
       pr,
       repo,
       job.depth ? { depth: job.depth, by: job.requestedBy } : null,
