@@ -12,8 +12,8 @@
  */
 import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
-import { createProvider, createWatchTriage, GitHubClient, loadConfig, resolveContextSources, resolveGithubToken } from "@komodo/core";
-import type { ReviewProvider, WatchTriageProvider } from "@komodo/core";
+import { createProviders, createWatchTriage, GitHubClient, loadConfig, resolveContextSources, resolveGithubToken } from "@komodo/core";
+import type { WatchTriageProvider } from "@komodo/core";
 import {
   applyTeamConfig,
   createCheckout,
@@ -24,7 +24,7 @@ import {
 } from "@komodo/ingest";
 import { connectStore, isPostgresUrl } from "@komodo/store/connect";
 import { seedStore } from "@komodo/store/seed";
-import type { KomodoStore } from "@komodo/store";
+import { META_REVIEW_PROVIDERS, type KomodoStore } from "@komodo/store";
 
 import { startWebServer } from "../web.js";
 
@@ -159,7 +159,7 @@ function redact(target: string): string {
   return isPostgresUrl(target) ? target.replace(/\/\/[^@]*@/, "//***@") : target;
 }
 
-function startIngest(args: {
+async function startIngest(args: {
   store: KomodoStore;
   config: ReturnType<typeof loadConfig>["config"];
   configDir: string;
@@ -168,6 +168,12 @@ function startIngest(args: {
   signal: AbortSignal;
 }): Promise<void> {
   const { store, config, configDir, opts, dim, signal } = args;
+
+  // Before the token check: which providers this machine has is true with or
+  // without GitHub, and the queue's request button reads it from here.
+  const providers = createProviders(config, opts.provider);
+  const available = Object.keys(providers);
+  await store.setMeta(META_REVIEW_PROVIDERS, JSON.stringify(available));
 
   let github: GitHubClient;
   let token: string;
@@ -183,14 +189,19 @@ function startIngest(args: {
           "poll real pull requests.",
       ),
     );
-    return Promise.resolve();
+    return;
   }
 
-  let provider: ReviewProvider | undefined;
-  try {
-    provider = createProvider(config, opts.provider);
-  } catch {
-    dim("No review provider configured; polling without reviewing.");
+  const provider = providers.claude ?? providers.codex;
+  if (!provider) {
+    console.log(
+      pc.yellow(
+        `No review provider available (${opts.provider ?? config.provider}). Sign in to Claude Code ` +
+          "(`claude`) or Codex (`codex login`) on this machine; polling without reviewing.",
+      ),
+    );
+  } else {
+    dim(`Review providers: ${available.join(", ")}.`);
   }
 
   // The PR watcher is Claude-only in v1 and independent of the review
@@ -214,6 +225,7 @@ function startIngest(args: {
     store,
     github,
     provider,
+    providers,
     watchTriage,
     config,
     configDir,

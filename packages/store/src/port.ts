@@ -413,6 +413,11 @@ export interface StoreWriter {
      * re-request changes nothing, like every other field.
      */
     depth?: ReviewDepth | null;
+    /**
+     * A provider the requester picked, replaced the same way as `depth`.
+     * Omitted or null: the deployment's default provider.
+     */
+    provider?: AIReviewJob["provider"];
   }): Promise<string>;
 
   /** Atomically leases the next queued or abandoned job. */

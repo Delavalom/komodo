@@ -13,7 +13,11 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { mintApiKey } from "@komodo/store/api-key";
-import { META_DISCOVERY_REQUESTED_AT, REVIEW_DEPTH_ORDER } from "@komodo/store";
+import {
+  META_DISCOVERY_REQUESTED_AT,
+  REVIEW_DEPTH_ORDER,
+  type ReviewProviderName,
+} from "@komodo/store";
 import {
   GitHubClient,
   loadConfig,
@@ -47,7 +51,7 @@ import {
   resolveActorLogin,
   resolveDeclaredActor,
 } from "@/lib/data/actor";
-import { getStore } from "@/lib/data/server";
+import { getStore, loadReviewProviders } from "@/lib/data/server";
 import { loadConversation, parsePrId } from "@/lib/data/conversation";
 import {
   recordVerificationForActor,
@@ -136,13 +140,27 @@ export async function retriggerReviews(judgmentIds: string[]): Promise<void> {
 export async function requestAIReview(
   prId: string,
   expectedHeadSha: string,
-  depth: ReviewDepth | null = null,
+  { depth = null, provider = null }: { depth?: ReviewDepth | null; provider?: ReviewProviderName | null } = {},
 ): Promise<void> {
   // A server action is an endpoint: the menu only offers three values, and
   // nothing stops a request carrying a fourth.
   if (depth !== null && !REVIEW_DEPTH_ORDER.includes(depth)) {
     throw new Error("That is not a review depth.");
   }
+  // The same answer the button was drawn from, re-read: a request naming a
+  // provider this server cannot run, or naming none when there are two to
+  // bill, is refused here rather than queued to fail.
+  const available = await loadReviewProviders();
+  if (available.length === 0) {
+    throw new Error("No AI provider is available on the server.");
+  }
+  if (provider && !available.includes(provider)) {
+    throw new Error(`${provider} is not available on the server.`);
+  }
+  if (!provider && available.length > 1) {
+    throw new Error("Pick which provider should run this review.");
+  }
+
   const store = await getStore();
   const snapshot = await store.snapshot();
   const pr = snapshot.pullRequests.find((candidate) => candidate.id === prId);
@@ -160,6 +178,7 @@ export async function requestAIReview(
     requestedBy: await resolveActorLogin(snapshot.members),
     requestedAt: Date.now(),
     depth,
+    provider,
   });
   // An explicit retry means the operator believes the provider is usable
   // again; do not leave it behind the automatic failure circuit.

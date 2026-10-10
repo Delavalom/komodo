@@ -226,7 +226,8 @@ CREATE TABLE IF NOT EXISTS ai_review_jobs (
   workerId       TEXT,
   leaseExpiresAt INTEGER,
   lastError      TEXT,
-  depth          TEXT
+  depth          TEXT,
+  provider       TEXT
 );
 CREATE INDEX IF NOT EXISTS ai_review_jobs_ready
   ON ai_review_jobs (state, leaseExpiresAt, requestedAt);
@@ -1693,15 +1694,17 @@ export class SqliteStore implements KomodoStore {
     requestedBy?: string | null;
     requestedAt: number;
     depth?: AIReviewJob["depth"];
+    provider?: AIReviewJob["provider"];
   }): Promise<string> {
     const id = `${input.prId}@${input.headSha}`;
     this.db.prepare(
       `INSERT INTO ai_review_jobs
          (id, prId, headSha, trigger, state, requestedBy, requestedAt,
-          updatedAt, workerId, leaseExpiresAt, lastError, depth)
-       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, NULL, NULL, NULL, ?)
+          updatedAt, workerId, leaseExpiresAt, lastError, depth, provider)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, NULL, NULL, NULL, ?, ?)
        ON CONFLICT (id) DO UPDATE SET
          trigger = excluded.trigger,
+         provider = excluded.provider,
          state = 'queued',
          requestedBy = excluded.requestedBy,
          requestedAt = excluded.requestedAt,
@@ -1721,6 +1724,7 @@ export class SqliteStore implements KomodoStore {
       input.requestedAt,
       input.requestedAt,
       input.depth ?? null,
+      input.provider ?? null,
     );
     return id;
   }
@@ -2199,6 +2203,7 @@ function toAIReviewJob(r: Row): AIReviewJob {
     leaseExpiresAt: r.leaseExpiresAt == null ? null : num(r.leaseExpiresAt),
     lastError: r.lastError == null ? null : str(r.lastError),
     depth: asDepth(r.depth),
+    provider: r.provider == null ? null : (str(r.provider) as AIReviewJob["provider"]),
   };
 }
 

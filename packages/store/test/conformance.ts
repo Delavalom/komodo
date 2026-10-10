@@ -309,6 +309,31 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       });
     });
 
+    it("records the provider a person picked, and a retry can pick the other", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.requestAIReview({ prId, headSha: "aaa111", trigger: "new_pull_request", requestedAt: T0 });
+      expect((await store.listAIReviewJobs())[0].provider).toBeNull();
+
+      await store.requestAIReview({
+        prId,
+        headSha: "aaa111",
+        trigger: "manual",
+        requestedAt: T0 + 1,
+        provider: "codex",
+      });
+      expect((await store.listAIReviewJobs())[0].provider).toBe("codex");
+
+      await store.requestAIReview({
+        prId,
+        headSha: "aaa111",
+        trigger: "manual",
+        requestedAt: T0 + 2,
+        provider: "claude",
+      });
+      const claimed = await store.claimNextAIReview({ workerId: "w", now: T0 + 3, leaseMs: 100 });
+      expect(claimed?.job.provider).toBe("claude");
+    });
+
     it("leases a job once, reclaims an expired lease, and enforces ownership", async () => {
       const prId = await store.upsertPullRequest(pr());
       await store.requestAIReview({

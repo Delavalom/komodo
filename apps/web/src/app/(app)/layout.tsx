@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { DataProvider } from "@/lib/data/provider";
-import { loadSnapshot, requestNow } from "@/lib/data/server";
+import { loadReviewProviders, loadSnapshot, requestNow } from "@/lib/data/server";
 
 /**
  * The app shell is fixed-height: nothing here scrolls except the panes that
@@ -28,10 +28,11 @@ export default async function AppShellLayout({
 }) {
   const snapshot = await loadSnapshot();
   const now = requestNow();
+  const reviewProviders = await loadReviewProviders();
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <DataProvider snapshot={snapshot} now={now}>
+      <DataProvider snapshot={snapshot} now={now} reviewProviders={reviewProviders}>
         {children}
       </DataProvider>
     </div>
