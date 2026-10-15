@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_ORG_SETTINGS } from "@komodo/store";
 import { SqliteStore } from "@komodo/store/sqlite";
-import { KomodoConfigSchema, type GitHubClient } from "@komodo/core";
+import {
+  changeFingerprint,
+  KomodoConfigSchema,
+  type GitHubClient,
+  type PRFile,
+} from "@komodo/core";
 
 import { pollRepositories } from "../src/poll.js";
 
@@ -40,8 +45,13 @@ function fakeGitHub(
   },
   /** Check rollups per repository, or an Error the query should throw. */
   rollups: Record<string, any[] | Error> = {},
+  /**
+   * The files at the listed head, or an Error, and the head the size call
+   * reports — the listing's own unless a push is landing mid-pass.
+   */
+  detail: { files?: PRFile[] | Error; sizeHead?: string } = {},
 ) {
-  const calls = { list: 0, size: 0, reviews: 0, state: 0, checks: 0, details: 0 };
+  const calls = { list: 0, size: 0, reviews: 0, state: 0, checks: 0, details: 0, files: 0 };
   const client = {
     async getPRState() {
       calls.state++;
@@ -51,9 +61,20 @@ function fakeGitHub(
       calls.list++;
       return listing[`${owner}/${repo}`] ?? [];
     },
-    async getPRSize() {
+    async getPRSize(ref: { owner: string; repo: string; number: number }) {
       calls.size++;
-      return { additions: 10, deletions: 2, changedFiles: 3 };
+      const item = (listing[`${ref.owner}/${ref.repo}`] ?? []).find(
+        (p) => (p as { number: number }).number === ref.number,
+      ) as { headSha: string } | undefined;
+      return {
+        additions: 10, deletions: 2, changedFiles: 3,
+        headSha: detail.sizeHead ?? item?.headSha ?? "",
+      };
+    },
+    async listFiles() {
+      calls.files++;
+      if (detail.files instanceof Error) throw detail.files;
+      return detail.files ?? [];
     },
     async listReviewDecisions() {
       calls.reviews++;
@@ -285,6 +306,92 @@ describe("pollRepositories", () => {
 
     expect(second.calls.size).toBe(1);
     expect(await store.listPullRequestsNeedingReview()).toHaveLength(1);
+  });
+
+  describe("a push that only moved the base", () => {
+    const FILES: PRFile[] = [
+      { path: "src/limit.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1,2 +1,3 @@\n a\n+b\n c" },
+    ];
+    // The same change on a newer base: the hunk moved, the lines did not.
+    const REBASED: PRFile[] = [{ ...FILES[0], patch: "@@ -40,2 +40,3 @@\n a\n+b\n c" }];
+    const EDITED: PRFile[] = [{ ...FILES[0], patch: "@@ -1,2 +1,3 @@\n a\n+B\n c" }];
+
+    /** Polled once at aaa111, then reviewed there with a fingerprint. */
+    async function reviewedAt(fingerprint: string | null = changeFingerprint(FILES)) {
+      await pollRepositories(fakeGitHub({ "acme/api": [listed()] }).client, store, automatic());
+      await store.upsertJudgment({
+        prId: "acme/api#1", headSha: "aaa111", verdict: null,
+        status: "completed", impact: "low", score: 4,
+      });
+      await store.saveReview({
+        version: 3, prId: "acme/api#1", headSha: "aaa111", provider: "claude",
+        summary: "- s", walkthrough: [], confidence: 4, effort: 1, verdictLine: "v",
+        recordId: "r", judgements: [], verificationRequirements: [], files: [],
+        changeFingerprint: fingerprint,
+      });
+    }
+
+    const pushTo = (files: PRFile[] | Error, settings = automatic(), sizeHead?: string) => {
+      const gh = fakeGitHub({ "acme/api": [listed({ headSha: "bbb222" })] }, undefined, {}, { files, sizeHead });
+      return pollRepositories(gh.client, store, settings).then((result) => ({ result, calls: gh.calls }));
+    };
+
+    it("carries the review to the new head and starts no AI run", async () => {
+      await reviewedAt();
+      const { result } = await pushTo(REBASED);
+
+      expect(result.carried).toBe(1);
+      expect(await store.listAIReviewJobs()).toEqual([]);
+      expect((await store.loadReview("acme/api#1@bbb222"))?.review.carriedFrom).toBe(
+        "acme/api#1@aaa111",
+      );
+      expect(await store.listPullRequestsNeedingReview()).toHaveLength(0);
+    });
+
+    it("queues a review when the change itself moved", async () => {
+      await reviewedAt();
+      const { result } = await pushTo(EDITED);
+
+      expect(result.carried).toBe(0);
+      expect(await store.listAIReviewJobs()).toEqual([
+        expect.objectContaining({ id: "acme/api#1@bbb222", trigger: "new_commit" }),
+      ]);
+    });
+
+    it("queues a review when the head moved again while the files were read", async () => {
+      await reviewedAt();
+      await pushTo(REBASED, automatic(), "ccc333");
+      expect(await store.loadReview("acme/api#1@bbb222")).toBeNull();
+      expect(await store.listAIReviewJobs()).toHaveLength(1);
+    });
+
+    it("queues a review when the files cannot be read", async () => {
+      await reviewedAt();
+      await pushTo(new Error("502"));
+      expect(await store.listAIReviewJobs()).toHaveLength(1);
+    });
+
+    it("spends nothing on files when the last run has no fingerprint to match", async () => {
+      await reviewedAt(null);
+      const { calls } = await pushTo(REBASED);
+      expect(calls.files).toBe(0);
+      expect(await store.listAIReviewJobs()).toHaveLength(1);
+    });
+
+    it("spends nothing on files for a pull request seen for the first time", async () => {
+      const gh = fakeGitHub({ "acme/api": [listed()] }, undefined, {}, { files: FILES });
+      await pollRepositories(gh.client, store, automatic());
+      expect(gh.calls.files).toBe(0);
+    });
+
+    it("carries even when nobody asked for automatic reviews of new commits", async () => {
+      await reviewedAt();
+      const { result } = await pushTo(REBASED, {
+        settings: { ...AUTOMATIC, autoReviewNewCommits: false },
+        config: config(),
+      });
+      expect(result.carried).toBe(1);
+    });
   });
 
   it("closes a pull request that stops appearing in the listing", async () => {

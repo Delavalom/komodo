@@ -295,6 +295,10 @@ CREATE TABLE IF NOT EXISTS reviews (
   -- first-insert values across a re-run of the same head; this does not, so an
   -- answer older than it was given to the run it replaced.
   savedAt     INTEGER NOT NULL DEFAULT 0,
+  -- What the run read independent of its base, and the run it was copied
+  -- from when a rebase left that unchanged. See carryReview.
+  changeFingerprint TEXT,
+  carriedFrom TEXT,
   createdAt   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reviews_pr ON reviews (prId, seq DESC);
@@ -350,6 +354,7 @@ CREATE TABLE IF NOT EXISTS answers (
   optionLabel TEXT,
   note        TEXT,
   blocking    INTEGER NOT NULL DEFAULT 0,
+  carriedFromId TEXT,
   createdAt   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS answers_review ON answers (reviewId, createdAt);
@@ -381,6 +386,8 @@ CREATE TABLE IF NOT EXISTS verification_entries (
   evidenceKind   TEXT NOT NULL,
   evidenceUrl    TEXT,
   note           TEXT,
+  carriedFromEntryId TEXT,
+  carriedFromHeadSha TEXT,
   createdAt      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS verification_entries_review
@@ -1238,7 +1245,9 @@ export class SqliteStore implements KomodoStore {
         `SELECT r.*,
                 (SELECT COUNT(*) FROM judgments j
                   JOIN pull_requests p ON p.id = j.prId
-                  WHERE p.repoId = r.id AND j.status = 'completed')
+                  WHERE p.repoId = r.id AND j.status = 'completed'
+                    AND NOT EXISTS (SELECT 1 FROM reviews c
+                                    WHERE c.id = j.id AND c.carriedFrom IS NOT NULL))
                   AS reviewCount
          FROM repositories r
          ORDER BY r.owner, r.name`,
@@ -1297,6 +1306,9 @@ export class SqliteStore implements KomodoStore {
          FROM reviews r
          JOIN pull_requests p ON p.id = r.prId
          LEFT JOIN judged j ON j.reviewId = r.id
+         -- A carried run is a copy that cost nothing; counting it would put
+         -- one review on the usage screen twice.
+         WHERE r.carriedFrom IS NULL
          ORDER BY r.seq`,
       )
       .all() as Row[];
@@ -1351,7 +1363,8 @@ export class SqliteStore implements KomodoStore {
            FROM answers
          )
          SELECT j.id AS judgmentId, j.verdict, j.status, j.impact, j.score,
-                (SELECT COUNT(*) FROM reviews r WHERE r.prId = j.prId)
+                (SELECT COUNT(*) FROM reviews r
+                  WHERE r.prId = j.prId AND r.carriedFrom IS NULL)
                   AS reviewCount,
                 (SELECT COUNT(*) FROM review_judgements q
                   JOIN latest l ON l.reviewId = q.reviewId AND l.rn = 1
@@ -1868,9 +1881,9 @@ export class SqliteStore implements KomodoStore {
           `INSERT INTO reviews
              (id, version, prId, headSha, seq, provider, model, intent, summary, walkthrough,
               confidence, effort, verdictLine, diagram, recordId,
-              depth, depthReason, passes, costUsd, createdAt, savedAt)
+              depth, depthReason, passes, costUsd, createdAt, savedAt, changeFingerprint)
            VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id) DO UPDATE SET
              version = excluded.version,
              provider = excluded.provider, model = excluded.model,
@@ -1880,7 +1893,9 @@ export class SqliteStore implements KomodoStore {
              recordId = excluded.recordId,
              depth = excluded.depth, depthReason = excluded.depthReason,
              passes = excluded.passes, costUsd = excluded.costUsd,
-             savedAt = excluded.savedAt`,
+             savedAt = excluded.savedAt,
+             -- A fresh run over a carried one is no longer a copy.
+             changeFingerprint = excluded.changeFingerprint, carriedFrom = NULL`,
         )
         .run(
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
@@ -1888,7 +1903,7 @@ export class SqliteStore implements KomodoStore {
           input.confidence, input.effort, input.verdictLine,
           input.diagram ? JSON.stringify(input.diagram) : null, input.recordId,
           input.depth ?? "standard", input.depthReason ?? "", input.passes ?? 1,
-          input.costUsd ?? null, now, now,
+          input.costUsd ?? null, now, now, input.changeFingerprint ?? null,
         );
 
       // A re-run of the same head replaces its own bodies. The answer rows
@@ -1949,6 +1964,182 @@ export class SqliteStore implements KomodoStore {
       throw err;
     }
     return id;
+  }
+
+  async carryReview(input: {
+    fromReviewId: string;
+    toHeadSha: string;
+    at: number;
+  }): Promise<string | null> {
+    const source = this.db
+      .prepare(
+        `SELECT r.prId, r.headSha FROM reviews r
+         JOIN judgments j ON j.id = r.id AND j.status = 'completed'
+         WHERE r.id = ?`,
+      )
+      .get(input.fromReviewId) as Row | undefined;
+    if (!source) return null;
+    const from = input.fromReviewId;
+    const fromHead = str(source.headSha);
+    const to = `${str(source.prId)}@${input.toHeadSha}`;
+    if (to === from) return null;
+    // Every id under a run starts with the run's id; the copy swaps that
+    // prefix and keeps the rest, so `:3` is still the fourth judgement and
+    // `:verify:<hash>` is still the same check.
+    const tail = from.length + 1;
+
+    this.db.exec("BEGIN");
+    try {
+      const taken = this.db
+        .prepare(
+          `SELECT 1 FROM judgments WHERE id = ?
+           UNION ALL SELECT 1 FROM reviews WHERE id = ?`,
+        )
+        .get(to, to);
+      if (taken) {
+        this.db.exec("ROLLBACK");
+        return null;
+      }
+
+      this.db
+        .prepare(
+          `INSERT INTO judgments
+             (id, prId, headSha, verdict, status, impact, score, createdAt, updatedAt)
+           SELECT ?, prId, ?, verdict, status, impact, score, ?, ?
+           FROM judgments WHERE id = ?`,
+        )
+        .run(to, input.toHeadSha, input.at, input.at, from);
+      this.db
+        .prepare(
+          `INSERT INTO reviews
+             (id, version, prId, headSha, seq, provider, model, intent, summary,
+              walkthrough, confidence, effort, verdictLine, diagram, recordId,
+              depth, depthReason, passes, costUsd, savedAt, changeFingerprint,
+              carriedFrom, createdAt)
+           SELECT ?, version, prId, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
+                  provider, model, intent, summary, walkthrough, confidence, effort,
+                  verdictLine, diagram, recordId, depth, depthReason, passes, NULL,
+                  savedAt, changeFingerprint, ?, ?
+           FROM reviews WHERE id = ?`,
+        )
+        .run(to, input.toHeadSha, from, input.at, from);
+      this.db
+        .prepare(
+          `INSERT INTO review_files (id, reviewId, path, additions, deletions, status, patch)
+           SELECT ? || ':' || path, ?, path, additions, deletions, status, patch
+           FROM review_files WHERE reviewId = ?`,
+        )
+        .run(to, to, from);
+      this.db
+        .prepare(
+          `INSERT INTO review_judgements
+             (id, reviewId, ordinal, path, line, endLine, severity, kind, focus, tag,
+              title, lede, detail, ask, sources, sourceNote, code, options,
+              suggestion, fixPrompt, postable)
+           SELECT ? || ':' || ordinal, ?, ordinal, path, line, endLine, severity, kind,
+                  focus, tag, title, lede, detail, ask, sources, sourceNote, code,
+                  options, suggestion, fixPrompt, postable
+           FROM review_judgements WHERE reviewId = ?`,
+        )
+        .run(to, to, from);
+      this.db
+        .prepare(
+          `INSERT INTO findings
+             (id, judgmentId, ordinal, title, body, severity, isSecurity, status,
+              filePath, judgementId, createdAt)
+           SELECT ? || ':' || ordinal, ?, ordinal, title, body, severity, isSecurity,
+                  status, filePath,
+                  CASE WHEN judgementId IS NULL THEN NULL
+                       ELSE ? || substr(judgementId, ?) END,
+                  ?
+           FROM findings WHERE judgmentId = ?`,
+        )
+        .run(to, to, to, tail, input.at, from);
+      this.db
+        .prepare(
+          `INSERT INTO verification_requirements
+             (id, reviewId, ordinal, title, instruction, expectedResult,
+              evidenceKinds, required)
+           SELECT ? || substr(id, ?), ?, ordinal, title, instruction, expectedResult,
+                  evidenceKinds, required
+           FROM verification_requirements WHERE reviewId = ?`,
+        )
+        .run(to, tail, to, from);
+
+      // The newest observation per check in the source's current plan.
+      const entries = this.db
+        .prepare(
+          `SELECT e.* FROM verification_entries e
+           JOIN verification_requirements r ON r.id = e.requirementId
+           WHERE r.reviewId = ?
+             AND e.seq = (SELECT MAX(seq) FROM verification_entries x
+                          WHERE x.requirementId = e.requirementId)`,
+        )
+        .all(from) as Row[];
+      const entry = this.db.prepare(
+        `INSERT INTO verification_entries
+           (id, seq, requirementId, reviewId, actorLogin, result, evidenceKind,
+            evidenceUrl, note, carriedFromEntryId, carriedFromHeadSha, createdAt)
+         VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM verification_entries),
+                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const e of entries) {
+        entry.run(
+          newId("verification"),
+          to + str(e.requirementId).slice(from.length),
+          to,
+          str(e.actorLogin),
+          str(e.result),
+          str(e.evidenceKind),
+          e.evidenceUrl == null ? null : str(e.evidenceUrl),
+          e.note == null ? null : str(e.note),
+          str(e.carriedFromEntryId ?? e.id),
+          str(e.carriedFromHeadSha ?? fromHead),
+          num(e.createdAt),
+        );
+      }
+
+      // The current answer to each judgement the run still has. A withdrawal
+      // is the current answer too, and carrying nothing is how it carries.
+      const current = new Map<string, Row>();
+      for (const row of this.db
+        .prepare(
+          `SELECT a.* FROM answers a
+           JOIN review_judgements q ON q.id = a.judgementId AND q.reviewId = ?
+           ORDER BY a.createdAt, a.id`,
+        )
+        .all(from) as Row[]) {
+        current.set(str(row.judgementId), row);
+      }
+      const answer = this.db.prepare(
+        `INSERT INTO answers
+           (id, judgementId, reviewId, actorLogin, bucket, optionLabel, note,
+            blocking, carriedFromId, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const a of current.values()) {
+        if (a.bucket === null) continue;
+        const judgementId = to + str(a.judgementId).slice(from.length);
+        answer.run(
+          `${judgementId}:${num(a.createdAt)}:carried`,
+          judgementId,
+          to,
+          str(a.actorLogin),
+          str(a.bucket),
+          a.optionLabel == null ? null : str(a.optionLabel),
+          a.note == null ? null : str(a.note),
+          num(a.blocking),
+          str(a.carriedFromId ?? a.id),
+          num(a.createdAt),
+        );
+      }
+
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+    return to;
   }
 
   async markReceiptPosted(reviewId: string, url: string): Promise<void> {
@@ -2243,6 +2434,8 @@ function toReview(r: Row): Review {
     receiptUrl: r.receiptUrl == null ? null : str(r.receiptUrl),
     receiptPostedAt: r.receiptPostedAt == null ? null : num(r.receiptPostedAt),
     createdAt: num(r.createdAt),
+    changeFingerprint: r.changeFingerprint == null ? null : str(r.changeFingerprint),
+    carriedFrom: r.carriedFrom == null ? null : str(r.carriedFrom),
   };
 }
 
@@ -2307,6 +2500,8 @@ function toVerificationEntry(r: Row): VerificationEntry {
     evidenceUrl: r.evidenceUrl == null ? null : str(r.evidenceUrl),
     note: r.note == null ? null : str(r.note),
     createdAt: num(r.createdAt),
+    carriedFromEntryId: r.carriedFromEntryId == null ? null : str(r.carriedFromEntryId),
+    carriedFromHeadSha: r.carriedFromHeadSha == null ? null : str(r.carriedFromHeadSha),
   };
 }
 
@@ -2333,6 +2528,7 @@ function toAnswer(r: Row): Answer {
     note: r.note === null ? null : str(r.note),
     blocking: bool(r.blocking),
     createdAt: num(r.createdAt),
+    carriedFromId: r.carriedFromId == null ? null : str(r.carriedFromId),
   };
 }
 

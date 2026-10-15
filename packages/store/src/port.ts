@@ -265,6 +265,11 @@ export interface ReviewInput {
   model?: string | null;
   /** Omitted by callers that predate it; stored as null. */
   intent?: string | null;
+  /**
+   * Only from a run that fetched the files from GitHub itself. A record that
+   * arrived over the network must never set it — see `carryReview`.
+   */
+  changeFingerprint?: string | null;
   summary: string;
   walkthrough: Review["walkthrough"];
   confidence: number;
@@ -479,6 +484,31 @@ export interface StoreWriter {
    * Returns the review id.
    */
   saveReview(input: ReviewInput): Promise<string>;
+
+  /**
+   * Re-pins a completed run at a new head of the same pull request whose
+   * change is byte-identical to the one it read: a rebase.
+   *
+   * Copies, never moves. The source run and everything recorded against it
+   * stay exactly as they were; the new run gets the same brief, judgements,
+   * findings and verification plan under its own ids, and — appended, as
+   * every ledger write is — the newest answer to each judgement and the newest
+   * observation for each check, each naming the original it repeats and the
+   * head it was made at. Failed and blocked observations carry as faithfully
+   * as passing ones.
+   *
+   * Returns the new run's id, or null — changing nothing — when the source is
+   * not a run, or the new head already has a judgment or a run. That makes it
+   * safe to call again, and means it can never overwrite a real review.
+   *
+   * The caller decides the change is identical; see `changeFingerprint` in
+   * @komodo/core, and the poller, which is the only caller that may.
+   */
+  carryReview(input: {
+    fromReviewId: string;
+    toHeadSha: string;
+    at: number;
+  }): Promise<string | null>;
 
   /**
    * Appends to the decision ledger. Nothing here is ever updated or deleted:
