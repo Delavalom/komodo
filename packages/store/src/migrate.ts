@@ -535,6 +535,14 @@ CREATE TABLE IF NOT EXISTS github_identities (
       { table: "ai_review_jobs", column: "provider", sqlite: "TEXT", postgres: "TEXT" },
     ],
   },
+  {
+    id: "018-review-intent",
+    // Null on every run written before it: the reviewer was never asked, and
+    // inventing a sentence for them would be worse than showing none.
+    addColumns: [
+      { table: "reviews", column: "intent", sqlite: "TEXT", postgres: "TEXT" },
+    ],
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

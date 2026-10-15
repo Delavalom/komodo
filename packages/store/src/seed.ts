@@ -508,7 +508,7 @@ export async function seedStore(
         // Dated when its pull request last moved — the push it reviewed — so
         // usage and the depth panel see runs spread over the dataset's months,
         // the same window "Total Reviews" counts, not all of them today.
-        { ...buildReview({ prId, headSha, judgements, score, provider: "seed", changedFiles }), at: updatedAt },
+        { ...buildReview({ prId, headSha, title, judgements, score, provider: "seed", changedFiles }), at: updatedAt },
       );
       // After the review: a finding names the judgement it summarises, and
       // that id is `${reviewId}:${ordinal}`.
@@ -774,29 +774,46 @@ function seededDepth(changedFiles: number): { depth: ReviewDepth; reason: string
 function buildReview(args: {
   prId: string;
   headSha: string;
+  title: string;
   judgements: SeededJudgement[];
   score: number;
   provider: string;
   changedFiles: number;
 }): ReviewInput {
-  const { prId, headSha, judgements, score, provider, changedFiles } = args;
+  const { prId, headSha, title, judgements, score, provider, changedFiles } = args;
   const { depth, reason } = seededDepth(changedFiles);
   const paths = [...new Set(judgements.map((j) => j.path))];
+  // Its own stream, like the diagram's, so adding it moved no other draw.
+  const docs = rng(`walkthrough:${prId}@${headSha}`)() < 0.5;
   return {
     version: 3,
     prId,
     headSha,
     provider,
     model: null,
+    // What a reviewer reads off a description that is only a title: the title.
+    intent: `${title.replace(/\.$/, "")}.`,
     summary: judgements.length
       ? judgements.map((j) => `- ${j.tag}`).join("\n")
       : "- No behaviour changed that needed a judgement.",
-    walkthrough: paths.map((path) => ({
-      files: [path],
-      summary:
-        judgements.find((j) => j.path === path)?.lede ??
-        "Touched without changing behaviour.",
-    })),
+    walkthrough: [
+      ...paths.map((path) => ({
+        files: [path],
+        summary:
+          judgements.find((j) => j.path === path)?.lede ??
+          "Touched without changing behaviour.",
+        kind: "behavioural" as const,
+      })),
+      ...(docs
+        ? [
+            {
+              files: ["README.md"],
+              summary: "Notes the change for whoever reads the docs next.",
+              kind: "mechanical" as const,
+            },
+          ]
+        : []),
+    ],
     confidence: Math.round(score),
     effort: 1 + Math.min(4, judgements.length),
     verdictLine: judgements.length

@@ -155,6 +155,7 @@ describe("hardLimits", () => {
 
 describe("reviewPending", () => {
   const result: ReviewResult = {
+    intent: "Add a rate limiter.",
     summary: "- Adds a rate limiter.",
     walkthrough: [],
     confidence: 4,
@@ -308,6 +309,7 @@ describe("reviewPending", () => {
 
 describe("reviewPending — shared context", () => {
   const result: ReviewResult = {
+    intent: "Add a rate limiter.",
     summary: "- Adds a rate limiter.",
     walkthrough: [],
     confidence: 4,
@@ -455,6 +457,7 @@ describe("reviewPending — shared context", () => {
 
 describe("reviewPending — depth", () => {
   const result: ReviewResult = {
+    intent: "Add a rate limiter.",
     summary: "- Adds a rate limiter.",
     walkthrough: [],
     confidence: 4,

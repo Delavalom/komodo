@@ -524,6 +524,11 @@ export interface JudgementOption {
 export interface WalkthroughEntry {
   files: string[];
   summary: string;
+  /**
+   * Whether a person can skim these files. Absent on a run from before the
+   * reviewer was asked, which reads as behavioural — the safe answer.
+   */
+  kind?: "behavioural" | "mechanical";
 }
 
 /**
@@ -541,6 +546,12 @@ export interface Review {
   headSha: string;
   provider: string;
   model: string | null;
+  /**
+   * What the change is for, as the reviewer read it from the description.
+   * The yardstick scope is measured against. Null on a run from before it was
+   * asked for.
+   */
+  intent: string | null;
   /** Markdown bullets grouped by change type, as the reviewer wrote them. */
   summary: string;
   walkthrough: WalkthroughEntry[];

@@ -14,6 +14,7 @@ const input = {
 };
 
 const valid = {
+  intent: "Add a limiter.",
   summary: "- Adds a limiter",
   walkthrough: [],
   confidence: 3,

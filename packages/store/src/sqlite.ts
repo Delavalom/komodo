@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   seq         INTEGER NOT NULL,
   provider    TEXT NOT NULL,
   model       TEXT,
+  intent      TEXT,
   summary     TEXT NOT NULL,
   walkthrough TEXT NOT NULL DEFAULT '[]',
   confidence  INTEGER NOT NULL DEFAULT 0,
@@ -1853,15 +1854,15 @@ export class SqliteStore implements KomodoStore {
           // `seq` is not in the DO UPDATE list: a re-run of the same head
           // keeps the position it already had in the history.
           `INSERT INTO reviews
-             (id, version, prId, headSha, seq, provider, model, summary, walkthrough,
+             (id, version, prId, headSha, seq, provider, model, intent, summary, walkthrough,
               confidence, effort, verdictLine, diagram, recordId,
               depth, depthReason, passes, costUsd, createdAt, savedAt)
            VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id) DO UPDATE SET
              version = excluded.version,
              provider = excluded.provider, model = excluded.model,
-             summary = excluded.summary, walkthrough = excluded.walkthrough,
+             intent = excluded.intent, summary = excluded.summary, walkthrough = excluded.walkthrough,
              confidence = excluded.confidence, effort = excluded.effort,
              verdictLine = excluded.verdictLine, diagram = excluded.diagram,
              recordId = excluded.recordId,
@@ -1871,7 +1872,7 @@ export class SqliteStore implements KomodoStore {
         )
         .run(
           id, input.version, input.prId, input.headSha, input.provider, input.model ?? null,
-          input.summary, JSON.stringify(input.walkthrough),
+          input.intent ?? null, input.summary, JSON.stringify(input.walkthrough),
           input.confidence, input.effort, input.verdictLine,
           input.diagram ? JSON.stringify(input.diagram) : null, input.recordId,
           input.depth ?? "standard", input.depthReason ?? "", input.passes ?? 1,
@@ -2215,6 +2216,7 @@ function toReview(r: Row): Review {
     headSha: str(r.headSha),
     provider: str(r.provider),
     model: r.model === null ? null : str(r.model),
+    intent: r.intent == null ? null : str(r.intent),
     summary: str(r.summary),
     walkthrough: JSON.parse(String(r.walkthrough ?? "[]")) as Review["walkthrough"],
     confidence: num(r.confidence),

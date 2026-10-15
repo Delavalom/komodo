@@ -50,8 +50,12 @@ const judgement: Judgement = {
 };
 
 const result: ReviewResult = {
+  intent: "Stop the user lookup interpolating input into SQL.",
   summary: "- **Bug Fixes**: hardened the user query",
-  walkthrough: [{ files: ["src/db.ts", "src/db.test.ts"], summary: "Parameterized user lookups" }],
+  walkthrough: [
+    { files: ["src/db.ts", "src/db.test.ts"], summary: "Parameterized user lookups", kind: "behavioural" },
+    { files: ["README.md"], summary: "Notes the query helper", kind: "mechanical" },
+  ],
   confidence: 2,
   verdict: "Blocking security issue in the query layer.",
   effort: 3,
@@ -92,6 +96,19 @@ describe("renderWalkthroughComment", () => {
     expect(md).toContain("| Files | Change summary |");
     expect(md).toContain("`src/db.ts`<br>`src/db.test.ts`");
     expect(md).toContain("```mermaid");
+  });
+  it("opens on the intent, before anything measured against it", () => {
+    expect(md).toContain("**Intent:** Stop the user lookup interpolating input into SQL.");
+    expect(md.indexOf("**Intent:**")).toBeLessThan(md.indexOf("Review coverage"));
+  });
+  it("lists behavioural rows first and labels the mechanical ones", () => {
+    const wt = renderWalkthroughComment(
+      pr,
+      { ...result, walkthrough: [...result.walkthrough].reverse() },
+      config,
+    );
+    expect(wt.indexOf("`src/db.ts`")).toBeLessThan(wt.indexOf("`README.md`"));
+    expect(wt).toContain("Notes the query helper _(mechanical)_");
   });
 });
 
@@ -135,6 +152,7 @@ describe("judgement and review prose stays in the house voice", () => {
     judgement.detail,
     judgement.ask,
     judgement.sourceNote,
+    result.intent,
     result.verdict,
     ...result.verificationChecks.flatMap((c) => [c.title, c.instruction, c.expectedResult]),
   ];

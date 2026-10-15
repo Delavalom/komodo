@@ -1229,6 +1229,34 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(after.receiptUrl).toBe("https://github.com/x/y#c1");
     });
 
+    it("keeps the stated intent and each walkthrough row's kind", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(
+        review({
+          prId,
+          intent: "Revoke a session everywhere the moment someone logs out.",
+          walkthrough: [
+            { files: ["auth/session.ts"], summary: "Rotates the token.", kind: "behavioural" },
+            { files: ["docs/auth.md"], summary: "Documents it.", kind: "mechanical" },
+          ],
+        }),
+      );
+
+      const detail = await store.loadReview(reviewId);
+      expect(detail?.review.intent).toBe(
+        "Revoke a session everywhere the moment someone logs out.",
+      );
+      expect(detail?.review.walkthrough.map((w) => w.kind)).toEqual([
+        "behavioural",
+        "mechanical",
+      ]);
+
+      // A re-run of the same head that states no intent clears it rather than
+      // leaving the old run's sentence on a review that never wrote one.
+      await store.saveReview(review({ prId }));
+      expect((await store.loadReview(reviewId))?.review.intent).toBeNull();
+    });
+
     it("stores patches out of the way, read only when asked for", async () => {
       const prId = await store.upsertPullRequest(pr());
       const reviewId = await store.saveReview(review({ prId }));

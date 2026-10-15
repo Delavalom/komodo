@@ -255,6 +255,8 @@ export interface ReviewInput {
   headSha: string;
   provider: string;
   model?: string | null;
+  /** Omitted by callers that predate it; stored as null. */
+  intent?: string | null;
   summary: string;
   walkthrough: Review["walkthrough"];
   confidence: number;

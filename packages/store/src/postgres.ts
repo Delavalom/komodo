@@ -270,6 +270,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   seq           BIGINT NOT NULL,
   provider      TEXT NOT NULL,
   model         TEXT,
+  intent        TEXT,
   summary       TEXT NOT NULL,
   walkthrough   JSONB NOT NULL DEFAULT '[]'::jsonb,
   confidence    INTEGER NOT NULL DEFAULT 0,
@@ -1878,13 +1879,13 @@ export class PostgresStore implements KomodoStore {
         `INSERT INTO reviews
            (id, version, "prId", "headSha", seq, provider, model, summary, walkthrough,
             confidence, effort, "verdictLine", diagram, "recordId",
-            depth, "depthReason", passes, "costUsd", "createdAt", "savedAt")
+            depth, "depthReason", passes, "costUsd", "createdAt", "savedAt", intent)
          VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews),
-                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)
+                 $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$19)
          ON CONFLICT (id) DO UPDATE SET
            version = EXCLUDED.version,
            provider = EXCLUDED.provider, model = EXCLUDED.model,
-           summary = EXCLUDED.summary, walkthrough = EXCLUDED.walkthrough,
+           intent = EXCLUDED.intent, summary = EXCLUDED.summary, walkthrough = EXCLUDED.walkthrough,
            confidence = EXCLUDED.confidence, effort = EXCLUDED.effort,
            "verdictLine" = EXCLUDED."verdictLine", diagram = EXCLUDED.diagram,
            "recordId" = EXCLUDED."recordId",
@@ -1897,7 +1898,7 @@ export class PostgresStore implements KomodoStore {
           input.confidence, input.effort, input.verdictLine,
           input.diagram ? JSON.stringify(input.diagram) : null, input.recordId,
           input.depth ?? "standard", input.depthReason ?? "", input.passes ?? 1,
-          input.costUsd ?? null, now,
+          input.costUsd ?? null, now, input.intent ?? null,
         ],
       );
 
@@ -2144,6 +2145,7 @@ function toReview(r: Row): Review {
     headSha: str(r.headSha),
     provider: str(r.provider),
     model: r.model === null ? null : str(r.model),
+    intent: r.intent == null ? null : str(r.intent),
     summary: str(r.summary),
     walkthrough: json<Review["walkthrough"]>(r.walkthrough, []),
     confidence: num(r.confidence),

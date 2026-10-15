@@ -9,7 +9,7 @@ const LENS_BRIEF: Record<LensFocus, string> = {
   architecture:
     "ownership, layering, system boundaries and data flow. Trace the callers of every changed export and the modules that own the data it touches. If a repository checkout is available, read the configuration and generated files the change depends on, even when they are outside the diff.",
   scope:
-    "whether the change reaches farther than its task: unrelated files, a new dependency or module where an existing one would do, and behaviour that changes without the description mentioning it.",
+    "whether the change reaches farther than its intent: unrelated files, a new dependency or module where an existing one would do, and behaviour that changes without the description mentioning it.",
   tests:
     "whether the tests prove the change. Find the tests that exercise each changed path, name the paths none of them reach, and look for behaviour that only appears under particular configuration, limits or input sizes.",
 };
@@ -24,7 +24,7 @@ export function passSection(pass: ReviewPass | undefined): string {
   if (!pass || pass.kind === "base") return "";
 
   const rest =
-    "Write the summary and walkthrough as one line each. An empty judgement list is a valid answer.";
+    "Write the intent, summary and walkthrough as one line each. An empty judgement list is a valid answer.";
 
   if (pass.kind === "lens") {
     return `\n## This pass\nThis is one of several passes over the same pull request, and its whole job is one question: ${LENS_BRIEF[pass.focus]}\nOnly judgements with focus \`${pass.focus}\` and verification checks are kept from this pass. ${rest}\n`;
@@ -119,8 +119,9 @@ ${diffs}
 ## Your job
 1. If a repository checkout is available, trace callers, module ownership, test conventions, and the other files a change could affect. Do not run commands or claim to have observed runtime behaviour.
 2. Produce the review as structured output:
+   - intent: what this change is for, in one or two plain sentences, from the title and description. If the description is empty, say what the diff appears to be for and that you inferred it. The reader judges the diff against this sentence, so write the goal, not a list of edits.
    - summary: markdown bullets grouped by change type
-   - walkthrough: group RELATED files into single rows (e.g. one source change + its locale/test churn = separate rows, each with a plain-language summary)
+   - walkthrough: group RELATED files into single rows (e.g. one source change + its locale/test churn = separate rows, each with a plain-language summary). Mark a row \`mechanical\` only when it provably changes no behaviour — documentation, comments, formatting, a rename with every call site updated — so the reader can skim it. Everything else, and anything you are unsure of, is \`behavioural\`.
    - confidence: 0-5 confidence that this review brief has enough context (5 = well grounded) + one-line coverage note. This is not merge confidence.
    - effort: 1-5 estimated human review effort
    - verificationChecks: the smallest set of concrete results a human must exercise. Name the action, expected observation, acceptable evidence kinds, and whether it is required. A changed UI normally needs a preview or screenshot check. A changed command, migration, integration, or background job normally needs a real run or command-output check. Do not say a check passed; you did not run it.
@@ -139,7 +140,7 @@ ${diffs}
 Each judgement is either a source-visible preflight defect or one decision a human has to make. It carries a severity (critical|major|minor|trivial) and a focus:
 - \`code\`: a concrete defect visible in source. Treat this as AI preflight, not the centre of human review.
 - \`architecture\`: ownership, layering, system boundaries, data flow, or established design patterns.
-- \`scope\`: unrelated files, inappropriate libraries or modules, or a change reaching farther than the task requires.
+- \`scope\`: unrelated files, inappropriate libraries or modules, or a change reaching farther than the intent you stated requires.
 - \`tests\`: missing necessary coverage, a test that proves the wrong thing, or redundant coverage that adds cost without confidence.
 
 Do not create a code judgement merely because code looks unusual. Do not create a verification judgement for behaviour you could not observe; create a verificationCheck instead.

@@ -180,6 +180,15 @@ export function ReviewHeader({
         </p>
       )}
 
+      {/* Above the tabs, so every view opens on it: what the change is for is
+          the question each of them is answering, not one more panel. */}
+      {current?.intent ? (
+        <p className="mt-3 px-6 text-sm">
+          <span className="label-mono mr-2 text-[10px] text-muted-foreground">Intent</span>
+          {current.intent}
+        </p>
+      ) : null}
+
       <div className="flex items-center justify-between gap-2 px-4 pt-3">
         <nav className="flex gap-1">
           <Tab active={view === "verify"} onClick={() => set({ view: null, j: null })}>
