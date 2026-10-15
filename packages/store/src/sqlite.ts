@@ -651,6 +651,18 @@ export class SqliteStore implements KomodoStore {
     return rows.map(toReviewFile);
   }
 
+  async listOpenHeadReviewFiles(): Promise<ReviewFile[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT f.* FROM review_files f
+         JOIN pull_requests p ON f.reviewId = p.id || '@' || p.headSha
+         WHERE p.state = 'open'
+         ORDER BY f.reviewId, f.path`,
+      )
+      .all() as Row[];
+    return rows.map(toReviewFile);
+  }
+
   async listAnswers(reviewId: string): Promise<Answer[]> {
     const rows = this.db
       .prepare(

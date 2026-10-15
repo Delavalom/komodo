@@ -141,6 +141,14 @@ export interface StoreReader {
   /** The patches, read only when someone opens the diff. */
   loadReviewFiles(reviewId: string): Promise<ReviewFile[]>;
 
+  /**
+   * The files of every open pull request's run at its current head, patches
+   * included — what `changeKind` reads to tell a typo fix from a change.
+   * Outside the snapshot for the same reason `loadReviewFiles` is: the queue
+   * is the one page that needs them. A run for an older head is left out.
+   */
+  listOpenHeadReviewFiles(): Promise<ReviewFile[]>;
+
   /** The full ledger for a run, oldest first — including withdrawn answers. */
   listAnswers(reviewId: string): Promise<Answer[]>;
 

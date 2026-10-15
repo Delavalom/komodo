@@ -1257,6 +1257,23 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect((await store.loadReview(reviewId))?.review.intent).toBeNull();
     });
 
+    it("lists the patches of each open pull request's run at its current head", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.saveReview(review({ prId }));
+      const closed = await store.upsertPullRequest(pr({ number: 2, state: "closed" }));
+      await store.saveReview(review({ prId: closed }));
+
+      const files = await store.listOpenHeadReviewFiles();
+      expect(files.map((f) => [f.reviewId, f.path])).toEqual([
+        [`${prId}@aaa111`, "auth/session.ts"],
+      ]);
+      expect(files[0].patch).toContain("@@");
+
+      // A push leaves the old run's files behind until a run reads the new head.
+      await store.upsertPullRequest(pr({ headSha: "bbb222" }));
+      expect(await store.listOpenHeadReviewFiles()).toEqual([]);
+    });
+
     it("stores patches out of the way, read only when asked for", async () => {
       const prId = await store.upsertPullRequest(pr());
       const reviewId = await store.saveReview(review({ prId }));

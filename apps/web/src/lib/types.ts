@@ -77,6 +77,7 @@ export type {
   VerificationRequirement,
   VerificationResult,
   VerificationSummary,
+  MechanicalReason,
 } from "@komodo/store";
 
 /* Re-exporting does not bind the names locally, and the query shapes below
@@ -88,6 +89,7 @@ import type {
   MemoryKind,
   MemoryStatus,
   ImpactLevel,
+  MechanicalReason,
   PullRequest,
   ReviewStatus,
   SummarySectionConfig,
@@ -184,6 +186,11 @@ export interface QueueRow extends PullRequest {
   easyWin: import("@komodo/store").EasyWin | null;
   /** The worst few findings, P0 first — the pre-triage the queue exists for. */
   topFindings: Finding[];
+  /**
+   * Why this change needs no close reading — docs, comments, a reflow — or
+   * null when it changes behaviour or nothing has read it yet.
+   */
+  mechanical: MechanicalReason[] | null;
 }
 
 export type QueueLens = "all" | "mine" | "blocked" | "stale" | "easy";
@@ -193,6 +200,8 @@ export interface QueueQuery {
   search?: string;
   author?: string;
   repo?: string;
+  /** From `loadMechanicalChanges`, keyed `${prId}@${headSha}`. */
+  mechanical?: Record<string, MechanicalReason[]>;
 }
 
 export interface JudgmentQuery {

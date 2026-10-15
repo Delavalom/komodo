@@ -719,6 +719,16 @@ export class PostgresStore implements KomodoStore {
     return rows.map(toReviewFile);
   }
 
+  async listOpenHeadReviewFiles(): Promise<ReviewFile[]> {
+    const { rows } = await this.sql.query<Row>(
+      `SELECT f.* FROM review_files f
+       JOIN pull_requests p ON f."reviewId" = p.id || '@' || p."headSha"
+       WHERE p.state = 'open'
+       ORDER BY f."reviewId", f.path`,
+    );
+    return rows.map(toReviewFile);
+  }
+
   async listAnswers(reviewId: string): Promise<Answer[]> {
     const { rows } = await this.sql.query<Row>(
       `SELECT * FROM answers WHERE "reviewId" = $1 ORDER BY "createdAt", id`,
