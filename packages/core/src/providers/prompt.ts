@@ -11,7 +11,11 @@ const LENS_BRIEF: Record<LensFocus, string> = {
   scope:
     "whether the change reaches farther than its task: unrelated files, a new dependency or module where an existing one would do, and behaviour that changes without the description mentioning it.",
   tests:
-    "whether the tests prove the change. Find the tests that exercise each changed path, name the paths none of them reach, and look for behaviour that only appears under particular configuration, limits or input sizes.",
+    "whether the tests prove the change. Find the tests that exercise each changed path, name the paths none of them reach, and look for behaviour that only appears under particular configuration, limits or input sizes. " +
+    "Then ask whether each test would fail against a plausible wrong implementation: a test that mocks the thing it tests, or computes its expectation the way the code does, passes for the bug too. " +
+    "Tests written in the same change as the code can share its misunderstanding, so name the behaviour no independent check pins down. " +
+    "Where a rule must hold for every input — a round trip, an invariant, idempotency, or equivalence to a simpler version — say whether a property-based test checks it or only a few examples do. " +
+    "For a rewrite or migration, say whether the old behaviour is used as the reference the new code is compared against, or the new code is only tested against itself.",
 };
 
 /**
@@ -86,6 +90,16 @@ export function buildReviewPrompt(input: ReviewInput): string {
         .join("\n")}`
     : "";
 
+  // The repository's own inventory of what a user can do and where. Without
+  // it a verification check's instruction is written from the diff alone,
+  // and a route or button the model never saw is easy to invent.
+  const featureMap = input.featureMap
+    ? `\n## Feature map\nThis is the repository's own map of its features: where each one is reached, what a user does there, and what they should see. It was read from \`${input.featureMap.path}\` at the head of this pull request.\n\n${input.featureMap.text}`
+    : "";
+  const featureMapGuidance = input.featureMap
+    ? `\n     Write each check's instruction from the feature map: the route or entry point it names, the steps it lists, and the outcome it says a user should see. When a changed flow is not in the map, say so in that check's instruction, so the person knows the steps are inferred from the diff.`
+    : "";
+
   const diffs = files
     .map((f) => {
       const header = `### ${f.path} (${f.status}, +${f.additions}/-${f.deletions})`;
@@ -109,7 +123,7 @@ ${profileNote}${passSection(input.pass)}
 
 ### Description
 ${pr.body || "(empty)"}
-${custom}${memories}${sharedContext}${pathInstructions}
+${custom}${memories}${sharedContext}${featureMap}${pathInstructions}
 
 ## Diff
 Each diff line is prefixed with its line number in the NEW version of the file. Source-visible findings should cite an added line. Cross-cutting architecture, scope, and missing-test concerns may use an empty path and line 0 when no single changed line owns the problem.
@@ -123,7 +137,7 @@ ${diffs}
    - walkthrough: group RELATED files into single rows (e.g. one source change + its locale/test churn = separate rows, each with a plain-language summary)
    - confidence: 0-5 confidence that this review brief has enough context (5 = well grounded) + one-line coverage note. This is not merge confidence.
    - effort: 1-5 estimated human review effort
-   - verificationChecks: the smallest set of concrete results a human must exercise. Name the action, expected observation, acceptable evidence kinds, and whether it is required. A changed UI normally needs a preview or screenshot check. A changed command, migration, integration, or background job normally needs a real run or command-output check. Do not say a check passed; you did not run it.
+   - verificationChecks: the smallest set of concrete results a human must exercise. Each check is the definition of done for one result: name the action, expected observation, acceptable evidence kinds, and whether it is required. Prefer one end-to-end flow a person can follow from where a user starts over several partial steps, and state what a user or operator would observe, not an internal value. A changed UI normally needs a preview or screenshot check. A changed command, migration, integration, or background job normally needs a real run or command-output check. Do not say a check passed; you did not run it.${featureMapGuidance}
    - diagram: a structured diagram ONLY if the PR's change fits one of these shapes — omit otherwise:
      - \`sequence\`: a multi-actor request/response or protocol change (max 5 actors, 12 messages, at most 1 fragment — or 2 only if both are single-region opt/loop; an \`alt\` fragment takes 1 or 2 regions)
      - \`flowchart\`: branching/decision logic changed (max 9 nodes, decisions ≤3 exits)
@@ -140,7 +154,7 @@ Each judgement is either a source-visible preflight defect or one decision a hum
 - \`code\`: a concrete defect visible in source. Treat this as AI preflight, not the centre of human review.
 - \`architecture\`: ownership, layering, system boundaries, data flow, or established design patterns.
 - \`scope\`: unrelated files, inappropriate libraries or modules, or a change reaching farther than the task requires.
-- \`tests\`: missing necessary coverage, a test that proves the wrong thing, or redundant coverage that adds cost without confidence.
+- \`tests\`: missing necessary coverage, a test that proves the wrong thing, or redundant coverage that adds cost without confidence. A test that would still pass against a plausible wrong implementation proves the wrong thing.
 
 Do not create a code judgement merely because code looks unusual. Do not create a verification judgement for behaviour you could not observe; create a verificationCheck instead.
 
