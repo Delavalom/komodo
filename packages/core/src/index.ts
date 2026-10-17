@@ -7,6 +7,7 @@ export * from "./merge.js";
 export * from "./passes.js";
 export * from "./voice.js";
 export * from "./context-sources.js";
+export * from "./feature-map.js";
 export * from "./diff.js";
 export * from "./diff-source.js";
 export * from "./diff-sources/index.js";

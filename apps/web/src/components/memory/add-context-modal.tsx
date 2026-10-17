@@ -44,35 +44,50 @@ function StepRow({
   );
 }
 
+/**
+ * A rule someone is about to write, already partly written.
+ *
+ * Read once, as initial state. A caller that changes what it passes — the
+ * decision queue moving to another judgement — remounts the modal with a new
+ * `key` instead of expecting it to follow along (AGENTS.md rule 7).
+ */
+export interface AddContextDraft {
+  ruleText?: string;
+  scopeRepo?: string;
+  scopePattern?: string;
+}
+
 export function AddContextModal({
   open,
   onClose,
+  initial,
 }: {
   open: boolean;
   onClose: () => void;
+  initial?: AddContextDraft;
 }) {
   const repos = useRepositories();
   const createRule = useCreateMemoryRule();
 
   const [kind, setKind] = React.useState<"rule" | "file">("rule");
-  const [ruleText, setRuleText] = React.useState("");
+  const [ruleText, setRuleText] = React.useState(initial?.ruleText ?? "");
   const [filePath, setFilePath] = React.useState("");
   const [fileRepo, setFileRepo] = React.useState("");
   const [fileDescription, setFileDescription] = React.useState("");
-  const [scopeRepo, setScopeRepo] = React.useState("");
-  const [scopePattern, setScopePattern] = React.useState("");
+  const [scopeRepo, setScopeRepo] = React.useState(initial?.scopeRepo ?? "");
+  const [scopePattern, setScopePattern] = React.useState(initial?.scopePattern ?? "");
 
   const repoOptions = repos.map((r) => ({ value: r.id, label: fullName(r) }));
   const canCreate =
     kind === "rule" ? ruleText.trim().length > 0 : filePath.trim().length > 0;
 
   function reset() {
-    setRuleText("");
+    setRuleText(initial?.ruleText ?? "");
     setFilePath("");
     setFileRepo("");
     setFileDescription("");
-    setScopeRepo("");
-    setScopePattern("");
+    setScopeRepo(initial?.scopeRepo ?? "");
+    setScopePattern(initial?.scopePattern ?? "");
   }
 
   function submit() {
