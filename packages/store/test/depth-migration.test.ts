@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 
 import { PGlite } from "@electric-sql/pglite";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { MIGRATIONS, runPostgresMigrations, runSqliteMigrations } from "../src/migrate.js";
 
@@ -32,9 +32,21 @@ describe("review depth migration", () => {
     }
   });
 
-  it("does the same on Postgres", async () => {
-    const pg = new PGlite();
-    try {
+  describe("Postgres", () => {
+    // Booted once in a hook, not inside the test body, so the WASM startup
+    // never has to fit inside the test's own default timeout.
+    let pg: PGlite;
+
+    beforeAll(async () => {
+      pg = new PGlite();
+      await pg.waitReady;
+    }, 30_000); // PGlite compiles Postgres to WASM — see conformance.ts's own beforeEach comment; this is the one-time version of the same cold start.
+
+    afterAll(async () => {
+      await pg.close();
+    });
+
+    it("does the same on Postgres", async () => {
       const sql = {
         query: async <T,>(text: string, params?: unknown[]) => ({
           rows: (await pg.query(text, params as never[])).rows as T[],
@@ -60,8 +72,6 @@ describe("review depth migration", () => {
       });
       const jobs = await pg.query(`SELECT depth FROM ai_review_jobs`);
       expect(jobs.rows[0]).toEqual({ depth: null });
-    } finally {
-      await pg.close();
-    }
-  }, 30_000);
+    });
+  });
 });
