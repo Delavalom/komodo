@@ -51,6 +51,8 @@ export interface IngestOptions {
   configDir?: string;
   signal?: AbortSignal;
   onProgress?: (msg: string) => void;
+  /** Defaults to `Date.now`. Threaded to discovery, so a test can stage a Rescan pressed mid-pass without a real sleep. */
+  now?: () => number;
 }
 
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -162,6 +164,7 @@ async function discoverIfAsked(
     autoEnable,
     force: requested,
     onProgress,
+    now: options.now,
   });
 }
 
