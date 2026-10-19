@@ -152,19 +152,25 @@ export async function startWebServer(
 ): Promise<{ child: ChildProcess; port: number }> {
   const server = resolveWebServer();
   const port = options.port === 0 ? await pickFreePort() : options.port;
-  // Printed before spawning the child, so a caller that asked for port 0
-  // (the E2E scripts) can read back the real port from stdout instead of
-  // reserving one of its own and handing it over — the two-process version
-  // of this same gap, but with a test harness, pnpm and tarball installs
-  // able to run in between.
-  console.log(`listening on http://127.0.0.1:${port}`);
+  const hostname = process.env.HOSTNAME ?? "127.0.0.1";
+  if (options.port === 0) {
+    // Printed only for the "OS picks" case, so a caller that asked for
+    // --port 0 (the E2E scripts) can read back the real port from stdout
+    // instead of reserving one of its own and handing it over — the
+    // two-process version of this same gap, but with a test harness, pnpm
+    // and tarball installs able to run in between. A fixed --port (every
+    // normal `komodo dev`/`komodo serve` run) already knows its own port, so
+    // this would just be noise there; serve.ts's own banner covers that case
+    // once the store snapshot resolves.
+    console.log(`listening on http://${hostname}:${port}`);
+  }
   const child = spawn(process.execPath, [server], {
     cwd: dirname(server),
     stdio: ["ignore", "inherit", "inherit"],
     env: {
       ...process.env,
       PORT: String(port),
-      HOSTNAME: process.env.HOSTNAME ?? "127.0.0.1",
+      HOSTNAME: hostname,
       KOMODO_DB: options.dbTarget,
       KOMODO_SEED: options.seed ? "1" : "0",
       ...(options.configDir ? { KOMODO_CONFIG_DIR: options.configDir } : {}),
@@ -175,6 +181,12 @@ export async function startWebServer(
         : {}),
       NODE_ENV: "production",
     },
+  });
+  // Without this, a spawn failure (bad path, EACCES) emits only 'error' with
+  // no listener attached — an uncaught exception instead of a reported exit.
+  child.once("error", (err) => {
+    console.error(`Web server failed to start: ${err.message}`);
+    options.onExit?.(1);
   });
   if (options.onExit) child.on("exit", options.onExit);
   return { child, port };
