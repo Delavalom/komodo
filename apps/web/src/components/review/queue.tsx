@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/display";
 import { Button } from "@/components/ui/button";
+import { AddContextModal, type AddContextDraft } from "@/components/memory/add-context-modal";
 import { useAnswerJudgement, useVoteJudgement } from "@/lib/data/mutations";
 import { usePersonalSettings } from "@/lib/data/queries";
 import { useMountEffect } from "@/lib/use-mount-effect";
@@ -92,6 +93,7 @@ export function DecisionQueue({
 
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
+  const [remembering, setRemembering] = useState(false);
 
   // The shortcuts below are handled on this container, so they only fire once
   // it has focus. autoFocus would not do it: React applies that when it
@@ -125,6 +127,7 @@ export function DecisionQueue({
 
   const go = (to: number) => {
     setNote("");
+    setRemembering(false);
     set({ j: to <= 0 ? null : String(clamp(to, 0, last)) });
   };
 
@@ -181,6 +184,9 @@ export function DecisionQueue({
     // owns its own keys. A textarea was the only exemption, which meant one
     // ArrowLeft on the way to the submit button paged the whole screen away
     // and took the drafted review body with it.
+    // The rule modal renders through a portal, but React still bubbles its
+    // key events here. Nothing typed into it may answer the judgement under it.
+    if (remembering) return;
     const target = event.target as HTMLElement | null;
     if (
       target instanceof HTMLTextAreaElement ||
@@ -344,13 +350,21 @@ export function DecisionQueue({
           />
 
           {given?.bucket ? (
-            <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>
                 Answered “{given.optionLabel}” by {given.actorLogin}.
               </span>
               <Button size="sm" variant="ghost" onClick={() => void withdraw()}>
                 Withdraw (u)
               </Button>
+              {/* A decision worth making once is worth not making again. Only
+                  after a real answer either way: a question or a hand-off has
+                  not decided anything a rule could carry. */}
+              {given.bucket === "Agreed" || given.bucket === "Blocks" ? (
+                <Button size="sm" variant="ghost" onClick={() => setRemembering(true)}>
+                  Remember this for future reviews
+                </Button>
+              ) : null}
             </div>
           ) : null}
 
@@ -368,6 +382,17 @@ export function DecisionQueue({
         </div>
       </div>
       )}
+
+      {current && given?.bucket ? (
+        <AddContextModal
+          // One draft per judgement and answer: moving on, or answering the
+          // other way, starts from what is now on screen.
+          key={`${current.id}:${given.id}`}
+          open={remembering}
+          onClose={() => setRemembering(false)}
+          initial={ruleDraft(review, current, given)}
+        />
+      ) : null}
 
       <div className="flex items-center justify-between border-t border-border px-6 py-3">
         <Button
@@ -392,6 +417,28 @@ export function DecisionQueue({
       </div>
     </div>
   );
+}
+
+/**
+ * A judgement and the decision on it, as the first draft of a team rule.
+ *
+ * Scoped to this repository and, when the judgement sits in a file, to that
+ * file's directory — the person sees both and can widen or narrow them before
+ * saving. The answer goes in as written: it is the team's decision, and the
+ * rule is what makes the reviewer apply it next time without being asked.
+ */
+function ruleDraft(review: Review, judgement: ReviewJudgement, answer: Answer): AddContextDraft {
+  const lines = [
+    `What: ${judgement.title}`,
+    `Decision: ${answer.optionLabel ?? answer.bucket}`,
+    `Why: ${judgement.lede}`,
+  ];
+  const slash = judgement.path.lastIndexOf("/");
+  return {
+    ruleText: lines.join("\n\n"),
+    scopeRepo: review.prId.split("#")[0],
+    scopePattern: slash > 0 ? `${judgement.path.slice(0, slash)}/**` : "",
+  };
 }
 
 /** One pip per judgement: where you are, and what is already decided. */
