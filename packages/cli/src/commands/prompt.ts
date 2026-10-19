@@ -11,6 +11,7 @@
  * So the skill asks for the prompt instead of restating it, and there stays
  * exactly one definition of what a Komodo review is.
  */
+import { execFileSync } from "node:child_process";
 import { dirname } from "node:path";
 import pc from "picocolors";
 import {
@@ -19,6 +20,7 @@ import {
   filterPaths,
   loadConfig,
   LocalGitDiffSource,
+  readFeatureMap,
   resolveContextSources,
   reviewResultJsonSchema,
   selectSharedContext,
@@ -89,7 +91,21 @@ export async function promptCommand(opts: { base?: string; json?: boolean }): Pr
     );
   }
 
-  const reviewPrompt = buildReviewPrompt({ pr: meta, files, config, sharedContext: shared.docs });
+  // The working tree is the head this prompt reviews, so its feature map is
+  // the one that describes the change. Read from the top level rather than
+  // the cwd: the skill may run from any directory inside the repository.
+  const featureMap = readFeatureMap(gitTopLevel() ?? process.cwd());
+  if (featureMap) {
+    console.error(pc.dim(`Writing checks from the feature map in ${featureMap.path}.`));
+  }
+
+  const reviewPrompt = buildReviewPrompt({
+    pr: meta,
+    files,
+    config,
+    sharedContext: shared.docs,
+    featureMap: featureMap ?? undefined,
+  });
 
   // A caller with a structured channel (the Claude Code mod's submit_review
   // tool) takes the schema as that tool's input schema, so its prompt carries
@@ -112,4 +128,15 @@ ${schema}
 \`\`\`
 `,
   );
+}
+
+function gitTopLevel(): string | null {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null;
+  } catch {
+    return null;
+  }
 }
