@@ -114,7 +114,7 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
     ? startIngest({ store, config, configDir, opts, dim, signal: controller.signal })
     : Promise.resolve();
 
-  const web = startWebServer({
+  const { child: web, port: boundPort } = await startWebServer({
     port,
     dbTarget,
     // The app posts receipts, and a receipt carries a link back here. Only
@@ -135,7 +135,7 @@ async function serve(opts: ServeOptions & { label: string }): Promise<void> {
   // Link straight to the queue: the bare host only redirects once it knows
   // which organization slug the store ended up with.
   const { organization } = await store.snapshot();
-  const url = `http://localhost:${port}/${organization.slug}/-/queue`;
+  const url = `http://localhost:${boundPort}/${organization.slug}/-/queue`;
   console.log(`\n🦎 Komodo ${opts.label} → ${pc.bold(pc.cyan(url))}`);
   console.log(
     pc.dim(`Store ${redact(dbTarget)}${configPath ? `\nConfig ${configPath}` : ""}`),

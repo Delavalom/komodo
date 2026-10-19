@@ -14,7 +14,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,9 +37,24 @@ try {
   const headSha = seedGitRepo();
   const secret = await seedStore(headSha);
 
-  const port = await reservePort();
+  // `--port 0` asks the CLI to bind an OS-picked port and print it, rather
+  // than this script reserving one of its own, closing it, and handing the
+  // number over — the reserve-then-reuse race a second process (or a second
+  // copy of this same script) could win in the gap between the release and
+  // the CLI's own bind.
+  child = startDeployment();
+  const port = await waitForListeningPort(30_000);
   const origin = `http://127.0.0.1:${port}`;
-  child = startDeployment(port);
+
+  // apps/web/src/lib/api/host.ts names this deployment from `local.url` in
+  // komodo.yaml (falling back to the schema default, never to the request)
+  // when KOMODO_PUBLIC_URL is unset — and the port is only known now, after
+  // the deployment has already started. loadConfig() re-reads the file on
+  // every request rather than caching it at boot, so writing it here, before
+  // the first claim, is enough for the deployment to name itself correctly
+  // from here on.
+  writeFileSync(join(scratch, "komodo.yaml"), `local:\n  url: "${origin}"\n`);
+
   await waitForHealth(`${origin}/api/health`, 90_000);
 
   /* ── The happy path, as the CLI walks it ──────────────────────────────── */
@@ -633,7 +647,7 @@ function reviewRecord(headSha) {
   };
 }
 
-function startDeployment(port) {
+function startDeployment() {
   const proc = spawn(
     process.execPath,
     [
@@ -642,7 +656,7 @@ function startDeployment(port) {
       "--no-poll",
       "--no-seed",
       "--port",
-      String(port),
+      "0",
       "--db",
       db,
     ],
@@ -653,9 +667,11 @@ function startDeployment(port) {
         NO_COLOR: "1",
         HOSTNAME: "127.0.0.1",
         KOMODO_SEED: "0",
-        // The deployment no longer takes its own name from the request, so an
-        // operator has to say it. This is that setting.
-        KOMODO_PUBLIC_URL: `http://127.0.0.1:${port}`,
+        // No KOMODO_PUBLIC_URL: the port is only known once the CLI reports
+        // it below, after this spawns. apps/web/src/lib/api/host.ts falls
+        // back to the incoming request's own host when it is unset, which
+        // is exactly http://127.0.0.1:<the port this test discovers> for
+        // every request this script makes.
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -700,17 +716,22 @@ async function api(origin, secret, method, path, body) {
   return { status: res.status, body: parsed };
 }
 
-async function reservePort() {
-  const server = createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const { port } = server.address();
-  await new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
-  return port;
+/**
+ * Polls the captured child output for the CLI's `listening on
+ * http://127.0.0.1:<port>` line (see packages/cli/src/web.ts) instead of
+ * this script choosing a port itself. A bounded wait rather than a bare
+ * block, so a deployment that never gets there fails with a clear error
+ * instead of hanging the suite.
+ */
+async function waitForListeningPort(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (childExited) throw new Error(`the deployment exited before reporting a port\n${logs}`);
+    const match = /listening on http:\/\/127\.0\.0\.1:(\d+)/.exec(logs);
+    if (match) return Number(match[1]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`the deployment never reported a bound port\n${logs}`);
 }
 
 async function waitForHealth(url, timeoutMs) {
