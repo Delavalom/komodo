@@ -100,6 +100,11 @@ async function updateVerificationStatus(
   const reviewId = requirementId.split(":verify:")[0];
   const detail = await store.loadReview(reviewId);
   if (!detail) return;
+  // A status names a commit. Evidence added to an earlier run is history, and
+  // painting that run's commit green or red now says nothing about what
+  // would merge.
+  const pr = (await store.listPullRequests()).find((p) => p.id === detail.review.prId);
+  if (pr?.headSha !== detail.review.headSha) return;
   const github = new GitHubClient(resolveGithubToken());
   const ref = parseReviewId(reviewId);
 
@@ -109,7 +114,10 @@ async function updateVerificationStatus(
       return current
         ? {
             requirements: current.verificationRequirements,
-            entries: current.verifications,
+            // Never what was carried across a rebase. Branch protection reads
+            // this status with nobody there to acknowledge the base moved, so
+            // only an observation made at this head may turn it green.
+            entries: current.verifications.filter((e) => e.carriedFromHeadSha === null),
           }
         : null;
     },

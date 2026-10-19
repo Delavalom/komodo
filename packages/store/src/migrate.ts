@@ -543,6 +543,18 @@ CREATE TABLE IF NOT EXISTS github_identities (
       { table: "reviews", column: "intent", sqlite: "TEXT", postgres: "TEXT" },
     ],
   },
+  {
+    id: "019-carried-reviews",
+    // Null everywhere before it: no run had a fingerprint, so none can be
+    // carried, and nothing recorded so far was copied from anywhere.
+    addColumns: [
+      { table: "reviews", column: "changeFingerprint", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "reviews", column: "carriedFrom", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "answers", column: "carriedFromId", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "verification_entries", column: "carriedFromEntryId", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "verification_entries", column: "carriedFromHeadSha", sqlite: "TEXT", postgres: "TEXT" },
+    ],
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

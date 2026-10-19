@@ -96,7 +96,19 @@ Inherited by every future session in this repo. These are not suggestions.
     must instead surface architectural fit, inappropriate scope, and test
     adequacy, then name the real results a person must verify. A clean diff or
     an empty finding list is never evidence that behavior works. Verification
-    evidence is append-only and pinned to the reviewed head.
+    evidence is append-only and pinned to the head it was observed at.
+
+    **A rebase can carry it, and nothing else can.** When a push moves the
+    head but `changeFingerprint` says the change itself is byte-identical, the
+    poller calls `carryReview`: the brief, the answers and the newest evidence
+    are *copied* to the new head, each naming the original and the head it was
+    observed at. Nothing is moved and nothing is re-attributed. Carried
+    evidence never becomes a GitHub commit status, and an approval that rests
+    on it requires the approver to acknowledge the base moved — which is
+    written into the review GitHub records. Only a run that fetched the files
+    from GitHub itself may state a fingerprint; a record that arrived over the
+    network never carries. Widening any of that turns "the same change" into
+    "close enough", which is the judgement a person exists to make.
 
     **The reviewer can never approve a pull request.** This rule used to end
     "Komodo must never emit one", which was the right instinct and the wrong

@@ -542,6 +542,38 @@ export async function seedStore(
       await seedEngagement(store, reviewId, judgements.length, others);
     }
   }
+
+  await seedRebases(store);
+}
+
+/**
+ * Two pull requests whose author rebased after someone verified them.
+ *
+ * Through the same two writes the poller makes when a push moves the head
+ * without moving the change — the new head, then `carryReview` — so the dev
+ * queue shows a carried brief and evidence that asks to be acknowledged
+ * before it can approve anything.
+ */
+async function seedRebases(store: KomodoStore): Promise<void> {
+  const open = (await store.listPullRequests())
+    .filter((p) => p.state === "open" && !p.isDraft)
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  let rebased = 0;
+  for (const { checks: _checks, ...p } of open) {
+    if (rebased === 2) return;
+    const detail = await store.loadReview(`${p.id}@${p.headSha}`);
+    if (!detail) continue;
+    const required = new Set(
+      detail.verificationRequirements.filter((r) => r.required).map((r) => r.id),
+    );
+    if (!detail.verifications.some((v) => required.has(v.requirementId) && v.result === "verified")) {
+      continue;
+    }
+    const head = fakeSha(rng(`rebase:${p.id}`));
+    await store.upsertPullRequest({ ...p, headSha: head });
+    await store.carryReview({ fromReviewId: detail.review.id, toHeadSha: head, at: p.updatedAt });
+    rebased++;
+  }
 }
 
 /** Real verification rows, so the dev queue is derived from observations. */
