@@ -66,6 +66,7 @@ const check: fc.Arbitrary<VerificationCheck> = fc.record({
 });
 
 const result: fc.Arbitrary<ReviewResult> = fc.record({
+  intent: fc.constant("Make the change."),
   summary: fc.constant("- A change"),
   walkthrough: fc.constant([]),
   confidence: fc.integer({ min: 0, max: 5 }),

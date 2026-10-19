@@ -45,7 +45,13 @@ import { RequestReviewButton } from "@/components/review/request-review-button";
 import { canRequestAiReview } from "@komodo/store";
 import { absoluteStamp, cn, plural, relativeTime } from "@/lib/utils";
 import { useNow } from "@/lib/data/provider";
-import type { ChecksState, EasyWinSignal, QueueLens, QueueRow } from "@/lib/types";
+import type {
+  ChecksState,
+  EasyWinSignal,
+  MechanicalReason,
+  QueueLens,
+  QueueRow,
+} from "@/lib/types";
 
 const LENSES: { key: QueueLens; label: string; hint: string }[] = [
   {
@@ -87,6 +93,18 @@ const SIGNAL_LABEL: Record<EasyWinSignal, string> = {
   no_concerns: "no open concerns",
 };
 
+const MECHANICAL_BADGE: Record<MechanicalReason, string> = {
+  docs: "Docs only",
+  comments: "Comments only",
+  whitespace: "Formatting only",
+};
+
+const MECHANICAL_NOUN: Record<MechanicalReason, string> = {
+  docs: "documentation",
+  comments: "comments",
+  whitespace: "formatting",
+};
+
 const AI_STATE_LABEL: Record<QueueRow["aiState"], string> = {
   not_requested: "Not requested",
   queued: "Queued",
@@ -113,7 +131,12 @@ const HUMAN_LABEL: Record<QueueRow["humanReviewState"], string> = {
   unassigned: "Human review needed",
 };
 
-export function QueueView() {
+export function QueueView({
+  mechanical,
+}: {
+  /** From `loadMechanicalChanges`; see there. */
+  mechanical: Record<string, MechanicalReason[]>;
+}) {
   const { get, set } = useUrlState();
   const router = useRouter();
   const repos = useRepositories();
@@ -145,6 +168,7 @@ export function QueueView() {
     search,
     author: active.author,
     repo: active.repo,
+    mechanical,
   });
 
   const facets: FacetDef[] = [
@@ -360,6 +384,13 @@ function QueueRowCells({
               </Link>
               {row.needsMyReview ? <Badge>Your review</Badge> : null}
               {row.isBlocked ? <Badge tone="outline">Blocked</Badge> : null}
+              {row.mechanical ? (
+                <Badge tone="outline">
+                  {row.mechanical.length === 1
+                    ? MECHANICAL_BADGE[row.mechanical[0]]
+                    : "Mechanical"}
+                </Badge>
+              ) : null}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
               <span>{row.repoFullName}</span>
@@ -615,6 +646,18 @@ function QueueRowDetail({ row }: { row: QueueRow }) {
                   : "Nobody has been asked yet."}
             </p>
           </section>
+
+          {row.mechanical ? (
+            <section>
+              <h3 className="label-mono mb-1.5 text-[10px] text-muted-foreground">
+                Why it sits lower
+              </h3>
+              <p className="text-muted-foreground">
+                Only {row.mechanical.map((r) => MECHANICAL_NOUN[r]).join(" and ")}{" "}
+                changed, read from the patch at {row.headSha.slice(0, 7)}.
+              </p>
+            </section>
+          ) : null}
 
           {row.easyWin ? (
             <section>

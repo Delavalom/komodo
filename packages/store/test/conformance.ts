@@ -651,6 +651,197 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       expect(j.requestedReviewers).toEqual(["dev"]);
     });
 
+    describe("carrying a run across a rebase", () => {
+      const at = T0 + 60_000;
+
+      /** A completed run at aaa111, with a fingerprint, as the worker writes one. */
+      async function reviewed() {
+        const prId = await store.upsertPullRequest(pr());
+        await store.upsertJudgment({
+          prId, headSha: "aaa111", verdict: null, status: "completed", impact: "high", score: 3,
+        });
+        const reviewId = await store.saveReview(review({ prId, changeFingerprint: "fp-1" }));
+        await store.replaceFindings(reviewId, [
+          {
+            title: "Sessions outlive logout", body: "b", severity: "P1",
+            isSecurity: true, filePath: "auth/session.ts", judgementId: `${reviewId}:0`,
+          },
+        ]);
+        const detail = (await store.loadReview(reviewId))!;
+        return { prId, reviewId, requirementId: detail.verificationRequirements[0].id };
+      }
+
+      it("copies the run to the new head under its own ids and leaves the source alone", async () => {
+        const { prId, reviewId } = await reviewed();
+        const carried = await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at });
+        expect(carried).toBe(`${prId}@bbb222`);
+
+        const copy = (await store.loadReview(carried!))!;
+        expect(copy.review).toMatchObject({
+          headSha: "bbb222", carriedFrom: reviewId, changeFingerprint: "fp-1", costUsd: null,
+        });
+        expect(copy.judgements.map((j) => j.id)).toEqual([`${carried}:0`, `${carried}:1`]);
+        expect(copy.verificationRequirements.map((r) => r.id.slice(carried!.length))).toEqual(
+          (await store.loadReview(reviewId))!.verificationRequirements.map((r) =>
+            r.id.slice(reviewId.length),
+          ),
+        );
+        expect(await store.loadReviewFiles(carried!)).toHaveLength(1);
+
+        const { findings, judgments } = await store.snapshot();
+        expect(findings.filter((f) => f.judgmentId === carried)).toMatchObject([
+          { title: "Sessions outlive logout" },
+        ]);
+        expect(judgments.find((j) => j.id === carried)?.status).toBe("completed");
+
+        // At the new head, the pull request is already reviewed.
+        await store.upsertPullRequest(pr({ headSha: "bbb222" }));
+        expect(await store.listPullRequestsNeedingReview()).toHaveLength(0);
+      });
+
+      it("carries the current observation per check, saying where it was made", async () => {
+        const { reviewId, requirementId } = await reviewed();
+        await store.recordVerification({
+          requirementId, actorLogin: "renata", result: "failed", evidenceKind: "preview",
+        });
+        await store.recordVerification({
+          requirementId, actorLogin: "dev", result: "verified", evidenceKind: "video",
+          evidenceUrl: "https://evidence.example.test/v.mp4",
+        });
+        const original = (await store.loadReview(reviewId))!.verifications[0];
+
+        const carried = (await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at }))!;
+        const copy = (await store.loadReview(carried))!;
+        expect(copy.verifications).toMatchObject([
+          {
+            reviewId: carried, actorLogin: "dev", result: "verified",
+            evidenceUrl: "https://evidence.example.test/v.mp4",
+            createdAt: original.createdAt,
+            carriedFromEntryId: original.id, carriedFromHeadSha: "aaa111",
+          },
+        ]);
+        // Only the current observation travels, and the source ledger is untouched.
+        expect(await store.listVerificationEntries(carried)).toHaveLength(1);
+        expect(await store.listVerificationEntries(reviewId)).toHaveLength(2);
+        expect(
+          (await store.snapshot()).verificationSummaries.find((v) => v.reviewId === carried),
+        ).toMatchObject({ required: 1, requiredVerified: 1 });
+      });
+
+      it("carries a failed observation as faithfully as a passing one", async () => {
+        const { reviewId, requirementId } = await reviewed();
+        await store.recordVerification({
+          requirementId, actorLogin: "renata", result: "failed", evidenceKind: "preview",
+        });
+        const carried = (await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at }))!;
+        expect((await store.loadReview(carried))!.verifications).toMatchObject([
+          { result: "failed", carriedFromHeadSha: "aaa111" },
+        ]);
+      });
+
+      it("names the original attestation through a chain of rebases", async () => {
+        const { reviewId, requirementId } = await reviewed();
+        await store.recordVerification({
+          requirementId, actorLogin: "renata", result: "verified", evidenceKind: "preview",
+        });
+        const b = (await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at }))!;
+        const c = (await store.carryReview({ fromReviewId: b, toHeadSha: "ccc333", at }))!;
+        const original = (await store.loadReview(reviewId))!.verifications[0];
+        expect((await store.loadReview(c))!.verifications).toMatchObject([
+          { carriedFromEntryId: original.id, carriedFromHeadSha: "aaa111" },
+        ]);
+
+        // Recorded at b, it was made at b.
+        const atB = (await store.loadReview(b))!.verificationRequirements[0].id;
+        await store.recordVerification({
+          requirementId: atB, actorLogin: "dev", result: "verified", evidenceKind: "video",
+        });
+        const d = (await store.carryReview({ fromReviewId: b, toHeadSha: "ddd444", at }))!;
+        expect((await store.loadReview(d))!.verifications).toMatchObject([
+          { actorLogin: "dev", carriedFromHeadSha: "bbb222" },
+        ]);
+      });
+
+      it("lets evidence recorded at the new head replace what was carried", async () => {
+        const { reviewId, requirementId } = await reviewed();
+        await store.recordVerification({
+          requirementId, actorLogin: "renata", result: "verified", evidenceKind: "preview",
+        });
+        const carried = (await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at }))!;
+        const here = (await store.loadReview(carried))!.verificationRequirements[0].id;
+        await store.recordVerification({
+          requirementId: here, actorLogin: "dev", result: "verified", evidenceKind: "video",
+        });
+        expect((await store.loadReview(carried))!.verifications).toMatchObject([
+          { actorLogin: "dev", carriedFromEntryId: null, carriedFromHeadSha: null },
+        ]);
+      });
+
+      it("carries the current answer to each judgement, and not a withdrawn one", async () => {
+        const { reviewId } = await reviewed();
+        await store.recordAnswer({
+          judgementId: `${reviewId}:0`, actorLogin: "renata", bucket: "Agreed", optionLabel: "Yes",
+        });
+        await store.recordAnswer({
+          judgementId: `${reviewId}:1`, actorLogin: "renata", bucket: "Blocks", optionLabel: "No",
+        });
+        await store.recordAnswer({ judgementId: `${reviewId}:1`, actorLogin: "renata", bucket: null });
+
+        const carried = (await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at }))!;
+        const original = (await store.loadReview(reviewId))!.answers.find(
+          (a) => a.judgementId === `${reviewId}:0`,
+        )!;
+        expect((await store.loadReview(carried))!.answers).toMatchObject([
+          {
+            judgementId: `${carried}:0`, reviewId: carried, bucket: "Agreed",
+            actorLogin: "renata", carriedFromId: original.id,
+          },
+        ]);
+        // The carried finding reads its state off the carried answer.
+        const finding = (await store.snapshot()).findings.find((f) => f.judgmentId === carried);
+        expect(finding?.status).toBe("addressed");
+      });
+
+      it("refuses, changing nothing, when there is nothing to carry or somewhere it would land", async () => {
+        const { prId, reviewId } = await reviewed();
+        expect(
+          await store.carryReview({ fromReviewId: "acme/api#9@nope", toHeadSha: "bbb222", at }),
+        ).toBeNull();
+        expect(await store.carryReview({ fromReviewId: reviewId, toHeadSha: "aaa111", at })).toBeNull();
+
+        // A head that already has a judgment — a queued or failed run — is not overwritten.
+        await store.upsertJudgment({
+          prId, headSha: "bbb222", verdict: null, status: "error", impact: "low", score: 0,
+        });
+        expect(await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at })).toBeNull();
+        expect(await store.loadReview(`${prId}@bbb222`)).toBeNull();
+
+        // And a second carry to the same head is a no-op.
+        expect(await store.carryReview({ fromReviewId: reviewId, toHeadSha: "ccc333", at })).toBe(
+          `${prId}@ccc333`,
+        );
+        expect(await store.carryReview({ fromReviewId: reviewId, toHeadSha: "ccc333", at })).toBeNull();
+      });
+
+      it("is not counted as a run, because no reviewer made one", async () => {
+        const { prId, reviewId } = await reviewed();
+        await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at });
+        const snapshot = await store.snapshot();
+        expect(snapshot.reviewRuns.map((r) => r.reviewId)).toEqual([reviewId]);
+        expect(snapshot.judgments.find((j) => j.prId === prId)?.reviewCount).toBe(1);
+        expect(snapshot.repositories.find((r) => r.id === "acme/api")?.reviewCount).toBe(1);
+      });
+
+      it("stops being a copy when a reviewer runs over it", async () => {
+        const { prId, reviewId } = await reviewed();
+        const carried = (await store.carryReview({ fromReviewId: reviewId, toHeadSha: "bbb222", at }))!;
+        await store.saveReview(review({ prId, headSha: "bbb222", changeFingerprint: "fp-2" }));
+        expect((await store.loadReview(carried))!.review).toMatchObject({
+          carriedFrom: null, changeFingerprint: "fp-2",
+        });
+      });
+    });
+
     it("keeps verification evidence append-only and derives the queue summary", async () => {
       const prId = await store.upsertPullRequest(pr());
       const reviewId = await store.saveReview(review({ prId }));
@@ -1255,6 +1446,23 @@ export function describeStore(name: string, make: () => Promise<KomodoStore>) {
       // leaving the old run's sentence on a review that never wrote one.
       await store.saveReview(review({ prId }));
       expect((await store.loadReview(reviewId))?.review.intent).toBeNull();
+    });
+
+    it("lists the patches of each open pull request's run at its current head", async () => {
+      const prId = await store.upsertPullRequest(pr());
+      await store.saveReview(review({ prId }));
+      const closed = await store.upsertPullRequest(pr({ number: 2, state: "closed" }));
+      await store.saveReview(review({ prId: closed }));
+
+      const files = await store.listOpenHeadReviewFiles();
+      expect(files.map((f) => [f.reviewId, f.path])).toEqual([
+        [`${prId}@aaa111`, "auth/session.ts"],
+      ]);
+      expect(files[0].patch).toContain("@@");
+
+      // A push leaves the old run's files behind until a run reads the new head.
+      await store.upsertPullRequest(pr({ headSha: "bbb222" }));
+      expect(await store.listOpenHeadReviewFiles()).toEqual([]);
     });
 
     it("stores patches out of the way, read only when asked for", async () => {
