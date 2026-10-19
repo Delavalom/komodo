@@ -167,9 +167,27 @@ export const VerificationCheckSchema = z.object({
 export const WalkthroughEntrySchema = z.object({
   files: z.array(z.string()).describe("Related files grouped into one row"),
   summary: z.string().describe("Plain-language description of what changed in these files"),
+  // A default rather than required: a run written before the field existed,
+  // and every row the model is unsure about, is behavioural. Calling a row
+  // mechanical tells a person they may skim it, so the burden is on that word.
+  kind: z
+    .enum(["behavioural", "mechanical"])
+    .default("behavioural")
+    .describe(
+      "mechanical only when these files provably change no behaviour: documentation, comments, formatting, a rename with every call site updated. Anything else, or anything you are unsure of, is behavioural.",
+    ),
 });
 
 export const ReviewResultSchema = z.object({
+  // First, because it is what the reader is asked to judge the diff against.
+  // A summary says what changed; this says what the change is for, and scope
+  // is measured as the distance between the two.
+  intent: z
+    .string()
+    .min(1)
+    .describe(
+      "What this change is for, in one or two plain sentences, taken from the title and description. When the description is empty, say what the diff appears to be for and that it was inferred from the diff.",
+    ),
   // Non-empty, and this is the reason: a result that validates with an empty
   // summary and no verdict line is a review that says nothing, and storing one
   // marks a commit as reviewed. `verificationChecks` may legitimately be empty
@@ -284,7 +302,10 @@ export const ReviewRecordSchema = z.object({
       (files) => new Set(files.map((file) => file.path)).size === files.length,
       { message: "Two files in this record have the same path." },
     ),
-  result: ReviewResultSchema,
+  // `intent` is optional here and required of the model. A record written
+  // before the field existed, or pushed by an older CLI, is still a valid run
+  // — it simply has no stated intent, and the store reads that as null.
+  result: ReviewResultSchema.extend({ intent: z.string().min(1).optional() }),
   /**
    * How hard this run looked — see ./depth.ts.
    *

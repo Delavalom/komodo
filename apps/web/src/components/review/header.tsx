@@ -173,12 +173,35 @@ export function ReviewHeader({
         </div>
       </div>
 
+      {current?.carriedFrom ? (
+        <p className="mt-3 border-t border-border bg-muted-accent/40 px-6 py-1.5 text-xs text-muted-foreground">
+          Brief carried from{" "}
+          <button
+            type="button"
+            className="underline hover:text-foreground"
+            onClick={() => set({ run: current.carriedFrom!.split("@").pop()!, j: null })}
+          >
+            {current.carriedFrom.split("@").pop()!.slice(0, 7)}
+          </button>
+          : the same change, rebased onto a newer base. No new AI run.
+        </p>
+      ) : null}
+
       {isLatest ? null : (
         <p className="mt-3 border-t border-border bg-muted-accent/40 px-6 py-1.5 text-xs text-muted-foreground">
           Showing an earlier run. The head has moved since — answers here stay
           on the record.
         </p>
       )}
+
+      {/* Above the tabs, so every view opens on it: what the change is for is
+          the question each of them is answering, not one more panel. */}
+      {current?.intent ? (
+        <p className="mt-3 px-6 text-sm">
+          <span className="label-mono mr-2 text-[10px] text-muted-foreground">Intent</span>
+          {current.intent}
+        </p>
+      ) : null}
 
       <div className="flex items-center justify-between gap-2 px-4 pt-3">
         <nav className="flex gap-1">

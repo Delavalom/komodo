@@ -37,8 +37,9 @@ const check = (over: Partial<VerificationCheck> = {}): VerificationCheck => ({
 });
 
 const result = (over: Partial<ReviewResult> = {}): ReviewResult => ({
+  intent: "Make wallet operations async.",
   summary: "- Adds async wallet operations",
-  walkthrough: [{ files: ["src/wallet.js"], summary: "Credit and transfer go async." }],
+  walkthrough: [{ files: ["src/wallet.js"], summary: "Credit and transfer go async.", kind: "behavioural" }],
   confidence: 3,
   verdict: "Read the wallet changes against the tests.",
   effort: 2,

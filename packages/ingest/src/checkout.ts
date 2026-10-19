@@ -21,6 +21,12 @@ export interface CheckoutRef {
   owner: string;
   name: string;
   number: number;
+  /**
+   * The head the review was claimed for. `refs/pull/<n>/head` is whatever
+   * GitHub says now, and a tree from a later push would have the reviewer
+   * reading code the diff does not describe — so a mismatch drops the tree.
+   */
+  headSha?: string;
 }
 
 export interface RepoCheckout {
@@ -85,6 +91,13 @@ function prepare(options: CheckoutOptions, ref: CheckoutRef): string {
   // --force because the previous pull request left its own tree here; the
   // checkout is what makes the directory reusable rather than per-PR.
   git(options, dir, ["checkout", "--quiet", "--detach", "--force", "FETCH_HEAD"]);
+
+  if (ref.headSha) {
+    const at = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+    if (at !== ref.headSha) {
+      throw new Error(`fetched ${at.slice(0, 7)}, but the review is for ${ref.headSha.slice(0, 7)}`);
+    }
+  }
 
   return dir;
 }

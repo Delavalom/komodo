@@ -9,7 +9,6 @@
 import type {
   Judgement,
   ReviewRecord,
-  ReviewResult,
   Severity as CoreSeverity,
 } from "@komodo/core";
 import { SEVERITY_RANK } from "@komodo/core";
@@ -20,6 +19,12 @@ import type {
   ReviewInput,
   Severity,
 } from "@komodo/store";
+
+/**
+ * A result as it is recorded, which is wider than what a model must produce:
+ * a record from before `intent` existed is still a run.
+ */
+type ReviewResult = ReviewRecord["result"];
 
 /** core has four severities; a finding row has three. trivial folds into P2. */
 const SEVERITY: Record<CoreSeverity, Severity> = {
@@ -162,6 +167,7 @@ export function toReview(
     headSha: record.pr.headSha,
     provider: record.provider,
     model: record.model ?? null,
+    intent: result.intent ?? null,
     summary: result.summary,
     walkthrough: result.walkthrough,
     confidence: result.confidence,

@@ -94,6 +94,7 @@ export { pickActor } from "./actor.js";
 export { needsReviewFrom, type QueueLensViewer } from "./queue-lens.js";
 export { deriveAiState, canRequestAiReview, type AiState } from "./ai-state.js";
 export { readChecks, type StoredChecks } from "./checks.js";
+export { changeKind, type ChangeKindInput, type MechanicalReason } from "./change-kind.js";
 export {
   easyWin,
   type EasyWin,

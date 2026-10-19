@@ -27,6 +27,10 @@ export function renderWalkthroughComment(pr: PRMeta, result: ReviewResult, confi
   const parts: string[] = [WALKTHROUGH_MARKER, `# 🦎 Komodo Review`];
   const m = config.modules;
 
+  // Not behind a module switch: it is the sentence everything below is read
+  // against, and a comment without it is back to a list of edits.
+  parts.push(`**Intent:** ${result.intent.replace(/\s+/g, " ").trim()}`);
+
   if (m.confidence.enabled) {
     const grouped = countBySeverity(result.judgements);
     const judgementsLine = result.judgements.length
@@ -45,8 +49,13 @@ export function renderWalkthroughComment(pr: PRMeta, result: ReviewResult, confi
   }
 
   if (m.walkthrough.enabled && result.walkthrough.length) {
-    const rows = result.walkthrough
-      .map((w) => `| ${w.files.map((f) => `\`${f}\``).join("<br>")} | ${w.summary.replace(/\n/g, " ")} |`)
+    // Behavioural rows first: they are the ones a person has to read.
+    const rows = [...result.walkthrough]
+      .sort((a, b) => Number(a.kind === "mechanical") - Number(b.kind === "mechanical"))
+      .map(
+        (w) =>
+          `| ${w.files.map((f) => `\`${f}\``).join("<br>")} | ${w.summary.replace(/\n/g, " ")}${w.kind === "mechanical" ? " _(mechanical)_" : ""} |`,
+      )
       .join("\n");
     const table = `| Files | Change summary |\n|---|---|\n${rows}`;
     parts.push(section("Walkthrough", table, m.walkthrough.collapsible, m.walkthrough.defaultOpen));

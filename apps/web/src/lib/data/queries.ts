@@ -292,7 +292,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
   const login = me?.githubLogin ?? null;
   const now = useNow();
 
-  const { lens = "all", search, author, repo } = query;
+  const { lens = "all", search, author, repo, mechanical } = query;
 
   return useMemo(() => {
     const bySeverity = { P0: 0, P1: 1, P2: 2 } as const;
@@ -410,6 +410,7 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
           .filter((f) => f.status === "open")
           .sort((a, b) => bySeverity[a.severity] - bySeverity[b.severity])
           .slice(0, 3),
+        mechanical: mechanical?.[`${pr.id}@${pr.headSha}`] ?? null,
       });
     }
 
@@ -442,9 +443,15 @@ export function useQueue(query: QueueQuery = {}): QueueRow[] {
     }
 
     // Everywhere else, longest wait first: the queue's job is to surface what
-    // is going stale, not what landed most recently.
-    return filtered.sort((a, b) => a.updatedAt - b.updatedAt);
-  }, [pullRequests, aiReviewJobs, judgments, findings, members, verificationSummaries, repoIndex, login, now, lens, search, author, repo]);
+    // is going stale, not what landed most recently. A change that is only
+    // docs, comments or a reflow waits below every change that is not,
+    // however long it has waited — attention goes to what can break first.
+    return filtered.sort(
+      (a, b) =>
+        Number(a.mechanical !== null) - Number(b.mechanical !== null) ||
+        a.updatedAt - b.updatedAt,
+    );
+  }, [pullRequests, aiReviewJobs, judgments, findings, members, verificationSummaries, repoIndex, login, now, lens, search, author, repo, mechanical]);
 }
 
 /** Row counts behind each lens, so the tabs can carry a badge. */

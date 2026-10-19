@@ -70,6 +70,8 @@ export interface PRSize {
   additions: number;
   deletions: number;
   changedFiles: number;
+  /** The head these numbers describe, which may already be past the listing's. */
+  headSha: string;
 }
 
 /** Who has signed off and who has asked for changes, latest review per person. */
@@ -77,6 +79,13 @@ export interface ReviewDecisions {
   approvals: string[];
   changesRequested: string[];
 }
+
+/**
+ * Where `listFiles` stops. Exported because a listing of exactly this many is
+ * one that may have been cut short, and `changeFingerprint` must not vouch for
+ * a change it did not see all of.
+ */
+export const MAX_LISTED_FILES = 1000;
 
 export interface PRFile {
   path: string;
@@ -383,9 +392,10 @@ export class GitHubClient {
     };
   }
 
+  /** At most MAX_LISTED_FILES; a pull request with more is cut short there. */
   async listFiles(ref: PRRef): Promise<PRFile[]> {
     const files: PRFile[] = [];
-    for (let page = 1; page <= 10; page++) {
+    for (let page = 1; page <= MAX_LISTED_FILES / 100; page++) {
       const batch = await this.request<any[]>(
         "GET",
         `/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/files?per_page=100&page=${page}`,
@@ -511,6 +521,7 @@ export class GitHubClient {
       additions: d.additions ?? 0,
       deletions: d.deletions ?? 0,
       changedFiles: d.changed_files ?? 0,
+      headSha: d.head?.sha ?? "",
     };
   }
 
