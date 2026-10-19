@@ -192,6 +192,7 @@ try {
     assert.equal(res.status, 200);
     assert.equal(res.body.review.provider, "claude-skill");
     assert.equal(res.body.review.version, 3);
+    assert.equal(res.body.review.intent, record.result.intent);
     assert.equal(res.body.judgements.length, 1);
     assert.equal(res.body.judgements[0].title, record.result.judgements[0].title);
     assert.equal(res.body.verificationRequirements.length, 1);
@@ -359,6 +360,7 @@ try {
   await check("the CLI's submission is readable through the API", async () => {
     const res = await api(origin, secret, "GET", `/api/v1/reviews/${encodeURIComponent(`acme/api#3@${headSha}`)}`);
     assert.equal(res.status, 200);
+    assert.equal(res.body.review.intent, record.result.intent);
     assert.equal(res.body.judgements.length, 1);
   });
 
@@ -590,6 +592,7 @@ function reviewRecord(headSha) {
       },
     ],
     result: {
+      intent: "Revoke sessions on logout so signed-out sessions cannot keep making requests.",
       summary: "- Adds a session revocation hook",
       walkthrough: [{ files: ["session.ts"], summary: "Adds revoke()." }],
       confidence: 3,
