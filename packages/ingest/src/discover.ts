@@ -44,6 +44,8 @@ export interface DiscoverOptions {
   /** Run even if the last listing is recent. The screen's Rescan button. */
   force?: boolean;
   onProgress?: (msg: string) => void;
+  /** Defaults to `Date.now`. A test clock, so a Rescan pressed mid-pass can be staged without a real sleep. */
+  now?: () => number;
 }
 
 export interface DiscoverResult {
@@ -70,9 +72,10 @@ export async function discoverRepositories(
 ): Promise<DiscoverResult> {
   const { store, github, autoEnable, force, onProgress } = options;
   const interval = options.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const now = options.now ?? Date.now;
 
   const last = Number((await store.getMeta(META_LAST_DISCOVERY_AT)) ?? 0);
-  if (!force && Date.now() - last < interval)
+  if (!force && now() - last < interval)
     return { owners: 0, added: 0, failed: [] };
 
   // Stamped from before the listings rather than after them.
@@ -85,7 +88,7 @@ export async function discoverRepositories(
   // Watermarking from the start costs the interval guard one pass-duration of
   // earliness and keeps the button honest, which is the better trade for a
   // listing that runs four times an hour.
-  const startedAt = Date.now();
+  const startedAt = now();
 
   const { repositories } = await store.snapshot();
   const known = new Set(repositories.map((r) => r.id));
