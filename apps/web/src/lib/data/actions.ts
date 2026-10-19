@@ -149,11 +149,9 @@ export async function requestAIReview(
   }
   // The same answer the button was drawn from, re-read: a request naming a
   // provider this server cannot run, or naming none when there are two to
-  // bill, is refused here rather than queued to fail.
+  // bill, is refused here rather than queued to fail. None at all is not a
+  // refusal: the job waits for an interactive session to claim it.
   const available = await loadReviewProviders();
-  if (available.length === 0) {
-    throw new Error("No AI provider is available on the server.");
-  }
   if (provider && !available.includes(provider)) {
     throw new Error(`${provider} is not available on the server.`);
   }
