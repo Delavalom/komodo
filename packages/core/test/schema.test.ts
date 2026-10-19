@@ -4,6 +4,7 @@ import { parseReviewResult } from "../src/schema.js";
 
 function result(overrides: Record<string, unknown> = {}) {
   return {
+    intent: "Add a rate limiter.",
     summary: "- Adds a rate limiter.",
     walkthrough: [],
     confidence: 4,
@@ -16,6 +17,18 @@ function result(overrides: Record<string, unknown> = {}) {
 }
 
 describe("parseReviewResult", () => {
+  it("refuses a result that does not say what the change is for", () => {
+    expect(() => parseReviewResult(result({ intent: undefined }))).toThrow();
+    expect(() => parseReviewResult(result({ intent: "" }))).toThrow();
+  });
+
+  it("reads a walkthrough row with no kind as behavioural", () => {
+    const parsed = parseReviewResult(
+      result({ walkthrough: [{ files: ["a.ts"], summary: "s" }] }),
+    );
+    expect(parsed.walkthrough[0].kind).toBe("behavioural");
+  });
+
   it("passes through a result with no diagram unchanged", () => {
     expect(parseReviewResult(result()).diagram).toBeUndefined();
   });

@@ -10,6 +10,7 @@ import type { ReviewInput, ReviewProvider } from "../src/providers/types.js";
 import { ReviewRecordSchema, type Judgement, type ReviewResult } from "../src/schema.js";
 
 const result: ReviewResult = {
+  intent: "Add a limiter.",
   summary: "- Adds a limiter",
   walkthrough: [],
   confidence: 3,
@@ -128,6 +129,12 @@ describe("runReview — depth", () => {
     });
     expect(parsed.run).toBeUndefined();
     expect(parsed.id).toBe("x");
+  });
+
+  it("still parses a record written before intent existed", () => {
+    const { intent: _omitted, ...older } = result;
+    const parsed = ReviewRecordSchema.parse({ ...baseRecord, result: older });
+    expect(parsed.result.intent).toBeUndefined();
   });
 
   it("logs the depth it chose and why", async () => {

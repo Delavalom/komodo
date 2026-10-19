@@ -535,6 +535,26 @@ CREATE TABLE IF NOT EXISTS github_identities (
       { table: "ai_review_jobs", column: "provider", sqlite: "TEXT", postgres: "TEXT" },
     ],
   },
+  {
+    id: "018-review-intent",
+    // Null on every run written before it: the reviewer was never asked, and
+    // inventing a sentence for them would be worse than showing none.
+    addColumns: [
+      { table: "reviews", column: "intent", sqlite: "TEXT", postgres: "TEXT" },
+    ],
+  },
+  {
+    id: "019-carried-reviews",
+    // Null everywhere before it: no run had a fingerprint, so none can be
+    // carried, and nothing recorded so far was copied from anywhere.
+    addColumns: [
+      { table: "reviews", column: "changeFingerprint", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "reviews", column: "carriedFrom", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "answers", column: "carriedFromId", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "verification_entries", column: "carriedFromEntryId", sqlite: "TEXT", postgres: "TEXT" },
+      { table: "verification_entries", column: "carriedFromHeadSha", sqlite: "TEXT", postgres: "TEXT" },
+    ],
+  },
 ];
 
 /* ── Running them ────────────────────────────────────────────────────────── */

@@ -8,6 +8,7 @@
  * still outstanding.
  */
 import {
+  HeadMovedError,
   resolveContextSources,
   runReview,
   WALKTHROUGH_MARKER,
@@ -190,11 +191,14 @@ export async function reviewPending(
     await store.finishAIReviewJob({
       jobId: job.id,
       workerId,
-      state: outcome.ok ? "completed" : "failed",
+      state: outcome.ok ? "completed" : outcome.cancelled ? "cancelled" : "failed",
       finishedAt: Date.now(),
       error: outcome.ok ? null : outcome.error,
     });
     if (outcome.ok) reviewed++;
+    // A push mid-claim is the author working, not the provider breaking: the
+    // next poll queues the new head, and nothing here is worth a pause.
+    else if (outcome.cancelled) continue;
     else {
       failed++;
       // A managed launcher being terminated is provider-level, not evidence
@@ -221,7 +225,7 @@ async function reviewOne(
   pr: PullRequest,
   repo: Repository,
   depthRequest: DepthRequest | null,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; cancelled: boolean; error: string }> {
   const { store, github, provider, config, onProgress } = options;
   const ref = { owner: repo.owner, repo: repo.name, number: pr.number };
 
@@ -233,6 +237,7 @@ async function reviewOne(
       owner: repo.owner,
       name: repo.name,
       number: pr.number,
+      headSha: pr.headSha,
     });
 
     // What this team has taught Komodo, narrowed to the rules whose scope
@@ -262,6 +267,7 @@ async function reviewOne(
       post: options.post ?? false,
       onProgress,
       depthRequest,
+      expectedHeadSha: pr.headSha,
     });
 
     const result = outcome.record.result;
@@ -270,9 +276,10 @@ async function reviewOne(
     );
     // The body itself, including the judgements GitHub would not take. The
     // queue row above summarises this; this is the review.
-    const reviewId = await store.saveReview(
-      toReview(pr.id, outcome.record, outcome.droppedJudgements),
-    );
+    const reviewId = await store.saveReview({
+      ...toReview(pr.id, outcome.record, outcome.droppedJudgements),
+      changeFingerprint: outcome.changeFingerprint,
+    });
     await store.recordMemoryUse(reviewId, context.uses);
     // After the review, not before: each finding names the judgement it
     // summarises, and those ids only exist once the run has been written.
@@ -282,6 +289,12 @@ async function reviewOne(
     );
     return { ok: true };
   } catch (err) {
+    // Not a failure, and nothing to record against this head: the job
+    // settles as cancelled and the new head gets its own.
+    if (err instanceof HeadMovedError) {
+      onProgress?.(`  ${err.message} Cancelled; the new head is queued separately.`);
+      return { ok: false, cancelled: true, error: err.message };
+    }
     // A failed review is recorded rather than swallowed. The durable job is
     // settled as failed by the caller and requires an explicit retry; blindly
     // moving to the next PR is how one broken provider spends a whole queue.
@@ -296,7 +309,7 @@ async function reviewOne(
       pr,
       `The review did not finish — ${firstLine(message)}. Open Komodo to retry it.`,
     );
-    return { ok: false, error: message };
+    return { ok: false, cancelled: false, error: message };
   }
 }
 

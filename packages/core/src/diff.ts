@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import picomatch from "picomatch";
+import { MAX_LISTED_FILES, type PRFile } from "./github.js";
 
 /**
  * Parse a GitHub unified diff `patch` string into the set of new-file line
@@ -65,4 +67,39 @@ export function filterPaths(paths: string[], filters: string[]): string[] {
   const isExcluded = excludes.length ? picomatch(excludes, { dot: true }) : () => false;
   const isIncluded = includes.length ? picomatch(includes, { dot: true }) : () => true;
   return paths.filter((p) => !isExcluded(p) && isIncluded(p));
+}
+
+/**
+ * What a pull request changes, independent of where its base is.
+ *
+ * Two heads with the same fingerprint carry the same change: a rebase that
+ * moved the base and touched nothing of the author's own. That is what lets a
+ * review and the evidence recorded against it follow the change to its new
+ * head instead of starting over (see the store's `carryReview`).
+ *
+ * Close to `git patch-id --stable`, from what GitHub's file listing gives:
+ * each file's path, status and patch, sorted by path, with every `@@` line
+ * dropped — line numbers move with the base, and so does the function name
+ * GitHub prints after them. Context lines stay: a base that changed within
+ * three lines of a hunk changed the code around the edit, and that deserves a
+ * fresh read. Indentation stays too, unlike patch-id; in Python and YAML it is
+ * the code, and this hash gates an approval.
+ *
+ * Null when it cannot vouch for the whole change: no files, a file GitHub sent
+ * no patch for (binary, or too large), or a listing that hit its cap.
+ */
+export function changeFingerprint(files: PRFile[]): string | null {
+  if (files.length === 0 || files.length >= MAX_LISTED_FILES) return null;
+  if (files.some((f) => f.patch === undefined)) return null;
+
+  const hash = createHash("sha256");
+  for (const file of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+    const body = file
+      .patch!.split("\n")
+      .filter((line) => !line.startsWith("@@"))
+      .map((line) => line.replace(/\r$/, "").trimEnd())
+      .join("\n");
+    hash.update(`${file.path}\0${file.status}\0${body}\0`);
+  }
+  return hash.digest("hex");
 }
