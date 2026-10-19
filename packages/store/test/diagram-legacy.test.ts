@@ -103,7 +103,7 @@ describe("legacy raw-Mermaid diagram rows", () => {
     beforeAll(async () => {
       db = new PGlite();
       await db.waitReady;
-    }, 30_000); // PGlite compiles Postgres to WASM — see conformance.ts's own beforeEach comment; this is the one-time version of the same cold start.
+    }, 15_000); // Same budget this file's test already had before the move from `it(...)` to this hook — not raised.
 
     afterAll(async () => {
       await db.close();
