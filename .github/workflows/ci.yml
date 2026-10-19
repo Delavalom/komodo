@@ -69,3 +69,30 @@ jobs:
 
       - name: Exercise the runtime image end to end
         run: pnpm test:e2e:container -- komodo-ci:${{ github.sha }}
+
+  plugin:
+    name: Plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Runs the plugin's own tests in a sandboxed engine (claude-code/testing)
+      # with no model calls and no login — verified locally against a fully
+      # unauthenticated $HOME before adding this job (see PR description).
+      - name: Install the Claude Code CLI
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Validate the plugin manifest, hooks, skills and commands
+        run: claude plugin validate plugin
+
+      - name: Run the plugin's own tests
+        run: claude plugin test plugin
