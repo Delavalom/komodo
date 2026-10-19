@@ -696,9 +696,12 @@ export interface VerificationSummary {
   reviewId: string;
   total: number;
   required: number;
+  /** Every check whose newest result is verified, required or not. */
   verified: number;
   requiredVerified: number;
+  /** Required checks only: an optional check that failed holds nothing up. */
   failed: number;
+  /** Required checks only, for the same reason. */
   blocked: number;
 }
 

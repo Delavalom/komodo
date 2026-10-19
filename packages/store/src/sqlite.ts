@@ -1321,7 +1321,8 @@ export class SqliteStore implements KomodoStore {
     // time; these were the exception that proved nobody was checking.
     //
     //   totalComments     — judgements in the pull request's newest run
-    //   addressedComments — those whose newest ledger entry has a bucket
+    //   addressedComments — those whose newest ledger entry has a bucket other
+    //                       than `Passed on`: handing one off is not addressing it
     //   upvotes/downvotes — votes cast on those judgements
     //   reviewCount       — runs recorded against the pull request
     const rows = this.db

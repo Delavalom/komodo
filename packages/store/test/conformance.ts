@@ -11,7 +11,7 @@ import type { KomodoStore, PullRequestInput, ReviewInput } from "../src/port.js"
 
 const T0 = 1_700_000_000_000;
 
-function pr(over: Partial<PullRequestInput> = {}): PullRequestInput {
+export function pr(over: Partial<PullRequestInput> = {}): PullRequestInput {
   return {
     repoId: "acme/api",
     number: 1,
@@ -38,7 +38,7 @@ function pr(over: Partial<PullRequestInput> = {}): PullRequestInput {
  * A review run with the two shapes that matter: one judgement GitHub could
  * have commented on, and one it could not.
  */
-function review(over: Partial<ReviewInput> = {}): ReviewInput {
+export function review(over: Partial<ReviewInput> = {}): ReviewInput {
   return {
     prId: "acme/api#1",
     headSha: "aaa111",
