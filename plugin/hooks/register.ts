@@ -127,7 +127,7 @@ export const register: Register = (on, options) => {
     const active = await read($, job);
     if (e.args.trim() === "forget") {
       await update($, job, () => null);
-      $.ui.status(undefined);
+      clearStatus($);
       return {
         text: active
           ? `Forgot ${label(active)}. Its lease still runs until it expires; the claim file is ${active.claimPath}.`
@@ -160,7 +160,7 @@ export const register: Register = (on, options) => {
 
     const done = parseJson<SubmitOutput>(ran.stdout);
     await update($, job, () => null);
-    $.ui.status(undefined);
+    clearStatus($);
     const where = done?.url ?? done?.recordPath ?? "the Komodo queue";
     return {
       result: `Submitted ${label(active)} as review ${done?.reviewId ?? "(id not printed)"}: ${where}. Tell the person where it is. The result checks still need a person to run them, and approving stays a separate decision in Komodo.`,
@@ -194,12 +194,24 @@ async function cli(
   }
 }
 
+// Every `$.ui.status` call is a visible op on some surfaces, so an idle
+// session must not raise one: clear the line only when this load drew it.
+// A reload starts this over, and the host drops a reloaded plugin's line.
+let showing = false;
+
+function clearStatus($: EngineInterface): void {
+  if (!showing) return;
+  showing = false;
+  $.ui.status(undefined);
+}
+
 async function showLease($: EngineInterface): Promise<void> {
   const active = await read($, job);
-  if (!active) return $.ui.status(undefined);
+  if (!active) return clearStatus($);
   const left = Math.max(0, active.leaseExpiresAt - (await $.clock.now()));
   const minutes = Math.floor(left / 60_000);
   const time = left === 0 ? "lease expired" : `${Math.floor(minutes / 60)}h ${minutes % 60}m left`;
+  showing = true;
   $.ui.status(`Komodo · ${label(active)} · ${time}`);
 }
 

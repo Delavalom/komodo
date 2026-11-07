@@ -109,6 +109,14 @@ describe("komodo mod", () => {
     expect(out.text).toBe("No AI review job is queued.");
   });
 
+  test("an idle session never touches the status line", async ($, on) => {
+    const { seen, clock } = world(on);
+    await $.session.start(START);
+    await clock.advance(5 * 60_000);
+    await $.command.run(typed("komodo-job", "forget"));
+    expect(seen.status).toEqual([]);
+  });
+
   test("passes the CLI's refusal through, claim path and all", async ($, on) => {
     world(on);
     on("process.run", () =>
