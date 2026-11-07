@@ -30,6 +30,7 @@ const judgement = (over: Partial<Judgement>): Judgement => ({
 });
 
 const result = (judgements: Judgement[]): ReviewResult => ({
+  intent: "i",
   summary: "- s",
   walkthrough: [],
   confidence: 3,

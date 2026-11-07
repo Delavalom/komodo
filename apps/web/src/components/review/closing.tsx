@@ -78,6 +78,20 @@ export function ClosingScreen({
   ).length;
   const verificationComplete =
     review.version === 3 && verifiedChecks === requiredChecks.length;
+  // Verified, but at an earlier head — see carryReview. The server counts the
+  // same thing and refuses an approval that does not acknowledge it.
+  const carriedFrom = [
+    ...new Set(
+      requiredChecks
+        .map((check) => currentVerification.get(check.id))
+        .filter((entry) => entry?.result === "verified" && entry.carriedFromHeadSha)
+        .map((entry) => entry!.carriedFromHeadSha!),
+    ),
+  ];
+  const carriedChecks = requiredChecks.filter((check) => {
+    const entry = currentVerification.get(check.id);
+    return entry?.result === "verified" && entry.carriedFromHeadSha !== null;
+  }).length;
 
   const countFor = (bucket: Bucket) =>
     decided.filter((row) => row.answer?.bucket === bucket).length;
@@ -229,6 +243,7 @@ export function ClosingScreen({
           headSha={review.headSha}
           headMoved={review.headSha !== currentHeadSha}
           unverifiedRequired={requiredChecks.length - verifiedChecks}
+          carried={{ count: carriedChecks, heads: carriedFrom }}
           suggestedBody={suggestedReviewBody({
             decided,
             unanswered,

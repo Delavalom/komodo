@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { PGlite } from "@electric-sql/pglite";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { SqliteStore } from "../src/sqlite.js";
 import { PostgresStore } from "../src/postgres.js";
@@ -94,10 +94,22 @@ describe("legacy raw-Mermaid diagram rows", () => {
     }
   });
 
-  it(
-    "Postgres: falls back to null instead of throwing",
-    async () => {
-      const db = new PGlite();
+  describe("Postgres", () => {
+    // Booted once in a hook (not inside the test body) so the WASM startup
+    // never has to fit inside the test's own default timeout; only the SQL
+    // below runs there.
+    let db: PGlite;
+
+    beforeAll(async () => {
+      db = new PGlite();
+      await db.waitReady;
+    }, 15_000); // Same budget this file's test already had before the move from `it(...)` to this hook — not raised.
+
+    afterAll(async () => {
+      await db.close();
+    });
+
+    it("falls back to null instead of throwing", async () => {
       const sql = {
         async query<T>(text: string, params?: unknown[]) {
           const result = await db.query(text, params as never[]);
@@ -108,29 +120,24 @@ describe("legacy raw-Mermaid diagram rows", () => {
         },
       };
       const store = await PostgresStore.fromClient(sql as never);
-      try {
-        await store.upsertRepository({
-          id: "acme/api",
-          owner: "acme",
-          name: "api",
-          provider: "github",
-          enabled: true,
-          reviewCount: 0,
-        });
-        const prId = await store.upsertPullRequest(pr());
-        const reviewId = await store.saveReview(reviewInput({ prId }));
+      await store.upsertRepository({
+        id: "acme/api",
+        owner: "acme",
+        name: "api",
+        provider: "github",
+        enabled: true,
+        reviewCount: 0,
+      });
+      const prId = await store.upsertPullRequest(pr());
+      const reviewId = await store.saveReview(reviewInput({ prId }));
 
-        await sql.query(`UPDATE reviews SET diagram = $1 WHERE id = $2`, [
-          "sequenceDiagram\n  A->>B: pay()",
-          reviewId,
-        ]);
+      await sql.query(`UPDATE reviews SET diagram = $1 WHERE id = $2`, [
+        "sequenceDiagram\n  A->>B: pay()",
+        reviewId,
+      ]);
 
-        const loaded = await store.loadReview(reviewId);
-        expect(loaded?.review.diagram).toBeNull();
-      } finally {
-        await db.close();
-      }
-    },
-    15000,
-  );
+      const loaded = await store.loadReview(reviewId);
+      expect(loaded?.review.diagram).toBeNull();
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { ReviewResultSchema, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
+import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { buildReviewPrompt } from "./prompt.js";
 import {
   RereadResultSchema,
@@ -106,7 +106,7 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
       reviewResultJsonSchema(),
       input.onUsage && ((costUsd) => input.onUsage?.({ costUsd })),
     );
-    return ReviewResultSchema.parse(payload);
+    return parseReviewResult(payload);
   }
 
   async reread(input: RereadInput): Promise<RereadResult> {

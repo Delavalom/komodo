@@ -12,6 +12,12 @@ import "server-only";
  * app.
  */
 import { connectStore } from "@komodo/store/connect";
+import {
+  changeKind,
+  META_REVIEW_PROVIDERS,
+  type MechanicalReason,
+  type ReviewProviderName,
+} from "@komodo/store";
 import { seedStore } from "@komodo/store/seed";
 import { resolveActor } from "@/lib/data/actor";
 import type {
@@ -74,6 +80,23 @@ export function requestNow(): number {
   return Date.now();
 }
 
+/**
+ * The providers the running `komodo serve` published at startup. Empty when
+ * none is usable — or when no server has ever started against this store,
+ * which is the same answer: nothing here can run a review.
+ */
+export async function loadReviewProviders(): Promise<ReviewProviderName[]> {
+  const raw = await (await getStore()).getMeta(META_REVIEW_PROVIDERS);
+  try {
+    const parsed: unknown = JSON.parse(raw ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((p): p is ReviewProviderName => p === "claude" || p === "codex")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function loadSnapshot(): Promise<QueueSnapshot> {
   const snapshot = await (await getStore()).snapshot();
 
@@ -115,6 +138,42 @@ export async function loadLatestReview(
 /** Every run, newest first. History here is never overwritten. */
 export async function loadReviewRuns(prId: string): Promise<Review[]> {
   return (await getStore()).listReviewRuns(prId);
+}
+
+/**
+ * Which open pull requests change nothing a person has to read, keyed
+ * `${prId}@${headSha}`. Absent means behavioural, or not yet known.
+ *
+ * Read by the queue page alone, and outside the snapshot for the reason
+ * `loadReviewFiles` is: it costs every open pull request's patches.
+ *
+ * ponytail: patches for every open pull request on each queue load. Fine at a
+ * team's queue; past a few hundred open PRs, classify once per run instead.
+ */
+export async function loadMechanicalChanges(): Promise<
+  Record<string, MechanicalReason[]>
+> {
+  const store = await getStore();
+  const [files, pullRequests] = await Promise.all([
+    store.listOpenHeadReviewFiles(),
+    store.listPullRequests(),
+  ]);
+  const byRun = new Map<string, ReviewFile[]>();
+  for (const file of files) {
+    const list = byRun.get(file.reviewId);
+    if (list) list.push(file);
+    else byRun.set(file.reviewId, [file]);
+  }
+
+  const out: Record<string, MechanicalReason[]> = {};
+  for (const pr of pullRequests) {
+    const key = `${pr.id}@${pr.headSha}`;
+    const run = byRun.get(key);
+    if (!run) continue;
+    const reasons = changeKind({ files: run, changedFiles: pr.changedFiles });
+    if (reasons) out[key] = reasons;
+  }
+  return out;
 }
 
 /** The patches, read only when someone opens the diff. */

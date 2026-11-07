@@ -62,6 +62,7 @@ export function GithubReviewPanel({
   reviewId,
   suggestedBody,
   unverifiedRequired,
+  carried,
   headSha,
   headMoved,
 }: {
@@ -70,6 +71,8 @@ export function GithubReviewPanel({
   suggestedBody: string;
   /** Required checks with no verified evidence — what blocks an approval. */
   unverifiedRequired: number;
+  /** Required checks verified only at an earlier head, and which heads. */
+  carried: { count: number; heads: string[] };
   headSha: string;
   /** The pull request has moved past the head this review read. */
   headMoved: boolean;
@@ -81,11 +84,13 @@ export function GithubReviewPanel({
   const [event, setEvent] = React.useState<HumanReviewEvent>("COMMENT");
   const [body, setBody] = React.useState(suggestedBody);
   const [override, setOverride] = React.useState("");
+  const [acknowledged, setAcknowledged] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [posted, setPosted] = React.useState<string | null>(null);
 
   const needsOverride = event === "APPROVE" && unverifiedRequired > 0;
+  const needsAcknowledgement = event === "APPROVE" && carried.count > 0;
 
   const send = async () => {
     if (pending) return;
@@ -97,6 +102,7 @@ export function GithubReviewPanel({
         event,
         body,
         override: needsOverride ? override : null,
+        acknowledgeCarried: needsAcknowledgement && acknowledged,
       });
       if (result.error) {
         setError(result.error);
@@ -227,10 +233,36 @@ export function GithubReviewPanel({
         </div>
       ) : null}
 
+      {needsAcknowledgement ? (
+        // The rebase left the change byte-identical and moved everything under
+        // it. Evidence from the old base is still evidence, and still not an
+        // observation of what would merge now; that call is the approver's.
+        <label className="mt-3 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(e) => setAcknowledged(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            {carried.count} required{" "}
+            {carried.count === 1 ? "check was" : "checks were"} verified at{" "}
+            {carried.heads.map((h) => h.slice(0, 7)).join(", ")}, before a
+            rebase moved the base. I accept that evidence for{" "}
+            {headSha.slice(0, 7)}. This goes into the review.
+          </span>
+        </label>
+      ) : null}
+
       <div className="mt-3 flex items-center gap-3">
         <Button
           variant={event === "APPROVE" ? "brand" : "outline"}
-          disabled={pending || headMoved || (needsOverride && !override.trim())}
+          disabled={
+            pending ||
+            headMoved ||
+            (needsOverride && !override.trim()) ||
+            (needsAcknowledgement && !acknowledged)
+          }
           onClick={() => void send()}
         >
           {pending

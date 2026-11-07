@@ -155,6 +155,7 @@ describe("hardLimits", () => {
 
 describe("reviewPending", () => {
   const result: ReviewResult = {
+    intent: "Add a rate limiter.",
     summary: "- Adds a rate limiter.",
     walkthrough: [],
     confidence: 4,
@@ -217,6 +218,56 @@ describe("reviewPending", () => {
     return store;
   }
 
+  /**
+   * A push between the claim and the run. The review would have been written
+   * under a head nobody claimed, so it stops before the model is paid for —
+   * and it is the author working, not the provider failing.
+   */
+  it("cancels, without running the model, when the head moved after the claim", async () => {
+    const store = await storeWith({}, "manual");
+    const { github } = harness();
+    let ran = 0;
+    const provider: ReviewProvider = {
+      name: "fake",
+      async review() {
+        ran++;
+        return result;
+      },
+    };
+    const moved = {
+      ...github,
+      async getPR(ref: { owner: string; repo: string; number: number }) {
+        return { ...(await github.getPR(ref)), headSha: "bbb222" };
+      },
+    } as unknown as GitHubClient;
+
+    const pass = await reviewPending({ store, github: moved, provider, config: config() });
+
+    expect(pass).toMatchObject({ reviewed: 0, failed: 0 });
+    expect(ran).toBe(0);
+    expect((await store.listAIReviewJobs())[0].state).toBe("cancelled");
+    expect((await store.snapshot()).judgments).toEqual([]);
+    expect(await store.getMeta("review.providerPausedUntil")).toBeNull();
+  });
+
+  it("records what the run read, so a rebase can carry it", async () => {
+    const store = await storeWith({}, "manual");
+    const { provider, github } = harness();
+    const withPatch = {
+      ...github,
+      async listFiles() {
+        return [
+          { path: "src/limit.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n+x" },
+        ];
+      },
+    } as unknown as GitHubClient;
+
+    await reviewPending({ store, github: withPatch, provider, config: config() });
+    expect((await store.loadReview("acme/api#1@aaa111"))?.review.changeFingerprint).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+  });
+
   /** The queue's Review with AI button, on a pull request nothing would pick. */
   it("reviews what a person asked for over the automatic filters", async () => {
     const store = await storeWith(
@@ -266,10 +317,49 @@ describe("reviewPending", () => {
     expect(pass).toMatchObject({ reviewed: 0, skipped: 1 });
     expect(reviewed).toEqual([]);
   });
+
+  /** Two subscriptions, one request: the one the person picked is the one billed. */
+  it("runs a request on the provider it named, and never on the other", async () => {
+    const { provider, github } = harness();
+    const used: string[] = [];
+    const named = (name: string): ReviewProvider => ({
+      name,
+      async review() {
+        used.push(name);
+        return result;
+      },
+    });
+
+    const store = await storeWith({}, "manual");
+    await store.requestAIReview({
+      prId: "acme/api#1", headSha: "aaa111", trigger: "manual", requestedAt: 2, provider: "codex",
+    });
+    const pass = await reviewPending({
+      store, github, provider, config: config(),
+      providers: { claude: named("claude"), codex: named("codex") },
+    });
+    expect(pass).toMatchObject({ reviewed: 1 });
+    expect(used).toEqual(["codex"]);
+
+    const missing = await storeWith({}, "manual");
+    await missing.requestAIReview({
+      prId: "acme/api#1", headSha: "aaa111", trigger: "manual", requestedAt: 2, provider: "codex",
+    });
+    const refused = await reviewPending({
+      store: missing, github, provider, config: config(),
+      providers: { claude: named("claude") },
+    });
+    expect(refused).toMatchObject({ reviewed: 0, failed: 1 });
+    expect(used).toEqual(["codex"]);
+    const [job] = await missing.listAIReviewJobs();
+    expect(job).toMatchObject({ state: "failed" });
+    expect(job.lastError).toMatch(/Codex is not available/);
+  });
 });
 
 describe("reviewPending — shared context", () => {
   const result: ReviewResult = {
+    intent: "Add a rate limiter.",
     summary: "- Adds a rate limiter.",
     walkthrough: [],
     confidence: 4,
@@ -417,6 +507,7 @@ describe("reviewPending — shared context", () => {
 
 describe("reviewPending — depth", () => {
   const result: ReviewResult = {
+    intent: "Add a rate limiter.",
     summary: "- Adds a rate limiter.",
     walkthrough: [],
     confidence: 4,

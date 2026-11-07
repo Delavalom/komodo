@@ -11,7 +11,7 @@
  */
 import { createContext, useContext, type ReactNode } from "react";
 
-import type { QueueSnapshot } from "@komodo/store";
+import type { QueueSnapshot, ReviewProviderName } from "@komodo/store";
 
 interface RequestData {
   snapshot: QueueSnapshot;
@@ -27,6 +27,8 @@ interface RequestData {
    * timestamp is the same guarantee against a real clock.
    */
   now: number;
+  /** Which providers the running server can review with. See request-review-button.tsx. */
+  reviewProviders: ReviewProviderName[];
 }
 
 const DataContext = createContext<RequestData | null>(null);
@@ -34,14 +36,16 @@ const DataContext = createContext<RequestData | null>(null);
 export function DataProvider({
   snapshot,
   now,
+  reviewProviders,
   children,
 }: {
   snapshot: QueueSnapshot;
   now: number;
+  reviewProviders: ReviewProviderName[];
   children: ReactNode;
 }) {
   return (
-    <DataContext.Provider value={{ snapshot, now }}>
+    <DataContext.Provider value={{ snapshot, now, reviewProviders }}>
       {children}
     </DataContext.Provider>
   );
@@ -65,4 +69,8 @@ export function useSnapshot(): QueueSnapshot {
 /** When this page was rendered. The only clock a client component may read. */
 export function useNow(): number {
   return useData().now;
+}
+
+export function useReviewProviders(): ReviewProviderName[] {
+  return useData().reviewProviders;
 }

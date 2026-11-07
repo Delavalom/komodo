@@ -1,4 +1,5 @@
 export {
+  DIAGRAM_HEADLINE_BUDGET,
   DiagramSpecSchema,
   SequenceSpecSchema,
   FlowchartSpecSchema,

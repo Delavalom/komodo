@@ -38,12 +38,14 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run --exclude test/differential.test.ts && pnpm test:differential",
+    "test:differential": "vitest run test/differential.test.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.5",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.23.1",
+    "fast-check": "^4.10.2",
     "tsup": "^8.3.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

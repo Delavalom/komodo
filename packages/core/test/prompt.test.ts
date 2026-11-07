@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DIAGRAM_HEADLINE_BUDGET } from "@komodo/diagram";
 import { KomodoConfigSchema } from "../src/config.js";
 import { SAME_SPOT } from "../src/merge.js";
 import type { PRMeta } from "../src/github.js";
@@ -40,6 +41,19 @@ describe("buildReviewPrompt", () => {
     // voice living in the prompt is exactly the drift this asset exists to
     // stop, so a regression here should fail loudly.
     expect(prompt).not.toContain("Renewal tokens are saved in a form that can be read back");
+  });
+
+  /**
+   * The headline budget and the referential-integrity rule are enforced by
+   * @komodo/diagram's `superRefine`, which the JSON schema handed to the
+   * model can't carry — this prose is the only place a model ever sees
+   * either rule, so a regression here silently reopens the bug where an
+   * over-budget diagram threw away the whole review.
+   */
+  it("states the diagram headline budget and the dangling-id rule", () => {
+    const prompt = buildReviewPrompt({ pr, files, config: KomodoConfigSchema.parse({}) });
+    expect(prompt).toContain(`at most ${DIAGRAM_HEADLINE_BUDGET}`);
+    expect(prompt).toContain("dangling id fails validation");
   });
 
   it("appends a team's own vocabulary after the house voice", () => {
@@ -108,6 +122,49 @@ describe("buildRereadPrompt", () => {
       headSha: "abcdef1234567890",
     });
     expect(prompt).toContain(VOICE_STYLE);
+  });
+});
+
+describe("buildReviewPrompt — verification", () => {
+  const config = KomodoConfigSchema.parse({});
+
+  it("asks whether a test would catch a plausible wrong implementation", () => {
+    const prompt = buildReviewPrompt({ pr, files, config });
+    expect(prompt).toContain("would still pass against a plausible wrong implementation");
+  });
+
+  it("asks for checks that each define when one result is done", () => {
+    const prompt = buildReviewPrompt({ pr, files, config });
+    expect(prompt).toContain("Each check is the definition of done for one result");
+    expect(prompt).toContain("Do not say a check passed");
+  });
+
+  it("gives the tests lens the questions that separate proof from echo", () => {
+    const lens = buildReviewPrompt({ pr, files, config, pass: { kind: "lens", focus: "tests" } });
+    expect(lens).toContain("mocks the thing it tests");
+    expect(lens).toContain("share its misunderstanding");
+    expect(lens).toContain("property-based test");
+    expect(lens).toContain("old behaviour is used as the reference");
+  });
+
+  it("omits the feature map section and its guidance when there is no map", () => {
+    const prompt = buildReviewPrompt({ pr, files, config });
+    expect(prompt).not.toContain("## Feature map");
+    expect(prompt).not.toContain("Write each check's instruction from the feature map");
+  });
+
+  it("hands the feature map over with where it came from, and asks checks to follow it", () => {
+    const prompt = buildReviewPrompt({
+      pr,
+      files,
+      config,
+      featureMap: { path: "docs/feature-map.md", text: "## Settings\nRoute: /settings", truncated: false },
+    });
+    expect(prompt).toContain("## Feature map");
+    expect(prompt).toContain("read from `docs/feature-map.md`");
+    expect(prompt).toContain("Route: /settings");
+    expect(prompt).toContain("Write each check's instruction from the feature map");
+    expect(prompt).toContain("When a changed flow is not in the map, say so");
   });
 });
 

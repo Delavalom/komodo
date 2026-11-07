@@ -36,6 +36,9 @@ export type {
   ReviewProvider,
 } from "./types.js";
 
+/** The subscription CLIs a review can run on. Mirrors @komodo/store's ReviewProviderName. */
+export type ReviewProviderName = "claude" | "codex";
+
 export interface ProviderStatus {
   claude: boolean;
   codex: boolean;
@@ -75,6 +78,36 @@ export function createProvider(config: KomodoConfig, override?: string): ReviewP
   throw new Error(
     "No AI provider available. Sign in to Claude Code (`claude`) or Codex (`codex login`) yourself, or set ANTHROPIC_API_KEY.",
   );
+}
+
+/**
+ * Every review provider this server can actually run, keyed by name.
+ *
+ * `auto` offers whichever CLIs are installed and signed in, and a request
+ * picks between them when there are two — the two bill different
+ * subscriptions, and which one a review spends is the requester's call. An
+ * explicit `provider:` in komodo.yaml (or `--provider`) narrows that to one,
+ * and to none when that one is not there: a server configured for Codex on a
+ * machine without it says so, rather than failing every job it is handed.
+ */
+export function createProviders(
+  config: KomodoConfig,
+  override?: string,
+): Partial<Record<ReviewProviderName, ReviewProvider>> {
+  const choice = override ?? config.provider;
+  if (choice === "openrouter") return {};
+  const status = detectProviders(config);
+  const providers: Partial<Record<ReviewProviderName, ReviewProvider>> = {};
+  if (status.claude && (choice === "auto" || choice === "claude")) {
+    providers.claude = new ClaudeProvider({
+      model: config.model,
+      executable: resolveClaudeExecutable(config),
+    });
+  }
+  if (status.codex && (choice === "auto" || choice === "codex")) {
+    providers.codex = new CodexProvider(config.model);
+  }
+  return providers;
 }
 
 /**

@@ -166,8 +166,20 @@ function VerificationCard({
 
       {current ? (
         <div className="border-t border-border bg-muted-accent/30 px-4 py-2 text-xs text-muted-foreground">
-          Current result recorded by {current.actorLogin} {relativeTime(current.createdAt, now)}
+          Current result recorded by {current.actorLogin}
+          {current.carriedFromHeadSha
+            ? ` at ${current.carriedFromHeadSha.slice(0, 7)}`
+            : ""}{" "}
+          {relativeTime(current.createdAt, now)}
           {current.note ? `: ${current.note}` : "."}
+          {current.carriedFromHeadSha ? (
+            // Said on the row, not only at the approve button: whoever is
+            // deciding whether to re-run a check needs to know it was not
+            // observed against this commit.
+            <span className="ml-1 text-[hsl(var(--warn))]">
+              Same change, rebased since. Record it again to observe it here.
+            </span>
+          ) : null}
           {current.evidenceUrl ? (
             <>
               {" "}

@@ -57,6 +57,9 @@ export type AIReviewJobState =
  */
 export type ReviewDepth = "standard" | "deep" | "thorough";
 
+/** A subscription-backed CLI the reviewer can run. */
+export type ReviewProviderName = "claude" | "codex";
+
 /** Durable intent to review one immutable pull-request head. */
 export interface AIReviewJob {
   id: string;
@@ -75,6 +78,12 @@ export interface AIReviewJob {
    * poller started, and for a request that left the depth to the rules.
    */
   depth: ReviewDepth | null;
+  /**
+   * Which provider the person asked for. Null means the deployment's own
+   * choice — every automatic job, and a manual one on a server that has only
+   * one provider to offer.
+   */
+  provider: ReviewProviderName | null;
 }
 
 export interface Organization {
@@ -515,6 +524,11 @@ export interface JudgementOption {
 export interface WalkthroughEntry {
   files: string[];
   summary: string;
+  /**
+   * Whether a person can skim these files. Absent on a run from before the
+   * reviewer was asked, which reads as behavioural — the safe answer.
+   */
+  kind?: "behavioural" | "mechanical";
 }
 
 /**
@@ -532,6 +546,12 @@ export interface Review {
   headSha: string;
   provider: string;
   model: string | null;
+  /**
+   * What the change is for, as the reviewer read it from the description.
+   * The yardstick scope is measured against. Null on a run from before it was
+   * asked for.
+   */
+  intent: string | null;
   /** Markdown bullets grouped by change type, as the reviewer wrote them. */
   summary: string;
   walkthrough: WalkthroughEntry[];
@@ -561,6 +581,19 @@ export interface Review {
   receiptUrl: string | null;
   receiptPostedAt: number | null;
   createdAt: number;
+  /**
+   * What this run read, independent of its base — see core's
+   * `changeFingerprint`. Null when the run did not fetch the files itself (a
+   * pushed or claimed record) or could not vouch for all of them; a null
+   * never matches, so such a run is never carried.
+   */
+  changeFingerprint: string | null;
+  /**
+   * The run this one was copied from because the head moved without the
+   * change moving: a rebase. Null for a run a reviewer actually made. A
+   * carried run cost nothing and is not counted as a run.
+   */
+  carriedFrom: string | null;
 }
 
 /**
@@ -668,7 +701,17 @@ export interface VerificationEntry {
   evidenceKind: EvidenceKind;
   evidenceUrl: string | null;
   note: string | null;
+  /** When the observation was made — at the original head, if carried. */
   createdAt: number;
+  /**
+   * The observation this entry repeats, when it was carried from an identical
+   * change at an earlier head, and the head it was actually made against.
+   * Both always name the original. Null for evidence recorded at this head —
+   * the only kind that may become a GitHub status or approve without an
+   * acknowledgement.
+   */
+  carriedFromEntryId: string | null;
+  carriedFromHeadSha: string | null;
 }
 
 /** Queue-sized verification state, counted from requirements and latest entries. */
@@ -676,9 +719,12 @@ export interface VerificationSummary {
   reviewId: string;
   total: number;
   required: number;
+  /** Every check whose newest result is verified, required or not. */
   verified: number;
   requiredVerified: number;
+  /** Required checks only: an optional check that failed holds nothing up. */
   failed: number;
+  /** Required checks only, for the same reason. */
   blocked: number;
 }
 
@@ -702,6 +748,12 @@ export interface Answer {
   note: string | null;
   blocking: boolean;
   createdAt: number;
+  /**
+   * The answer this one repeats, when it was carried from an identical change
+   * at an earlier head (see `carryReview`). Always the original, never a copy
+   * of a copy. Null for an answer someone gave here.
+   */
+  carriedFromId: string | null;
 }
 
 /**

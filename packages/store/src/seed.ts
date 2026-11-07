@@ -429,12 +429,18 @@ export async function seedStore(
     // Skewed so a few pull requests are large: the depth panel's 28+ band is
     // the one that matters, and an even 1-18 spread never reaches it. Still
     // one draw, in the same place, so every later draw is unchanged.
-    const changedFiles = 1 + Math.floor(Math.pow(next(), 3) * 60);
+    const drawnFiles = 1 + Math.floor(Math.pow(next(), 3) * 60);
+    // A share of the open queue changes nothing a person must read, so the
+    // queue has something to sort below the rest. Its own stream: no draw
+    // above or below moves.
+    const mechanical =
+      state === "open" && status === "completed" ? mechanicalShape(`mechanical:${i}`) : null;
+    const changedFiles = mechanical ? mechanical.files.length : drawnFiles;
     const prId = await store.upsertPullRequest({
       id: `${repoId}#${number}`,
       repoId,
       number,
-      title,
+      title: mechanical?.title ?? title,
       author,
       url: `https://github.com/${OWNER}/${repoName}/pull/${number}`,
       headSha,
@@ -443,8 +449,8 @@ export async function seedStore(
       requestedReviewers,
       approvals,
       changesRequested,
-      additions,
-      deletions,
+      additions: mechanical ? sum(mechanical.files, "additions") : additions,
+      deletions: mechanical ? sum(mechanical.files, "deletions") : deletions,
       changedFiles,
       createdAt,
       updatedAt,
@@ -494,21 +500,35 @@ export async function seedStore(
       // comes from the real approval/change-request arrays above.
       verdict: null,
       status,
-      impact,
+      // Nothing in a mechanical change is worse than low, and nothing in it
+      // has a finding to say otherwise.
+      impact: mechanical ? "low" : impact,
       score,
     });
 
     if (status === "completed") {
       // The body first, then the findings derived from it — the same order,
       // and the same direction of dependency, as a real review run.
-      const judgements = buildJudgements(judgmentId);
+      const judgements = mechanical ? [] : buildJudgements(judgmentId);
       const reviewId = await store.saveReview(
         // The dev dataset has no provider login behind it, and saying so beats
         // claiming a subscription nobody connected.
         // Dated when its pull request last moved — the push it reviewed — so
         // usage and the depth panel see runs spread over the dataset's months,
         // the same window "Total Reviews" counts, not all of them today.
-        { ...buildReview({ prId, headSha, judgements, score, provider: "seed", changedFiles }), at: updatedAt },
+        {
+          ...buildReview({
+            prId,
+            headSha,
+            title: mechanical?.title ?? title,
+            judgements,
+            score,
+            provider: "seed",
+            changedFiles,
+            mechanical,
+          }),
+          at: updatedAt,
+        },
       );
       // After the review: a finding names the judgement it summarises, and
       // that id is `${reviewId}:${ordinal}`.
@@ -521,6 +541,38 @@ export async function seedStore(
       // judgements were actually answered, and some were actually voted on.
       await seedEngagement(store, reviewId, judgements.length, others);
     }
+  }
+
+  await seedRebases(store);
+}
+
+/**
+ * Two pull requests whose author rebased after someone verified them.
+ *
+ * Through the same two writes the poller makes when a push moves the head
+ * without moving the change — the new head, then `carryReview` — so the dev
+ * queue shows a carried brief and evidence that asks to be acknowledged
+ * before it can approve anything.
+ */
+async function seedRebases(store: KomodoStore): Promise<void> {
+  const open = (await store.listPullRequests())
+    .filter((p) => p.state === "open" && !p.isDraft)
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  let rebased = 0;
+  for (const { checks: _checks, ...p } of open) {
+    if (rebased === 2) return;
+    const detail = await store.loadReview(`${p.id}@${p.headSha}`);
+    if (!detail) continue;
+    const required = new Set(
+      detail.verificationRequirements.filter((r) => r.required).map((r) => r.id),
+    );
+    if (!detail.verifications.some((v) => required.has(v.requirementId) && v.result === "verified")) {
+      continue;
+    }
+    const head = fakeSha(rng(`rebase:${p.id}`));
+    await store.upsertPullRequest({ ...p, headSha: head });
+    await store.carryReview({ fromReviewId: detail.review.id, toHeadSha: head, at: p.updatedAt });
+    rebased++;
   }
 }
 
@@ -774,29 +826,48 @@ function seededDepth(changedFiles: number): { depth: ReviewDepth; reason: string
 function buildReview(args: {
   prId: string;
   headSha: string;
+  title: string;
   judgements: SeededJudgement[];
   score: number;
   provider: string;
   changedFiles: number;
+  mechanical: MechanicalShape | null;
 }): ReviewInput {
-  const { prId, headSha, judgements, score, provider, changedFiles } = args;
+  const { prId, headSha, title, judgements, score, provider, changedFiles, mechanical } = args;
+  if (mechanical) return buildMechanicalReview(args, mechanical);
   const { depth, reason } = seededDepth(changedFiles);
   const paths = [...new Set(judgements.map((j) => j.path))];
+  // Its own stream, like the diagram's, so adding it moved no other draw.
+  const docs = rng(`walkthrough:${prId}@${headSha}`)() < 0.5;
   return {
     version: 3,
     prId,
     headSha,
     provider,
     model: null,
+    // What a reviewer reads off a description that is only a title: the title.
+    intent: `${title.replace(/\.$/, "")}.`,
     summary: judgements.length
       ? judgements.map((j) => `- ${j.tag}`).join("\n")
       : "- No behaviour changed that needed a judgement.",
-    walkthrough: paths.map((path) => ({
-      files: [path],
-      summary:
-        judgements.find((j) => j.path === path)?.lede ??
-        "Touched without changing behaviour.",
-    })),
+    walkthrough: [
+      ...paths.map((path) => ({
+        files: [path],
+        summary:
+          judgements.find((j) => j.path === path)?.lede ??
+          "Touched without changing behaviour.",
+        kind: "behavioural" as const,
+      })),
+      ...(docs
+        ? [
+            {
+              files: ["README.md"],
+              summary: "Notes the change for whoever reads the docs next.",
+              kind: "mechanical" as const,
+            },
+          ]
+        : []),
+    ],
     confidence: Math.round(score),
     effort: 1 + Math.min(4, judgements.length),
     verdictLine: judgements.length
@@ -827,6 +898,111 @@ function buildReview(args: {
         required: true,
       },
     ],
+  };
+}
+
+/**
+ * A pull request that changes documentation or comments and nothing else,
+ * with the real patch — `changeKind` reads it exactly as it reads a run's.
+ */
+interface MechanicalShape {
+  title: string;
+  summary: string;
+  files: { path: string; additions: number; deletions: number; patch: string }[];
+}
+
+const MECHANICAL_SHAPES: readonly MechanicalShape[] = [
+  {
+    title: "docs: explain how retries back off",
+    summary: "- **Docs**: describes the retry schedule",
+    files: [
+      {
+        path: "docs/retries.md",
+        additions: 3,
+        deletions: 0,
+        patch: [
+          "@@ -8,3 +8,6 @@ ## Retries",
+          " A failed delivery is retried.",
+          "+",
+          "+Each retry waits twice as long as the one before, up to a minute.",
+          "+After the fifth, the job is marked failed and stops.",
+        ].join("\n"),
+      },
+    ],
+  },
+  {
+    title: "chore: say why the cache key carries the locale",
+    summary: "- **Docs**: comments the cache key",
+    files: [
+      {
+        path: "src/lib/cache.ts",
+        additions: 2,
+        deletions: 1,
+        patch: [
+          "@@ -40,5 +40,6 @@ export function cacheKey(req: Request) {",
+          "-  // key",
+          "+  // The locale is part of the key: two people asking for the same page",
+          "+  // in different languages must not share one rendered copy.",
+          "   return `${req.url}:${req.locale}`;",
+          " }",
+        ].join("\n"),
+      },
+      {
+        path: "CHANGELOG.md",
+        additions: 1,
+        deletions: 0,
+        patch: ["@@ -1,2 +1,3 @@", " ## Unreleased", "+- Documented the cache key."].join("\n"),
+      },
+    ],
+  },
+];
+
+/** One in four eligible pull requests, deterministically. */
+function mechanicalShape(seed: string): MechanicalShape | null {
+  const next = rng(seed);
+  if (next() >= 0.25) return null;
+  return pick(next, MECHANICAL_SHAPES);
+}
+
+function sum(files: MechanicalShape["files"], key: "additions" | "deletions"): number {
+  return files.reduce((total, file) => total + file[key], 0);
+}
+
+/**
+ * The run a reviewer writes for a change with nothing to decide: no
+ * judgements, every walkthrough row mechanical, and no runtime result to
+ * observe — which is what an empty verification plan means.
+ */
+function buildMechanicalReview(
+  args: { prId: string; headSha: string; title: string; score: number; provider: string },
+  shape: MechanicalShape,
+): ReviewInput {
+  const { prId, headSha, title, score, provider } = args;
+  return {
+    version: 3,
+    prId,
+    headSha,
+    provider,
+    model: null,
+    intent: `${title.replace(/\.$/, "")}.`,
+    summary: shape.summary,
+    walkthrough: shape.files.map((file) => ({
+      files: [file.path],
+      summary: "Documentation only; no code path changes.",
+      kind: "mechanical" as const,
+    })),
+    confidence: Math.round(score),
+    effort: 1,
+    verdictLine: "Nothing here needs a decision.",
+    diagram: null,
+    recordId: `seed-${prId}@${headSha}`,
+    depth: "standard",
+    depthReason: "deployment default",
+    passes: 1,
+    costUsd: null,
+    files: shape.files.map((file) => ({ ...file, status: "modified" })),
+    judgements: [],
+    verificationRequirements: [],
   };
 }
 

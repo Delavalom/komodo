@@ -157,4 +157,11 @@ describe("toReview — depth", () => {
       depth: "standard", depthReason: "", passes: 1, costUsd: null,
     });
   });
+
+  it("carries the stated intent, and null for a record from before it existed", () => {
+    expect(
+      toReview("acme/api#1", { ...record(), result: result({ intent: "Bind the search term." }) }).intent,
+    ).toBe("Bind the search term.");
+    expect(toReview("acme/api#1", record()).intent).toBeNull();
+  });
 });

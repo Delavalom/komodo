@@ -1,5 +1,6 @@
 import type { KomodoConfig } from "../config.js";
 import type { SharedContextDoc } from "../context-sources.js";
+import type { FeatureMap } from "../feature-map.js";
 import type { PRFile, PRMeta } from "../github.js";
 import type { Judgement, ReviewResult } from "../schema.js";
 
@@ -60,6 +61,11 @@ export interface ReviewInput {
    * section rather than a bullet — see `buildReviewPrompt`.
    */
   sharedContext?: SharedContextDoc[];
+  /**
+   * The repository's feature map, read from the checkout at the head — see
+   * `readFeatureMap`. Absent when there is no checkout or no map.
+   */
+  featureMap?: FeatureMap;
   /** Which pass this is. Absent means a standard single pass. */
   pass?: ReviewPass;
   /** Agent turns this pass may take, for providers that run an agent loop. */

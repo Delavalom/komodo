@@ -11,7 +11,7 @@ import { describeDepth } from "@komodo/store";
 
 import { Badge } from "@/components/ui/display";
 import { cn } from "@/lib/utils";
-import type { Answer, ReviewDetail, ReviewFile } from "@/lib/types";
+import type { Answer, ReviewDetail, ReviewFile, WalkthroughEntry } from "@/lib/types";
 
 import { BUCKET_HEADING, BUCKET_ORDER, FOCUS_LABEL, SEVERITY_TONE } from "./labels";
 import { DiagramView } from "./diagram-view";
@@ -27,6 +27,10 @@ export function WholeReview({
   const answerFor = new Map<string, Answer>(
     answers.map((a) => [a.judgementId, a]),
   );
+  // A row with no kind is from a run that was never asked, and reads as
+  // behavioural: the safe direction to be wrong in is "read this".
+  const mechanical = review.walkthrough.filter((w) => w.kind === "mechanical");
+  const behavioural = review.walkthrough.filter((w) => w.kind !== "mechanical");
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -35,25 +39,22 @@ export function WholeReview({
           <Bullets text={review.summary} />
         </Section>
 
-        {review.walkthrough.length ? (
+        {behavioural.length ? (
           <Section title="Walkthrough">
-            <div className="border border-border">
-              {review.walkthrough.map((entry, i) => (
-                <div
-                  key={entry.files.join("|")}
-                  className={cn(
-                    "grid grid-cols-[minmax(0,240px)_1fr] gap-4 px-3 py-2 text-sm",
-                    i > 0 && "border-t border-border",
-                  )}
-                >
-                  <div className="min-w-0 font-mono text-xs break-all text-muted-foreground">
-                    {entry.files.join("\n")}
-                  </div>
-                  <div>{renderInline(entry.summary)}</div>
-                </div>
-              ))}
-            </div>
+            <WalkthroughRows entries={behavioural} />
           </Section>
+        ) : null}
+
+        {mechanical.length ? (
+          // Folded, not hidden: the reviewer called these mechanical, and the
+          // point is that a person can choose not to read them — not that
+          // they cannot.
+          <details className="mb-8">
+            <summary className="label-mono mb-2 cursor-pointer text-[10px] text-muted-foreground">
+              Mechanical — skim ({mechanical.length})
+            </summary>
+            <WalkthroughRows entries={mechanical} />
+          </details>
         ) : null}
 
         <Section title="Decisions">
@@ -242,4 +243,25 @@ function renderInline(text: string): React.ReactNode[] {
     }
     return part;
   });
+}
+
+function WalkthroughRows({ entries }: { entries: WalkthroughEntry[] }) {
+  return (
+    <div className="border border-border">
+      {entries.map((entry, i) => (
+        <div
+          key={entry.files.join("|")}
+          className={cn(
+            "grid grid-cols-[minmax(0,240px)_1fr] gap-4 px-3 py-2 text-sm",
+            i > 0 && "border-t border-border",
+          )}
+        >
+          <div className="min-w-0 font-mono text-xs break-all text-muted-foreground">
+            {entry.files.join("\n")}
+          </div>
+          <div>{renderInline(entry.summary)}</div>
+        </div>
+      ))}
+    </div>
+  );
 }

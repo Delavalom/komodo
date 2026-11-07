@@ -2,7 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { effectivePathFilters, type KomodoConfig } from "./config.js";
 import { selectSharedContext, type ResolvedContextSource } from "./context-sources.js";
-import { commentableLines, filterPaths } from "./diff.js";
+import { changeFingerprint, commentableLines, filterPaths } from "./diff.js";
+import { readFeatureMap } from "./feature-map.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
 import { resolveDepth, type DepthRequest } from "./depth-rules.js";
 import { runPasses } from "./passes.js";
@@ -67,6 +68,25 @@ export interface RunReviewOptions {
    * one-line change gets one. Omitted, the rules decide.
    */
   depthRequest?: DepthRequest | null;
+  /**
+   * The head this run was asked to read — a claimed job's. When GitHub's head
+   * is anything else, the run stops with HeadMovedError before a model is
+   * paid for, rather than writing a review under a head nobody claimed.
+   */
+  expectedHeadSha?: string;
+}
+
+/** The pull request moved past the head a run was claimed for. Not a failure. */
+export class HeadMovedError extends Error {
+  constructor(
+    readonly expected: string,
+    readonly actual: string,
+  ) {
+    super(
+      `The pull request moved from ${expected.slice(0, 7)} to ${actual.slice(0, 7)} before the review started.`,
+    );
+    this.name = "HeadMovedError";
+  }
 }
 
 export interface RunReviewOutcome {
@@ -78,6 +98,15 @@ export interface RunReviewOutcome {
   sharedContext: { label: string }[];
   /** Documents scoped to a repo cluster the caller had no way to resolve (e.g. `komodo pr`, which has no store). */
   sharedContextNeedsClusters: { label: string }[];
+  /**
+   * The change this run read, from every file before path filters — see
+   * `changeFingerprint`. On the outcome and never on the record: a record can
+   * arrive from a laptop, and a fingerprint is what lets a review follow a
+   * rebase, so only a run that fetched the files itself may state one.
+   */
+  changeFingerprint: string | null;
+  /** Where the feature map handed to the provider was read from, or null when there was none. */
+  featureMap: string | null;
 }
 
 /**
@@ -95,8 +124,13 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   const post = opts.post ?? true;
 
   onProgress?.(`Fetching PR ${ref.owner}/${ref.repo}#${ref.number}…`);
-  const pr = await github.getPR(ref);
+  // Files first, then the head. A claimed head was current at the claim and
+  // is current again here, so the files read in between are that head's.
   const allFiles = await github.listFiles(ref);
+  const pr = await github.getPR(ref);
+  if (opts.expectedHeadSha && pr.headSha !== opts.expectedHeadSha) {
+    throw new HeadMovedError(opts.expectedHeadSha, pr.headSha);
+  }
 
   const keptPaths = new Set(filterPaths(allFiles.map((f) => f.path), effectivePathFilters(config)));
   const files = allFiles.filter((f) => keptPaths.has(f.path));
@@ -119,13 +153,30 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     onProgress?.(`  ${shared.needsClusters.length} shared context document(s) skipped: scoped to a repo cluster, which this caller cannot resolve.`);
   }
 
+  // Only from a checkout: the map has to describe the head being reviewed,
+  // and without a working tree there is no head to read it from.
+  const featureMap = opts.repoDir ? readFeatureMap(opts.repoDir) : null;
+  if (featureMap) {
+    onProgress?.(
+      `  writing checks from the feature map in ${featureMap.path}${featureMap.truncated ? " (truncated)" : ""}.`,
+    );
+  }
+
   // Decided on the reviewable set, after path filters: a lockfile rewrite is
   // not a reason to look harder at the code.
   const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
   onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
   const passRun = await runPasses({
     provider,
-    input: { pr, files, config, repoDir: opts.repoDir, memories: opts.memories, sharedContext: shared.docs },
+    input: {
+      pr,
+      files,
+      config,
+      repoDir: opts.repoDir,
+      memories: opts.memories,
+      sharedContext: shared.docs,
+      featureMap: featureMap ?? undefined,
+    },
     depth: decision.depth,
     accept: judgementCheck(files, config),
     onProgress,
@@ -226,6 +277,8 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     droppedJudgements: dropped,
     sharedContext: shared.docs.map((d) => ({ label: d.label })),
     sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
+    changeFingerprint: changeFingerprint(allFiles),
+    featureMap: featureMap?.path ?? null,
   };
 }
 

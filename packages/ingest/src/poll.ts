@@ -7,7 +7,7 @@
  * which is what lets `komodo dev` and a self-hosted `komodo serve` behave
  * identically. The cost is minutes of lag, which a review queue can afford.
  */
-import type { CheckRollup, GitHubClient, KomodoConfig } from "@komodo/core";
+import { changeFingerprint, type CheckRollup, type GitHubClient, type KomodoConfig } from "@komodo/core";
 import type {
   KomodoStore,
   OrgSettings,
@@ -25,6 +25,11 @@ export interface PollResult {
   closed: number;
   /** Pull requests whose check rollup was observed this pass. */
   checksObserved: number;
+  /**
+   * Pushes that moved the head without moving the change — rebases — whose
+   * review was carried to the new head instead of being run again.
+   */
+  carried: number;
   /** Repositories whose listing failed this pass, and so were left as they were. */
   unreachable: number;
   /**
@@ -111,6 +116,7 @@ export async function pollRepositories(
   let unreachable = 0;
   let notEligible = 0;
   let checksObserved = 0;
+  let carried = 0;
   let detailsFetched = 0;
   const stillOpen = new Set<string>();
 
@@ -183,6 +189,24 @@ export async function pollRepositories(
       if (moved) changed++;
 
       const ref = { owner: repo.owner, repo: repo.name, number: item.number };
+
+      // A push to a pull request that already has a review: is it the same
+      // change on a newer base? Asked only when there is a fingerprint to
+      // compare against, so a pull request nothing has reviewed costs nothing
+      // extra. The files are read before the size, so a size that still names
+      // this head says the files were read at it too.
+      const lastRun =
+        moved && previous ? (await store.listReviewRuns(id))[0] : undefined;
+      let sameChange = false;
+      if (lastRun?.changeFingerprint && lastRun.headSha !== item.headSha) {
+        try {
+          sameChange =
+            changeFingerprint(await github.listFiles(ref)) === lastRun.changeFingerprint;
+        } catch {
+          // Unknown is not the same: the push gets a review, as it would have.
+        }
+      }
+
       const [size, decisions] = await Promise.all([
         moved
           ? github.getPRSize(ref)
@@ -190,6 +214,7 @@ export async function pollRepositories(
               additions: previous.additions,
               deletions: previous.deletions,
               changedFiles: previous.changedFiles,
+              headSha: item.headSha,
             }),
         activityChanged
           ? github.listReviewDecisions(ref)
@@ -254,6 +279,23 @@ export async function pollRepositories(
         });
       }
 
+      // Carried whatever the automatic-review switches say: no model runs,
+      // and evidence a person already recorded is worth keeping either way.
+      if (sameChange && lastRun && size.headSha === item.headSha) {
+        const to = await store.carryReview({
+          fromReviewId: lastRun.id,
+          toHeadSha: item.headSha,
+          at: Date.now(),
+        });
+        if (to) {
+          carried++;
+          options.onProgress?.(
+            `  #${item.number}: rebased without changing what it changes; carried the review from ${lastRun.headSha.slice(0, 7)}.`,
+          );
+          continue;
+        }
+      }
+
       const trigger = automaticTrigger(previous, item.headSha, item.isDraft);
       if (
         baselineComplete &&
@@ -297,7 +339,7 @@ export async function pollRepositories(
     options.onProgress,
   );
 
-  return { seen, changed, closed, unreachable, notEligible, checksObserved };
+  return { seen, changed, closed, unreachable, notEligible, checksObserved, carried };
 }
 
 function automaticTrigger(

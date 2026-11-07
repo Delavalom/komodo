@@ -32,8 +32,17 @@ function fakeGitHub() {
   return { client, calls };
 }
 
-/** Enough milliseconds for `Date.now()` to move on. */
-const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+/**
+ * A counter clock standing in for `Date.now()`, well clear of the 15-minute
+ * discovery interval so the first pass's interval guard still treats a
+ * never-discovered store as overdue. Each call moves "now" forward a full
+ * second — enough for every comparison discovery makes to stay strict —
+ * without a real sleep for the wall clock to cross.
+ */
+function counterClock(): () => number {
+  let t = 10_000_000;
+  return () => (t += 1_000);
+}
 
 describe("ingestOnce discovery", () => {
   let store: SqliteStore;
@@ -46,8 +55,8 @@ describe("ingestOnce discovery", () => {
     });
   });
 
-  const pass = async (github: GitHubClient) =>
-    ingestOnce({ store, github, config: KomodoConfigSchema.parse({}) });
+  const pass = async (github: GitHubClient, now?: () => number) =>
+    ingestOnce({ store, github, config: KomodoConfigSchema.parse({}), now });
 
   it("polls without listing an owner nobody asked it to list", async () => {
     const { client, calls } = fakeGitHub();
@@ -77,16 +86,16 @@ describe("ingestOnce discovery", () => {
     // The request is newer than the pass that began before it. If discovery
     // stamped its own completion instead of its start, the next pass would read
     // that request as already served and the button would do nothing.
+    const now = counterClock();
     const calls = { owners: 0 };
     const client = {
       async listOwnerRepos(owner: string) {
         calls.owners++;
         // The press lands strictly inside the pass: after it began, before it
-        // ended. Without the waits all three timestamps share a millisecond
-        // and the race the test exists for cannot be staged at all.
-        await tick();
-        await store.setMeta(META_DISCOVERY_REQUESTED_AT, String(Date.now()));
-        await tick();
+        // ended. A shared counter clock places it on the tick between the
+        // pass's start and its end, deterministically, without a real sleep
+        // for the wall clock to cross.
+        await store.setMeta(META_DISCOVERY_REQUESTED_AT, String(now()));
         return [{ owner, name: "api", archived: false, isPrivate: false }];
       },
       async listOpenPRs() {
@@ -95,12 +104,12 @@ describe("ingestOnce discovery", () => {
     } as unknown as GitHubClient;
 
     await store.saveSettings({ autoEnableNewRepos: true });
-    await pass(client);
+    await pass(client, now);
     expect(calls.owners).toBe(1);
 
     // The rescan pressed mid-pass is still outstanding, so the next pass lists.
     await store.saveSettings({ autoEnableNewRepos: false });
-    await pass(client);
+    await pass(client, now);
     expect(calls.owners).toBe(2);
   });
 

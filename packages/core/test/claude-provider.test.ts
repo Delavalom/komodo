@@ -15,6 +15,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
         subtype: sdk.subtype,
         total_cost_usd: sdk.cost,
         structured_output: {
+          intent: "Add a limiter.",
           summary: "- Adds a limiter",
           walkthrough: [],
           confidence: 3,

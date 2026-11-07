@@ -1,5 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { ReviewResultSchema, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
+import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { buildReviewPrompt } from "./prompt.js";
 import type { ReviewInput, ReviewProvider } from "./types.js";
 
@@ -70,7 +70,7 @@ export class ClaudeProvider implements ReviewProvider {
     }
 
     const raw = structured ?? extractJson(finalText);
-    return ReviewResultSchema.parse(raw);
+    return parseReviewResult(raw);
   }
 
   /**

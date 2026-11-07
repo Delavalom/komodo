@@ -11,6 +11,7 @@ export type {
   Answer,
   AIReviewJob,
   AIReviewJobState,
+  ReviewProviderName,
   ApiKey,
   Bucket,
   DepthRuleSetting,
@@ -93,6 +94,7 @@ export { pickActor } from "./actor.js";
 export { needsReviewFrom, type QueueLensViewer } from "./queue-lens.js";
 export { deriveAiState, canRequestAiReview, type AiState } from "./ai-state.js";
 export { readChecks, type StoredChecks } from "./checks.js";
+export { changeKind, type ChangeKindInput, type MechanicalReason } from "./change-kind.js";
 export {
   easyWin,
   type EasyWin,
@@ -106,6 +108,7 @@ export {
   META_LAST_DISCOVERY_ERROR,
   META_LAST_POLL_AT,
   META_LAST_POLL_ERROR,
+  META_REVIEW_PROVIDERS,
   META_SETTINGS_INITIALIZED,
   META_WATCH_LAST_CHECKED_AT,
 } from "./meta.js";

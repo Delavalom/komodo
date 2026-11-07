@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { changeKind } from "../src/change-kind.js";
 import { seedStore } from "../src/seed.js";
 import { PostgresStore } from "../src/postgres.js";
 import { SqliteStore } from "../src/sqlite.js";
@@ -51,11 +52,41 @@ describe.each(DRIVERS)("seedStore on $name", ({ open }) => {
 
   afterAll(() => store?.close());
 
+  it("seeds rebased pull requests whose verified evidence was carried, not invented", async () => {
+    const open = (await store.listPullRequests()).filter((p) => p.state === "open");
+    const carried = [];
+    for (const p of open) {
+      const detail = await store.loadReview(`${p.id}@${p.headSha}`);
+      if (detail?.review.carriedFrom) carried.push(detail);
+    }
+    expect(carried).toHaveLength(2);
+    for (const detail of carried) {
+      expect(detail.verifications.some((v) => v.result === "verified" && v.carriedFromHeadSha)).toBe(true);
+    }
+  });
+
+  it("seeds mechanical changes the queue's own rule recognises, and code it does not", async () => {
+    const [files, pullRequests] = await Promise.all([
+      store.listOpenHeadReviewFiles(),
+      store.listPullRequests(),
+    ]);
+    const kinds = pullRequests
+      .filter((pr) => pr.state === "open")
+      .map((pr) => {
+        const run = files.filter((f) => f.reviewId === `${pr.id}@${pr.headSha}`);
+        return run.length ? changeKind({ files: run, changedFiles: pr.changedFiles }) : null;
+      });
+    expect(kinds.filter((k) => k?.includes("docs")).length).toBeGreaterThan(0);
+    expect(kinds.filter((k) => k?.includes("comments")).length).toBeGreaterThan(0);
+    expect(kinds.filter((k) => k === null).length).toBeGreaterThan(kinds.length / 2);
+  });
+
   it("gives komodo dev a queue to render before any token is configured", async () => {
     const { judgments, repositories, members, teams } = await store.snapshot();
 
     expect(repositories.length).toBeGreaterThan(0);
-    expect(judgments).toHaveLength(184);
+    // One per pull request, plus the new head of each of the two rebased ones.
+    expect(judgments).toHaveLength(186);
     expect(teams).toHaveLength(1);
     expect(teams[0].memberIds).toHaveLength(members.length);
     expect([...teams[0].watchedRepoIds].sort()).toEqual(
@@ -171,7 +202,7 @@ it("re-seeds in place rather than doubling the dataset", async () => {
   await seedStore(store);
 
   const { judgments, repositories, members } = await store.snapshot();
-  expect(judgments).toHaveLength(184);
+  expect(judgments).toHaveLength(186);
   expect(repositories).toHaveLength(15);
   expect(members).toHaveLength(6);
   store.close();

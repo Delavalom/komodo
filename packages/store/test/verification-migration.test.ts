@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 
 import { PGlite } from "@electric-sql/pglite";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   MIGRATIONS,
@@ -67,12 +67,21 @@ describe("verification entry order migration", () => {
     }
   });
 
-  // PGlite starts in parallel with the other Postgres-backed test files, so
-  // leave the same startup allowance as the depth migration beside it.
-  it(
-    "backfills Postgres entries and advances the sequence default",
-    async () => {
-      const db = new PGlite();
+  describe("Postgres", () => {
+    // Booted once in a hook, not inside the test body, so the WASM startup
+    // never has to fit inside the test's own default timeout.
+    let db: PGlite;
+
+    beforeAll(async () => {
+      db = new PGlite();
+      await db.waitReady;
+    }, 30_000); // Same budget this file's test already had before the move from `it(...)` to this hook — not raised.
+
+    afterAll(async () => {
+      await db.close();
+    });
+
+    it("backfills Postgres entries and advances the sequence default", async () => {
       const sql = {
         async query<T>(text: string, params?: unknown[]) {
           const result = await db.query(text, params as never[]);
@@ -83,8 +92,7 @@ describe("verification entry order migration", () => {
         },
       };
 
-      try {
-        await db.exec(`CREATE TABLE schema_migrations (
+      await db.exec(`CREATE TABLE schema_migrations (
           id TEXT PRIMARY KEY,
           "appliedAt" BIGINT NOT NULL
         );
@@ -97,28 +105,24 @@ describe("verification entry order migration", () => {
         INSERT INTO verification_entries VALUES
           ('entry-9', 'check', 'review', 100),
           ('entry-10', 'check', 'review', 100);`);
-        for (const migration of previousMigrations) {
-          await db.query(
-            `INSERT INTO schema_migrations (id, "appliedAt") VALUES ($1, 1)`,
-            [migration.id],
-          );
-        }
-
-        await runPostgresMigrations(sql, 2);
+      for (const migration of previousMigrations) {
         await db.query(
-          `INSERT INTO verification_entries
-             (id, "requirementId", "reviewId", "createdAt")
-           VALUES ('entry-new', 'check', 'review', 100)`,
+          `INSERT INTO schema_migrations (id, "appliedAt") VALUES ($1, 1)`,
+          [migration.id],
         );
-
-        const result = await db.query<{ seq: bigint }>(
-          "SELECT seq FROM verification_entries ORDER BY seq",
-        );
-        expect(result.rows.map((row) => Number(row.seq))).toEqual([1, 2, 3]);
-      } finally {
-        await db.close();
       }
-    },
-    30_000,
-  );
+
+      await runPostgresMigrations(sql, 2);
+      await db.query(
+        `INSERT INTO verification_entries
+           (id, "requirementId", "reviewId", "createdAt")
+         VALUES ('entry-new', 'check', 'review', 100)`,
+      );
+
+      const result = await db.query<{ seq: bigint }>(
+        "SELECT seq FROM verification_entries ORDER BY seq",
+      );
+      expect(result.rows.map((row) => Number(row.seq))).toEqual([1, 2, 3]);
+    });
+  });
 });

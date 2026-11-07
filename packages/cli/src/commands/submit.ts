@@ -12,6 +12,7 @@ import {
   ReviewResultSchema,
   saveReviewRecord,
   type ReviewRecord,
+  type ReviewResult,
 } from "@komodo/core";
 import { toFindings, toJudgment, toReview } from "@komodo/ingest";
 import { connectStore, isPostgresUrl } from "@komodo/store/connect";
@@ -128,7 +129,7 @@ function reportSubmitted(
  */
 async function buildRecordForClaim(
   claim: { headSha: string; repoId: string; number: number; title: string; author: string; url: string },
-  result: ReviewRecord["result"],
+  result: ReviewResult,
   base: string | undefined,
 ): Promise<ReviewRecord> {
   const { config } = loadConfig();

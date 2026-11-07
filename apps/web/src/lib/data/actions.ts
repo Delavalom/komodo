@@ -13,7 +13,11 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { mintApiKey } from "@komodo/store/api-key";
-import { META_DISCOVERY_REQUESTED_AT, REVIEW_DEPTH_ORDER } from "@komodo/store";
+import {
+  META_DISCOVERY_REQUESTED_AT,
+  REVIEW_DEPTH_ORDER,
+  type ReviewProviderName,
+} from "@komodo/store";
 import {
   GitHubClient,
   loadConfig,
@@ -47,7 +51,7 @@ import {
   resolveActorLogin,
   resolveDeclaredActor,
 } from "@/lib/data/actor";
-import { getStore } from "@/lib/data/server";
+import { getStore, loadReviewProviders } from "@/lib/data/server";
 import { loadConversation, parsePrId } from "@/lib/data/conversation";
 import {
   recordVerificationForActor,
@@ -136,13 +140,25 @@ export async function retriggerReviews(judgmentIds: string[]): Promise<void> {
 export async function requestAIReview(
   prId: string,
   expectedHeadSha: string,
-  depth: ReviewDepth | null = null,
+  { depth = null, provider = null }: { depth?: ReviewDepth | null; provider?: ReviewProviderName | null } = {},
 ): Promise<void> {
   // A server action is an endpoint: the menu only offers three values, and
   // nothing stops a request carrying a fourth.
   if (depth !== null && !REVIEW_DEPTH_ORDER.includes(depth)) {
     throw new Error("That is not a review depth.");
   }
+  // The same answer the button was drawn from, re-read: a request naming a
+  // provider this server cannot run, or naming none when there are two to
+  // bill, is refused here rather than queued to fail. None at all is not a
+  // refusal: the job waits for an interactive session to claim it.
+  const available = await loadReviewProviders();
+  if (provider && !available.includes(provider)) {
+    throw new Error(`${provider} is not available on the server.`);
+  }
+  if (!provider && available.length > 1) {
+    throw new Error("Pick which provider should run this review.");
+  }
+
   const store = await getStore();
   const snapshot = await store.snapshot();
   const pr = snapshot.pullRequests.find((candidate) => candidate.id === prId);
@@ -160,6 +176,7 @@ export async function requestAIReview(
     requestedBy: await resolveActorLogin(snapshot.members),
     requestedAt: Date.now(),
     depth,
+    provider,
   });
   // An explicit retry means the operator believes the provider is usable
   // again; do not leave it behind the automatic failure circuit.
@@ -684,6 +701,12 @@ export async function disconnectGithubIdentity(): Promise<void> {
  *   - A required verification check is unverified, and the caller did not say
  *     out loud that they are going ahead anyway. Komodo's whole argument is
  *     that a clean diff is not evidence the change works.
+ *
+ * And one acknowledgement: a required check verified only by evidence carried
+ * across a rebase (see the store's `carryReview`) was observed at an earlier
+ * head. The change is byte-identical, the base under it is not, so approving
+ * on it takes a person saying they accept that — and the approval says so on
+ * GitHub's record.
  */
 export async function submitGithubReview(input: {
   reviewId: string;
@@ -691,6 +714,8 @@ export async function submitGithubReview(input: {
   body: string;
   /** Set when approving with required checks still unverified, and why. */
   override?: string | null;
+  /** Set when approving on evidence carried from an earlier head. */
+  acknowledgeCarried?: boolean;
 }): Promise<{ url: string; error?: undefined } | { url?: undefined; error: string }> {
   try {
     return { url: await sendGithubReview(input) };
@@ -706,6 +731,7 @@ async function sendGithubReview(input: {
   event: HumanReviewEvent;
   body: string;
   override?: string | null;
+  acknowledgeCarried?: boolean;
 }): Promise<string> {
   // Named exhaustively rather than trusted from the argument's type. A server
   // action is callable directly, the type is erased by then, and the approve
@@ -771,15 +797,32 @@ async function sendGithubReview(input: {
     );
   }
 
+  // Counted here from the stored entries, never taken from the caller: the
+  // screen shows the same number, but this is the one that gates.
+  const carried = carriedRequired(detail);
+  if (input.event === "APPROVE" && carried.count > 0 && !input.acknowledgeCarried) {
+    throw new Error(
+      `${carried.count} required ${carried.count === 1 ? "check is" : "checks are"} verified only by evidence recorded at ${carried.heads.map((h) => h.slice(0, 7)).join(", ")}, before the base moved. Acknowledge that to approve, or record the evidence again here.`,
+    );
+  }
+
   const ref = parseReviewId(input.reviewId);
-  // The note is appended only to an approval, and only when there was
+  // The notes are appended only to an approval, and only when there was
   // something to approve over. Keyed on the override alone it wrote the word
   // "Approved" into comments and change requests, which is Komodo putting a
   // decision in a reviewer's mouth that they did not make.
-  const posted =
-    input.event === "APPROVE" && override && outstanding > 0
-      ? `${body}\n\n> Approved with ${outstanding} required check${outstanding === 1 ? "" : "s"} unverified: ${override}`
-      : body;
+  const notes =
+    input.event !== "APPROVE"
+      ? []
+      : [
+          override && outstanding > 0
+            ? `> Approved with ${outstanding} required check${outstanding === 1 ? "" : "s"} unverified: ${override}`
+            : null,
+          carried.count > 0
+            ? `> ${carried.count} required check${carried.count === 1 ? "" : "s"} verified at ${carried.heads.map((h) => h.slice(0, 7)).join(", ")} and carried to ${detail.review.headSha.slice(0, 7)}: the same change, rebased onto a newer base. The approver acknowledged the base moved.`
+            : null,
+        ].filter((note): note is string => note !== null);
+  const posted = [body, ...notes].join("\n\n");
 
   let submitted;
   try {
@@ -818,6 +861,28 @@ async function sendGithubReview(input: {
   await loadConversation(detail.review.prId, { force: true }).catch(() => undefined);
   revalidatePath("/", "layout");
   return submitted.html_url;
+}
+
+/**
+ * Required checks whose newest entry is `verified` but was carried from an
+ * earlier head, and the heads it was observed at.
+ */
+function carriedRequired(detail: {
+  verificationRequirements: import("@/lib/types").VerificationRequirement[];
+  verifications: import("@/lib/types").VerificationEntry[];
+}): { count: number; heads: string[] } {
+  const latest = new Map(
+    detail.verifications.map((entry) => [entry.requirementId, entry]),
+  );
+  const heads = new Set<string>();
+  let count = 0;
+  for (const check of detail.verificationRequirements) {
+    const entry = latest.get(check.id);
+    if (!check.required || entry?.result !== "verified" || !entry.carriedFromHeadSha) continue;
+    count++;
+    heads.add(entry.carriedFromHeadSha);
+  }
+  return { count, heads: [...heads] };
 }
 
 /** Required checks whose newest entry is not `verified`. */

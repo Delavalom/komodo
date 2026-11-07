@@ -10,6 +10,7 @@ import type {
   GitHubClient,
   KomodoConfig,
   ReviewProvider,
+  ReviewProviderName,
   WatchTriageProvider,
 } from "@komodo/core";
 import {
@@ -32,6 +33,8 @@ export interface IngestOptions {
   github: GitHubClient;
   /** Omit to poll only — useful before a provider is configured. */
   provider?: ReviewProvider;
+  /** Providers a manual request may pick by name. See ReviewRunnerOptions. */
+  providers?: Partial<Record<ReviewProviderName, ReviewProvider>>;
   /** Omit to skip the PR watcher — no Claude available is a normal state. */
   watchTriage?: WatchTriageProvider;
   /**
@@ -48,6 +51,8 @@ export interface IngestOptions {
   configDir?: string;
   signal?: AbortSignal;
   onProgress?: (msg: string) => void;
+  /** Defaults to `Date.now`. Threaded to discovery, so a test can stage a Rescan pressed mid-pass without a real sleep. */
+  now?: () => number;
 }
 
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -108,6 +113,7 @@ export async function ingestOnce(options: IngestOptions): Promise<void> {
     store,
     github,
     provider,
+    providers: options.providers,
     // The effective config, not options.config — this is what carries the
     // team's settings into shouldReview() and into the prompt.
     config,
@@ -158,6 +164,7 @@ async function discoverIfAsked(
     autoEnable,
     force: requested,
     onProgress,
+    now: options.now,
   });
 }
 

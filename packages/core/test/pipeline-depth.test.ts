@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import type { ReviewInput, ReviewProvider } from "../src/providers/types.js";
 import { ReviewRecordSchema, type Judgement, type ReviewResult } from "../src/schema.js";
 
 const result: ReviewResult = {
+  intent: "Add a limiter.",
   summary: "- Adds a limiter",
   walkthrough: [],
   confidence: 3,
@@ -130,6 +131,12 @@ describe("runReview — depth", () => {
     expect(parsed.id).toBe("x");
   });
 
+  it("still parses a record written before intent existed", () => {
+    const { intent: _omitted, ...older } = result;
+    const parsed = ReviewRecordSchema.parse({ ...baseRecord, result: older });
+    expect(parsed.result.intent).toBeUndefined();
+  });
+
   it("logs the depth it chose and why", async () => {
     const { provider } = counting();
     const lines: string[] = [];
@@ -207,5 +214,32 @@ describe("ReviewRecordSchema — run", () => {
 
   it("refuses an unreasonably long depth reason", () => {
     expect(() => ReviewRecordSchema.parse(run({ depthReason: "x".repeat(201) }))).toThrow();
+  });
+});
+
+describe("runReview — feature map", () => {
+  it("hands every pass the checkout's feature map and says which one", async () => {
+    const repoDir = outDir();
+    mkdirSync(join(repoDir, "docs"));
+    writeFileSync(join(repoDir, "docs/feature-map.md"), "## Limits\nRoute: /limits");
+    const { provider, passes } = counting();
+    const outcome = await runReview({
+      ref, provider, github, repoDir, post: false, outDir: outDir(),
+      config: KomodoConfigSchema.parse({}),
+    });
+    expect(passes[0].featureMap).toEqual({
+      path: "docs/feature-map.md", text: "## Limits\nRoute: /limits", truncated: false,
+    });
+    expect(outcome.featureMap).toBe("docs/feature-map.md");
+  });
+
+  it("reads no map without a checkout", async () => {
+    const { provider, passes } = counting();
+    const outcome = await runReview({
+      ref, provider, github, post: false, outDir: outDir(),
+      config: KomodoConfigSchema.parse({}),
+    });
+    expect(passes[0].featureMap).toBeUndefined();
+    expect(outcome.featureMap).toBeNull();
   });
 });

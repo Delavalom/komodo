@@ -17,7 +17,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,12 +70,11 @@ try {
   }).trim();
   assert.equal(reportedVersion, testVersion, "the installed CLI must read its package version");
 
-  const port = await reservePort();
   const db = join(consumerDir, "komodo.db");
   const env = tokenFreeEnvironment();
   child = spawn(
     process.execPath,
-    [cli, "dev", "--no-poll", "--port", String(port), "--db", db],
+    [cli, "dev", "--no-poll", "--port", "0", "--db", db],
     {
       cwd: scratch,
       env,
@@ -93,6 +91,12 @@ try {
     });
   });
 
+  // `--port 0` asks the CLI to bind an OS-picked port and print it, rather
+  // than this script reserving one of its own, closing it, and handing the
+  // number over — the reserve-then-reuse race a second process (or a second
+  // copy of this same script) could win in the gap between the release and
+  // the CLI's own bind.
+  const port = await waitForListeningPort(30_000);
   const origin = new URL(`http://127.0.0.1:${port}`);
   const health = await waitForHealth(new URL("/api/health", origin), 60_000);
   assert.deepEqual(health, {
@@ -178,19 +182,27 @@ function tokenFreeEnvironment() {
   return env;
 }
 
-async function reservePort() {
-  const server = createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  const port = address.port;
-  await new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
-  return port;
+/**
+ * Polls the captured child output for the CLI's `listening on
+ * http://127.0.0.1:<port>` line (see packages/cli/src/web.ts) instead of
+ * this script choosing a port itself. A bounded wait rather than a bare
+ * block, so a CLI that never gets there fails with a clear error instead of
+ * hanging the suite.
+ */
+async function waitForListeningPort(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (childExited) {
+      const exit = await childExit;
+      throw new Error(
+        `the installed CLI exited before it reported a port: ${JSON.stringify(exit)}${formatLogs()}`,
+      );
+    }
+    const match = /listening on http:\/\/127\.0\.0\.1:(\d+)/.exec(logs);
+    if (match) return Number(match[1]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`the installed CLI never reported a bound port${formatLogs()}`);
 }
 
 async function waitForHealth(url, timeoutMs) {
