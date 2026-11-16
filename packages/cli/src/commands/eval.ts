@@ -28,7 +28,7 @@ import {
  */
 export async function evalCommand(
   file: string,
-  opts: { provider?: string; model?: string },
+  opts: { provider?: string; model?: string; experiment?: string[] },
 ): Promise<void> {
   // Read and validated before anything is spent, so a bad file or a bad
   // pattern in it is an error here, not after the first model run.
@@ -70,6 +70,7 @@ export async function evalCommand(
             outDir,
             onProgress: (m) => console.log(pc.dim(`    ${m}`)),
             depthRequest: { depth, by: "eval" },
+            experiments: opts.experiment,
             model: config.model,
           });
           const kept = outcome.record.result.judgements;
@@ -87,6 +88,21 @@ export async function evalCommand(
             run?.costUsd != null ? `$${run.costUsd.toFixed(2)}` : "—",
             seconds(),
           ]);
+          // What reflection removed, by name, so a drop that was a hit shows
+          // in the log and not only in the gap between two columns.
+          if (outcome.reflection) {
+            const r = outcome.reflection;
+            console.log(
+              pc.dim(
+                `    reflect: ${r.status}, kept ${r.kept}/${r.judgementsChecked}, dropped ${r.dropped.length}, rewrote ${r.revised}` +
+                  (r.costUsd != null ? `, $${r.costUsd.toFixed(2)}` : "") +
+                  (r.error ? ` (${r.error})` : ""),
+              ),
+            );
+            for (const d of r.dropped) {
+              console.log(pc.yellow(`    reflect dropped: ${d.judgement.title} - ${d.reason}`));
+            }
+          }
           for (const missed of raised.missed) console.log(pc.yellow(`    missed: ${missed.name}`));
           const hidden = new Set(shown.missed.map((m) => m.name));
           for (const want of raised.hits) {

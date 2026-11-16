@@ -7,6 +7,8 @@ import { readFeatureMap } from "./feature-map.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
 import { resolveDepth, type DepthRequest } from "./depth-rules.js";
 import { runPasses } from "./passes.js";
+import { DEPTH_TURNS } from "./depth.js";
+import { REFLECT_EXPERIMENT, runReflection, type ReflectionReport } from "./reflect.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -74,7 +76,20 @@ export interface RunReviewOptions {
    * paid for, rather than writing a review under a head nobody claimed.
    */
   expectedHeadSha?: string;
+  /**
+   * Experiments to switch on for this run, by name. Eval only: there is no
+   * komodo.yaml field or setting behind it (AGENTS.md rule 3), and a name
+   * nothing recognises does nothing. With none, a run is exactly what it was.
+   *
+   * - `reflect` — after the passes merge, one more call checks each
+   *   judgement against the code and drops, tightens or keeps it. See
+   *   ./reflect.ts.
+   */
+  experiments?: string[];
 }
+
+/** A judgement the run did not show, and — when something other than the filters removed it — why. */
+export type DroppedJudgement = Judgement & { droppedBy?: "reflect"; dropReason?: string };
 
 /** The pull request moved past the head a run was claimed for. Not a failure. */
 export class HeadMovedError extends Error {
@@ -93,7 +108,7 @@ export interface RunReviewOutcome {
   record: ReviewRecord;
   recordPath: string;
   reviewUrl?: string;
-  droppedJudgements: Judgement[];
+  droppedJudgements: DroppedJudgement[];
   /** Shared context documents actually handed to the provider, for a caller that wants to say so. */
   sharedContext: { label: string }[];
   /** Documents scoped to a repo cluster the caller had no way to resolve (e.g. `komodo pr`, which has no store). */
@@ -107,6 +122,8 @@ export interface RunReviewOutcome {
   changeFingerprint: string | null;
   /** Where the feature map handed to the provider was read from, or null when there was none. */
   featureMap: string | null;
+  /** What the `reflect` experiment did, or null when it was not switched on. */
+  reflection: ReflectionReport | null;
 }
 
 /**
@@ -181,7 +198,37 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     accept: judgementCheck(files, config),
     onProgress,
   });
-  const result = passRun.result;
+  let result = passRun.result;
+  let costUsd = passRun.costUsd;
+
+  // Experiment `reflect`: after the passes merge, before anything is
+  // filtered, so what it removes is reported with its reason and what it
+  // leaves still meets the same checks as everything else.
+  let reflection: ReflectionReport | null = null;
+  const reflectDropped: DroppedJudgement[] = [];
+  if (opts.experiments?.includes(REFLECT_EXPERIMENT)) {
+    const reflected = await runReflection({
+      provider,
+      input: {
+        pr,
+        files,
+        judgements: result.judgements,
+        config,
+        repoDir: opts.repoDir,
+        turnBudget: DEPTH_TURNS[decision.depth],
+      },
+      onProgress,
+    });
+    reflection = reflected.report;
+    result = { ...result, judgements: reflected.judgements };
+    for (const { judgement, reason } of reflected.report.dropped) {
+      reflectDropped.push({ ...judgement, droppedBy: "reflect", dropReason: reason });
+    }
+    // The cost is real whether or not it changed anything. It joins the
+    // run's cost rather than the pass count: a pass is a credit, and the
+    // record refuses more passes than the depth runs.
+    if (reflection.costUsd !== null) costUsd = (costUsd ?? 0) + reflection.costUsd;
+  }
 
   const { valid, dropped } = validateJudgements(result, files, config);
   const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
@@ -215,7 +262,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
       depth: decision.depth,
       depthReason: decision.reason,
       passes: passRun.passes,
-      costUsd: passRun.costUsd,
+      costUsd,
     },
     posted: false,
   };
@@ -274,11 +321,12 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     record,
     recordPath,
     reviewUrl,
-    droppedJudgements: dropped,
+    droppedJudgements: [...dropped, ...reflectDropped],
     sharedContext: shared.docs.map((d) => ({ label: d.label })),
     sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
     changeFingerprint: changeFingerprint(allFiles),
     featureMap: featureMap?.path ?? null,
+    reflection,
   };
 }
 

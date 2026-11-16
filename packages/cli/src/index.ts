@@ -47,6 +47,7 @@ program
   .description("Run seeded pull requests at each review depth and report which known defects were raised")
   .option("--provider <name>", "claude | codex (default: from komodo.yaml / auto-detect)")
   .option("--model <model>", "model override passed to the provider")
+  .option("--experiment <name...>", "switch on an experiment for these runs, e.g. reflect (eval only)")
   .action(evalCommand);
 
 program

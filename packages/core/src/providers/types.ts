@@ -2,6 +2,7 @@ import type { KomodoConfig } from "../config.js";
 import type { SharedContextDoc } from "../context-sources.js";
 import type { FeatureMap } from "../feature-map.js";
 import type { PRFile, PRMeta } from "../github.js";
+import type { ReflectInput, ReflectionResult } from "../reflect.js";
 import type { Judgement, ReviewResult } from "../schema.js";
 
 /**
@@ -39,6 +40,9 @@ export type ReviewPass =
 export interface PassUsage {
   /** In USD, as the provider stated it. Absent when it states nothing. */
   costUsd?: number;
+  /** Tokens the call used, when the provider states them. */
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface ReviewInput {
@@ -81,4 +85,10 @@ export interface ReviewInput {
 export interface ReviewProvider {
   readonly name: string;
   review(input: ReviewInput, onProgress?: (msg: string) => void): Promise<ReviewResult>;
+  /**
+   * The `reflect` experiment's call: check finished judgements against the
+   * code. Optional, and only ever called when a run opts in with
+   * `experiments: ["reflect"]` — see ../reflect.ts.
+   */
+  reflect?(input: ReflectInput, onProgress?: (msg: string) => void): Promise<ReflectionResult>;
 }

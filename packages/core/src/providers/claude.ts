@@ -1,4 +1,12 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import {
+  buildReflectionPrompt,
+  REFLECT_DEFAULT_TURNS,
+  ReflectionResultSchema,
+  reflectionJsonSchema,
+  type ReflectInput,
+  type ReflectionResult,
+} from "../reflect.js";
 import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { buildReviewPrompt } from "./prompt.js";
 import type { ReviewInput, ReviewProvider } from "./types.js";
@@ -71,6 +79,52 @@ export class ClaudeProvider implements ReviewProvider {
 
     const raw = structured ?? extractJson(finalText);
     return parseReviewResult(raw);
+  }
+
+  /**
+   * The `reflect` experiment's call. Same SDK, same model, same read-only
+   * tools and checkout as `review`; it differs in the prompt and the schema.
+   */
+  async reflect(input: ReflectInput, onProgress?: (msg: string) => void): Promise<ReflectionResult> {
+    const prompt = buildReflectionPrompt(input);
+    let structured: unknown;
+    let finalText = "";
+
+    for await (const message of query({
+      prompt,
+      options: {
+        ...(this.model ? { model: this.model } : {}),
+        ...(this.executable ? { pathToClaudeCodeExecutable: this.executable } : {}),
+        cwd: input.repoDir ?? process.cwd(),
+        allowedTools: ["Read", "Glob", "Grep"],
+        maxTurns: input.turnBudget ?? REFLECT_DEFAULT_TURNS,
+        systemPrompt:
+          "You are Komodo's second reader. You only read code; you never modify anything. You check drafted review judgements against the code and follow the user's output instructions exactly.",
+        outputFormat: { type: "json_schema", schema: reflectionJsonSchema() },
+      } as any,
+    })) {
+      const m = message as any;
+      if (m.type === "assistant" && onProgress) {
+        const text = m.message?.content?.find?.((c: any) => c.type === "text")?.text;
+        if (text) onProgress(text.slice(0, 120));
+      }
+      if (m.type === "result") {
+        // Reported before the failure check, like a review: a call that ran
+        // out of turns still spent them.
+        const usage: { costUsd?: number; inputTokens?: number; outputTokens?: number } = {};
+        if (typeof m.total_cost_usd === "number") usage.costUsd = m.total_cost_usd;
+        if (typeof m.usage?.input_tokens === "number") usage.inputTokens = m.usage.input_tokens;
+        if (typeof m.usage?.output_tokens === "number") usage.outputTokens = m.usage.output_tokens;
+        input.onUsage?.(usage);
+        if (m.subtype && m.subtype !== "success") {
+          throw new Error(`Claude reflection failed (${m.subtype}).`);
+        }
+        structured = m.structured_output ?? m.structuredOutput;
+        finalText = typeof m.result === "string" ? m.result : "";
+      }
+    }
+
+    return ReflectionResultSchema.parse(structured ?? extractJson(finalText));
   }
 
   /**
