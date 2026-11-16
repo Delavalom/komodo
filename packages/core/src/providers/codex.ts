@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
+import { pinEnabled } from "../pin.js";
 import { buildReviewPrompt } from "./prompt.js";
 import type { ReviewInput, ReviewProvider } from "./types.js";
 
@@ -32,7 +33,7 @@ export class CodexProvider implements ReviewProvider {
     const dir = mkdtempSync(join(tmpdir(), "komodo-codex-"));
     const schemaPath = join(dir, "schema.json");
     const outPath = join(dir, "last-message.txt");
-    writeFileSync(schemaPath, JSON.stringify(reviewResultJsonSchema()));
+    writeFileSync(schemaPath, JSON.stringify(reviewResultJsonSchema({ anchor: pinEnabled(input.experiments) })));
     try {
       onProgress?.("Running codex exec (this can take a few minutes)…");
       const args = [

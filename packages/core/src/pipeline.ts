@@ -7,6 +7,7 @@ import { readFeatureMap } from "./feature-map.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
 import { resolveDepth, type DepthRequest } from "./depth-rules.js";
 import { runPasses } from "./passes.js";
+import { emptyPinStats, pinEnabled, withPinning, type PinStats } from "./pin.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -74,6 +75,13 @@ export interface RunReviewOptions {
    * paid for, rather than writing a review under a head nobody claimed.
    */
   expectedHeadSha?: string;
+  /**
+   * Eval-only experiment names. Never read from komodo.yaml or a settings
+   * screen (AGENTS.md rule 3): an experiment is a way to measure the
+   * reviewer, not a thing a team configures. Absent or empty, the review is
+   * exactly what it was. Known names: `pin` (see ./pin.ts).
+   */
+  experiments?: string[];
 }
 
 /** The pull request moved past the head a run was claimed for. Not a failure. */
@@ -107,6 +115,8 @@ export interface RunReviewOutcome {
   changeFingerprint: string | null;
   /** Where the feature map handed to the provider was read from, or null when there was none. */
   featureMap: string | null;
+  /** What the `pin` experiment did to this run's judgements; absent when it was off. */
+  pin?: PinStats;
 }
 
 /**
@@ -166,9 +176,11 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   // not a reason to look harder at the code.
   const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
   onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
+  const pin = pinEnabled(opts.experiments) ? emptyPinStats() : undefined;
   const passRun = await runPasses({
-    provider,
+    provider: pin ? withPinning(provider, files, pin) : provider,
     input: {
+      ...(opts.experiments?.length ? { experiments: opts.experiments } : {}),
       pr,
       files,
       config,
@@ -182,6 +194,11 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     onProgress,
   });
   const result = passRun.result;
+  if (pin) {
+    onProgress?.(
+      `  pin: ${pin.anchored} anchored, ${pin.moved} moved, ${pin.unmatched} not found in the diff (kept where they were).`,
+    );
+  }
 
   const { valid, dropped } = validateJudgements(result, files, config);
   const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
@@ -279,6 +296,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
     changeFingerprint: changeFingerprint(allFiles),
     featureMap: featureMap?.path ?? null,
+    ...(pin ? { pin } : {}),
   };
 }
 

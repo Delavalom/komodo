@@ -90,6 +90,15 @@ export const JudgementSchema = z.object({
     .int()
     .optional()
     .describe("For multi-line judgements: last line of the range (line is then the first)"),
+  // Asked for only under the `pin` experiment (see pin.ts). Optional, so every
+  // record written without it still parses, and left out of the JSON schema
+  // handed to a model unless the experiment is on.
+  anchor: z
+    .string()
+    .optional()
+    .describe(
+      "The one to five lines of code this judgement is about, copied verbatim from the diff without the line-number gutter or the +/- marker. Used to place the comment on the right line.",
+    ),
   severity: z.enum(SEVERITIES),
   kind: z.enum(JUDGEMENT_KINDS),
   focus: z
@@ -333,11 +342,19 @@ export const ReviewRecordSchema = z.object({
 
 export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
 
-export function reviewResultJsonSchema(): Record<string, unknown> {
+export function reviewResultJsonSchema(opts: { anchor?: boolean } = {}): Record<string, unknown> {
   // draft-07 + no $schema key: the Claude Code CLI's validator rejects the
   // draft/2020-12 meta-schema reference zod v4 emits by default.
   const schema = z.toJSONSchema(ReviewResultSchema, { target: "draft-7" }) as Record<string, unknown>;
   delete schema.$schema;
+  // `anchor` belongs to the `pin` experiment. Without it the model is shown
+  // exactly the schema it always was.
+  if (!opts.anchor) {
+    const properties = (
+      (schema.properties as any)?.judgements?.items as { properties?: Record<string, unknown> } | undefined
+    )?.properties;
+    if (properties) delete properties.anchor;
+  }
   return schema;
 }
 

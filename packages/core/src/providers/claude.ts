@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
+import { pinEnabled } from "../pin.js";
 import { buildReviewPrompt } from "./prompt.js";
 import type { ReviewInput, ReviewProvider } from "./types.js";
 
@@ -40,7 +41,7 @@ export class ClaudeProvider implements ReviewProvider {
         maxTurns: input.turnBudget ?? 40,
         systemPrompt:
           "You are Komodo, an AI code review engine. You only read code; you never modify anything. Follow the user's output instructions exactly.",
-        outputFormat: { type: "json_schema", schema: reviewResultJsonSchema() },
+        outputFormat: { type: "json_schema", schema: reviewResultJsonSchema({ anchor: pinEnabled(input.experiments) }) },
       } as any,
     })) {
       const m = message as any;

@@ -1,4 +1,5 @@
 import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
+import { pinEnabled } from "../pin.js";
 import { buildReviewPrompt } from "./prompt.js";
 import {
   RereadResultSchema,
@@ -103,7 +104,7 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
     const { payload } = await this.complete(
       buildReviewPrompt(input),
       "review_result",
-      reviewResultJsonSchema(),
+      reviewResultJsonSchema({ anchor: pinEnabled(input.experiments) }),
       input.onUsage && ((costUsd) => input.onUsage?.({ costUsd })),
     );
     return parseReviewResult(payload);
