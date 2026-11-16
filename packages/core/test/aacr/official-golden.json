@@ -1,0 +1,255 @@
+{
+  "summary": {
+    "total_instances": 3,
+    "candidate_instances": 3,
+    "evaluated_instances": 2,
+    "missing_instances": 1,
+    "expected_notes": 8,
+    "generated_notes": 16,
+    "total_duration_seconds": 19.47,
+    "avg_duration_seconds": 9.73,
+    "total_input_tokens": 2001,
+    "total_output_tokens": 101,
+    "total_tokens": 2102,
+    "avg_input_tokens": 1000,
+    "avg_output_tokens": 50,
+    "matched_generated_notes": 5,
+    "matched_file_semantic_notes": 6,
+    "file_semantic_match_rate": 0.312,
+    "file_semantic_recall_rate": 0.75,
+    "balanced_score": 0.441
+  },
+  "eval_res": [
+    {
+      "instance_id": "acme__widgets@aaaaaaa",
+      "repo": "acme/widgets",
+      "comments": [
+        {
+          "note": "Null check missing on user lookup.",
+          "path": "src/a.py",
+          "side": "right",
+          "from_line": 10,
+          "to_line": 12,
+          "file_semantic_match": true
+        },
+        {
+          "note": "Loop is O(n^2) over the session list.",
+          "path": "src/a.py",
+          "side": "right",
+          "from_line": 20,
+          "to_line": 20,
+          "file_semantic_match": true
+        },
+        {
+          "note": "Error from save() is swallowed.",
+          "path": "src/a.py",
+          "side": null,
+          "from_line": null,
+          "to_line": null,
+          "file_semantic_match": true
+        },
+        {
+          "note": "Magic number 86400 should be a named constant.",
+          "path": "src/b.py",
+          "side": "right",
+          "from_line": 5,
+          "to_line": 5,
+          "file_semantic_match": true
+        },
+        {
+          "note": "Typo in docstring.",
+          "path": "src\\c.py",
+          "side": "left",
+          "from_line": 1,
+          "to_line": 2,
+          "file_semantic_match": false
+        },
+        {
+          "note": "<details>only thinking</details>",
+          "path": "src/a.py",
+          "side": "right",
+          "from_line": 30,
+          "to_line": 31,
+          "file_semantic_match": false
+        }
+      ],
+      "generated_comments": [
+        {
+          "note": "The user lookup can return None and is dereferenced.",
+          "path": "src/a.py",
+          "from_line": 10,
+          "to_line": 11,
+          "matched_gt_indices": [
+            0
+          ],
+          "judge_reason": "1. Match — same null dereference\n2. No match\n3. No match\n\n[1]",
+          "hit_new_gt": true
+        },
+        {
+          "note": "Quadratic loop and the swallowed save error.",
+          "path": "src/a.py",
+          "from_line": 20,
+          "to_line": 20,
+          "matched_gt_indices": [
+            1,
+            2
+          ],
+          "judge_reason": "1. No match\n2. Match [x]\n3. Match\n\n[2, 3]",
+          "hit_new_gt": true
+        },
+        {
+          "note": "Same None dereference again.",
+          "path": "src/a.py",
+          "from_line": 11,
+          "to_line": 11,
+          "matched_gt_indices": [
+            0
+          ],
+          "judge_reason": "[1]",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Multiple brackets [1] in text.",
+          "path": "src/a.py",
+          "from_line": 40,
+          "to_line": 45,
+          "matched_gt_indices": [],
+          "judge_reason": "I first thought [1] but no.\n[]",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Hard-coded 86400 seconds; name it.",
+          "path": "src/b.py",
+          "from_line": 5,
+          "to_line": 5,
+          "matched_gt_indices": [
+            3
+          ],
+          "judge_reason": "1. Match — same constant\n\n[1]",
+          "hit_new_gt": true
+        },
+        {
+          "note": "Constant should live in config.",
+          "path": "src/b.py",
+          "from_line": 0,
+          "to_line": 0,
+          "matched_gt_indices": [],
+          "judge_reason": "[9]",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Readme wording.",
+          "path": "docs/readme.md",
+          "from_line": 1,
+          "to_line": 1,
+          "matched_gt_indices": [],
+          "judge_reason": "",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Docstring typo 'recieve'.",
+          "path": "src/c.py",
+          "from_line": 1,
+          "to_line": 1,
+          "matched_gt_indices": [],
+          "judge_reason": "评估过程出错: Expecting value: line 1 column 4 (char 3)",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Docstring typo again (judge down).",
+          "path": "src/c.py",
+          "from_line": 2,
+          "to_line": 2,
+          "matched_gt_indices": [],
+          "judge_reason": "评估过程出错: judge unavailable",
+          "hit_new_gt": false
+        }
+      ]
+    },
+    {
+      "instance_id": "acme__gadgets@bbbbbbb",
+      "repo": "acme/gadgets",
+      "comments": [
+        {
+          "note": "Goroutine leaks when ctx is cancelled.",
+          "path": "x.go",
+          "side": "right",
+          "from_line": 7,
+          "to_line": 9,
+          "file_semantic_match": true
+        },
+        {
+          "note": "Channel is closed twice on the error path.",
+          "path": "x.go",
+          "side": "right",
+          "from_line": 15,
+          "to_line": 15,
+          "file_semantic_match": true
+        }
+      ],
+      "generated_comments": [
+        {
+          "note": "Filler one.",
+          "path": "y.go",
+          "from_line": 1,
+          "to_line": 1,
+          "matched_gt_indices": [],
+          "judge_reason": "",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Filler two.",
+          "path": "y.go",
+          "from_line": 2,
+          "to_line": 2,
+          "matched_gt_indices": [],
+          "judge_reason": "",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Filler three.",
+          "path": "y.go",
+          "from_line": 3,
+          "to_line": 3,
+          "matched_gt_indices": [],
+          "judge_reason": "",
+          "hit_new_gt": false
+        },
+        {
+          "note": "Goroutine never exits after cancel.",
+          "path": "x.go",
+          "from_line": 8,
+          "to_line": 8,
+          "matched_gt_indices": [
+            0
+          ],
+          "judge_reason": "1. Match\n2. No match\n[1]",
+          "hit_new_gt": true
+        },
+        {
+          "note": "Double close of the results channel.",
+          "path": "x.go",
+          "from_line": 15,
+          "to_line": 16,
+          "matched_gt_indices": [
+            1
+          ],
+          "judge_reason": "1. No match\n2. Match\n[2]",
+          "hit_new_gt": true
+        }
+      ]
+    }
+  ],
+  "prompts": [
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/a.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L10-11] The user lookup can return None and is dereferenced.\n\n-Reference Comments-\n1. [L10-12] Null check missing on user lookup.\n2. [L20-20] Loop is O(n^2) over the session list.\n3. [L?] Error from save() is swallowed.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/a.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L11-11] Same None dereference again.\n\n-Reference Comments-\n1. [L10-12] Null check missing on user lookup.\n2. [L20-20] Loop is O(n^2) over the session list.\n3. [L?] Error from save() is swallowed.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/a.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L20-20] Quadratic loop and the swallowed save error.\n\n-Reference Comments-\n1. [L10-12] Null check missing on user lookup.\n2. [L20-20] Loop is O(n^2) over the session list.\n3. [L?] Error from save() is swallowed.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/a.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L40-45] Multiple brackets [1] in text.\n\n-Reference Comments-\n1. [L10-12] Null check missing on user lookup.\n2. [L20-20] Loop is O(n^2) over the session list.\n3. [L?] Error from save() is swallowed.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/b.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L5-5] Hard-coded 86400 seconds; name it.\n\n-Reference Comments-\n1. [L5-5] Magic number 86400 should be a named constant.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/b.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L?] Constant should live in config.\n\n-Reference Comments-\n1. [L5-5] Magic number 86400 should be a named constant.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/c.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L1-1] Docstring typo 'recieve'.\n\n-Reference Comments-\n1. [L1-2] Typo in docstring.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: src/c.py), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L2-2] Docstring typo again (judge down).\n\n-Reference Comments-\n1. [L1-2] Typo in docstring.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: x.go), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L15-16] Double close of the results channel.\n\n-Reference Comments-\n1. [L7-9] Goroutine leaks when ctx is cancelled.\n2. [L15-15] Channel is closed twice on the error path.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n",
+    "\n-Role-\n\nYou are an expert code reviewer comparing review comments for semantic equivalence.\n\n-Task-\n\nGiven a Generated Comment and a numbered list of Reference Comments (all from the same file: x.go), determine which Reference Comments express the same concern or suggestion as the Generated Comment.\n\nFocus solely on semantic equivalence of the underlying issue — ignore differences in wording, tone, formatting, or exact line numbers. If the Generated Comment addresses the same core problem as a Reference Comment, include that Reference Comment's number.\n\n-Generated Comment-\n[L8-8] Goroutine never exits after cancel.\n\n-Reference Comments-\n1. [L7-9] Goroutine leaks when ctx is cancelled.\n2. [L15-15] Channel is closed twice on the error path.\n\n-Output-\n\nFor each Reference Comment, briefly state whether it matches and why (one line each).\nThen return a JSON array of matched numbers on the LAST line. If none match, return [].\n\nExample:\n1. Match — both flag the uninitialized variable risk\n2. No match — ref discusses naming, generated discusses null check\n3. Match — same concern about missing error handling\n\n[1, 3]\n\nYour answer:\n"
+  ]
+}

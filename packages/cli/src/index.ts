@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { diffCommand } from "./commands/diff.js";
 import { evalCommand } from "./commands/eval.js";
+import { evalAacrCommand, evalAacrCompareCommand, evalAacrScoreCommand } from "./commands/eval-aacr.js";
 import { initCommand } from "./commands/init.js";
 import { prCommand } from "./commands/pr.js";
 import { promptCommand } from "./commands/prompt.js";
@@ -22,7 +23,10 @@ const program = new Command();
 program
   .name("komodo-review")
   .description("🦎 AI code review on your own Claude or ChatGPT subscription")
-  .version(cliVersion());
+  .version(cliVersion())
+  // Root flags only before the subcommand, so `eval aacr --version v2` reaches
+  // the harness instead of printing the CLI's version.
+  .enablePositionalOptions();
 
 program
   .command("init")
@@ -41,9 +45,9 @@ program
   .option("--no-ui", "do not print the local UI hint")
   .action(prCommand);
 
-program
+const evalCmd = program
   .command("eval")
-  .argument("<file>", "eval YAML, e.g. eval/playground.yaml")
+  .argument("<file>", "eval YAML, e.g. eval/playground.yaml — or `aacr` for the AACR-Bench harness")
   .description("Run seeded pull requests at each review depth and report which known defects were raised")
   .option("--provider <name>", "claude | codex (default: from komodo.yaml / auto-detect)")
   .option("--model <model>", "model override passed to the provider")
@@ -53,6 +57,41 @@ program
     (name: string, previous: string[] = []) => [...previous, ...name.split(",").map((s) => s.trim()).filter(Boolean)],
   )
   .action(evalCommand);
+
+const aacrCmd = evalCmd
+  .command("aacr")
+  .description("Score the AI preflight against AACR-Bench with the benchmark's own metric (never posts)")
+  .option("--version <v>", "dataset version: v1 | v2", "v2")
+  .option("--limit <n>", "instances to run, after the seeded shuffle (default: all)")
+  .option("--seed <n>", "shuffle seed, as the official converter's --seed", "42")
+  .option("--stratify <by>", "language: take languages in turn after the shuffle")
+  .option("--reviewer <name>", "komodo | ocr", "komodo")
+  .option("--ocr-mode <mode>", "delegate | managed (ocr reviewer only)")
+  .option("--model <model>", "reviewer model", "claude-sonnet-5-5")
+  .option("--judge-model <model>", "judge model", "claude-sonnet-5-5")
+  .option("--depth <depth>", "standard | deep | thorough (komodo reviewer)", "standard")
+  .option("--experiment <names>", "comma-separated eval-only experiments passed to the passes")
+  .option("--run-id <name>", "run directory name (default: derived from the options, so --resume finds it)")
+  .option("--concurrency <n>", "instances reviewed at once", "2")
+  .option("--resume", "continue a run, skipping instances that already have a result", false)
+  .option("--preview", "prepare repositories and build diffs only; no model calls", false)
+  .option("--no-score", "review only; score later with `eval aacr score`")
+  .option("--cache-dir <dir>", "dataset and clone cache (default ~/.cache/komodo/aacr)")
+  .option("--out <dir>", "results root (default .komodo/eval/aacr)")
+  .action(evalAacrCommand);
+
+aacrCmd
+  .command("score")
+  .argument("<run-dir>", "a run directory under .komodo/eval/aacr")
+  .description("Re-judge and re-score saved results without reviewing again (cached judge answers are free)")
+  .option("--judge-model <model>", "judge model", "claude-sonnet-5-5")
+  .action(evalAacrScoreCommand);
+
+aacrCmd
+  .command("compare")
+  .argument("<run-dirs...>", "scored run directories")
+  .description("Print reviewer, experiments, n, precision, recall, F1, tokens, seconds and cost per run")
+  .action(evalAacrCompareCommand);
 
 program
   .command("dev")

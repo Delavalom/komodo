@@ -40,8 +40,13 @@ export type ReviewPass =
 export interface PassUsage {
   /** In USD, as the provider stated it. Absent when it states nothing. */
   costUsd?: number;
-  /** Tokens the call used, when the provider states them. */
+  /**
+   * Tokens the pass read, cache reads and writes included, as the provider
+   * stated them. Absent when it states nothing. Measured for the benchmark
+   * harness (`komodo-review eval aacr`); nothing in the product stores it.
+   */
   inputTokens?: number;
+  /** Tokens the pass wrote, when the provider states them. */
   outputTokens?: number;
 }
 
@@ -87,7 +92,12 @@ export interface ReviewInput {
   bundle?: BundleContext;
   /** Which pass this is. Absent means a standard single pass. */
   pass?: ReviewPass;
-  /** Eval-only experiment names — see `RunReviewOptions.experiments`. */
+  /**
+   * Eval-only switches, named by `komodo-review eval aacr --experiment`.
+   * Never set by a review someone is waiting on, and deliberately not a
+   * setting: an experiment that earns its place becomes the default behaviour
+   * (or a real setting with a control), not a flag left on in production.
+   */
   experiments?: string[];
   /** Agent turns this pass may take, for providers that run an agent loop. */
   turnBudget?: number;

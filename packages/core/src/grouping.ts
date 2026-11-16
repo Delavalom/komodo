@@ -320,10 +320,14 @@ export async function runGroupedPasses(opts: {
   }
 
   let costUsd: number | null = null;
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
   let passes = 0;
   for (const { run } of succeeded) {
     passes += run.passes;
     if (run.costUsd !== null) costUsd = (costUsd ?? 0) + run.costUsd;
+    if (run.inputTokens !== null) inputTokens = (inputTokens ?? 0) + run.inputTokens;
+    if (run.outputTokens !== null) outputTokens = (outputTokens ?? 0) + run.outputTokens;
   }
 
   return {
@@ -336,6 +340,8 @@ export async function runGroupedPasses(opts: {
     // per-bundle total is still visible in the progress log and in costUsd.
     passes: Math.min(passes, DEPTH_PASSES[depth]),
     costUsd,
+    inputTokens,
+    outputTokens,
     bundles: total,
     failed,
   };

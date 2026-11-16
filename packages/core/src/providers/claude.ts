@@ -10,7 +10,7 @@ import {
 import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { pinEnabled } from "../pin.js";
 import { buildReviewPrompt } from "./prompt.js";
-import type { ReviewInput, ReviewProvider } from "./types.js";
+import type { PassUsage, ReviewInput, ReviewProvider } from "./types.js";
 
 /**
  * Reviews via the Claude Agent SDK. Auth: reuses the Claude Code login the
@@ -63,9 +63,8 @@ export class ClaudeProvider implements ReviewProvider {
         // reported before the failure check. On a subscription the figure is
         // what the run would have cost on the API, which is still the honest
         // number to compare depths by.
-        if (typeof m.total_cost_usd === "number") {
-          input.onUsage?.({ costUsd: m.total_cost_usd });
-        }
+        const usage = resultUsage(m);
+        if (Object.keys(usage).length) input.onUsage?.(usage);
         if (m.subtype && m.subtype !== "success") {
           throw new Error(
             `Claude review failed (${m.subtype})${
@@ -160,6 +159,29 @@ export class ClaudeProvider implements ReviewProvider {
     }
     throw new Error("Claude connectivity check ended without a result.");
   }
+}
+
+/**
+ * Cost and tokens off an SDK result message. Tokens come from `modelUsage`,
+ * which covers every model call the query made (subagents included), and
+ * count cache reads and writes as input — the same accounting AACR-Bench uses
+ * for its Claude reviewer, so token figures compare across reviewers.
+ */
+export function resultUsage(m: any): PassUsage {
+  const usage: PassUsage = {};
+  if (typeof m.total_cost_usd === "number") usage.costUsd = m.total_cost_usd;
+  const models = m.modelUsage && typeof m.modelUsage === "object" ? Object.values(m.modelUsage) : [];
+  if (models.length) {
+    let input = 0;
+    let output = 0;
+    for (const u of models as any[]) {
+      input += (u.inputTokens ?? 0) + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);
+      output += u.outputTokens ?? 0;
+    }
+    usage.inputTokens = input;
+    usage.outputTokens = output;
+  }
+  return usage;
 }
 
 function extractJson(text: string): unknown {

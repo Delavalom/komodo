@@ -5,9 +5,10 @@ import { selectSharedContext, type ResolvedContextSource } from "./context-sourc
 import { changeFingerprint, commentableLines, filterPaths } from "./diff.js";
 import { readFeatureMap } from "./feature-map.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
-import { resolveDepth, type DepthRequest } from "./depth-rules.js";
-import { bundleFiles, GROUPING_EXPERIMENT, runGroupedPasses } from "./grouping.js";
+import { resolveDepth, type DepthDecision, type DepthRequest } from "./depth-rules.js";
+import { LocalGitDiffSource } from "./diff-sources/local-git.js";
 import { runPasses, type PassRun } from "./passes.js";
+import { bundleFiles, GROUPING_EXPERIMENT, runGroupedPasses } from "./grouping.js";
 import { emptyPinStats, pinEnabled, withPinning, type PinStats } from "./pin.js";
 import { DEPTH_TURNS } from "./depth.js";
 import { REFLECT_EXPERIMENT, runReflection, type ReflectionReport } from "./reflect.js";
@@ -79,21 +80,18 @@ export interface RunReviewOptions {
    */
   expectedHeadSha?: string;
   /**
-   * Eval-only switches for experimental behaviour, by name. Not a setting: it
-   * has no komodo.yaml field and no control, and it is never read from a
-   * stored configuration (AGENTS.md rule 3) — an experiment is a way to
-   * measure the reviewer, not a thing a team configures. Recognised:
-   * `grouping` (bundle related files into isolated sub-reviews — see
-   * grouping.ts) and `pin` (place judgements by their quoted anchor — see
-   * pin.ts) and `reflect` (after the passes merge, one more call checks
-   * each judgement against the code and drops, tightens or keeps it — see
-   * reflect.ts). Absent or empty, a review runs exactly as it always has.
+   * Eval-only switches for experimental behaviour, by name, carried into
+   * every provider call as `ReviewInput.experiments`. Set by `komodo-review
+   * eval --experiment` and nothing else: not a setting, so no screen or
+   * komodo.yaml field reaches it (AGENTS.md rule 3). Recognised: `grouping`
+   * (bundle related files into isolated sub-reviews — see grouping.ts),
+   * `pin` (place judgements by their quoted anchor — see pin.ts) and
+   * `reflect` (after the passes merge, one more call checks each judgement
+   * against the code and drops, tightens or keeps it — see reflect.ts).
+   * Absent or empty, a review runs exactly as it always has.
    */
   experiments?: string[];
 }
-
-/** A judgement the run did not show, and — when something other than the filters removed it — why. */
-export type DroppedJudgement = Judgement & { droppedBy?: "reflect"; dropReason?: string };
 
 /** The pull request moved past the head a run was claimed for. Not a failure. */
 export class HeadMovedError extends Error {
@@ -107,6 +105,9 @@ export class HeadMovedError extends Error {
     this.name = "HeadMovedError";
   }
 }
+
+/** A judgement the run did not show, and — when something other than the filters removed it — why. */
+export type DroppedJudgement = Judgement & { droppedBy?: "reflect"; dropReason?: string };
 
 export interface RunReviewOutcome {
   record: ReviewRecord;
@@ -155,110 +156,21 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     throw new HeadMovedError(opts.expectedHeadSha, pr.headSha);
   }
 
-  const keptPaths = new Set(filterPaths(allFiles.map((f) => f.path), effectivePathFilters(config)));
-  const files = allFiles.filter((f) => keptPaths.has(f.path));
-  onProgress?.(`Reviewing ${files.length}/${allFiles.length} files with ${provider.name}…`);
-  if (!files.length) throw new Error("No reviewable files after path filters.");
-
-  const shared = selectSharedContext(opts.contextSources ?? [], {
-    repoId: opts.contextScope?.repoId,
-    clusterNames: opts.contextScope?.clusterNames,
-    changedPaths: files.map((f) => f.path),
-    maxTotalChars: config.context.max_total_chars,
-  });
-  if (shared.docs.length) {
-    onProgress?.(`  applying ${shared.docs.length} shared context document(s).`);
-  }
-  if (shared.overflow.length) {
-    onProgress?.(`  ${shared.overflow.length} shared context document(s) skipped: over the ${config.context.max_total_chars}-character cap.`);
-  }
-  if (shared.needsClusters.length) {
-    onProgress?.(`  ${shared.needsClusters.length} shared context document(s) skipped: scoped to a repo cluster, which this caller cannot resolve.`);
-  }
-
-  // Only from a checkout: the map has to describe the head being reviewed,
-  // and without a working tree there is no head to read it from.
-  const featureMap = opts.repoDir ? readFeatureMap(opts.repoDir) : null;
-  if (featureMap) {
-    onProgress?.(
-      `  writing checks from the feature map in ${featureMap.path}${featureMap.truncated ? " (truncated)" : ""}.`,
-    );
-  }
-
-  // Decided on the reviewable set, after path filters: a lockfile rewrite is
-  // not a reason to look harder at the code.
-  const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
-  onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
-  const pin = pinEnabled(opts.experiments) ? emptyPinStats() : undefined;
-  const reviewProvider = pin ? withPinning(provider, files, pin) : provider;
-  const passInput = {
-    ...(opts.experiments?.length ? { experiments: opts.experiments } : {}),
+  const reviewed = await reviewChange({
     pr,
-    files,
+    allFiles,
+    provider,
     config,
     repoDir: opts.repoDir,
     memories: opts.memories,
-    sharedContext: shared.docs,
-    featureMap: featureMap ?? undefined,
-  };
-  const accept = judgementCheck(files, config);
-  // Experiment `grouping`. One bundle is the ordinary review, so a small
-  // change set takes the unchanged path below.
-  const bundles = opts.experiments?.includes(GROUPING_EXPERIMENT) ? bundleFiles(files) : [];
-  let passRun: PassRun;
-  if (bundles.length > 1) {
-    onProgress?.(`  grouping: ${bundles.length} bundles — ${bundles.map((b) => b.label).join("; ")}.`);
-    passRun = await runGroupedPasses({
-      provider: reviewProvider,
-      input: passInput,
-      depth: decision.depth,
-      bundles,
-      accept,
-      onProgress,
-    });
-  } else {
-    if (opts.experiments?.includes(GROUPING_EXPERIMENT)) onProgress?.("  grouping: one bundle, reviewing as a single unit.");
-    passRun = await runPasses({ provider: reviewProvider, input: passInput, depth: decision.depth, accept, onProgress });
-  }
-  let result = passRun.result;
-  let costUsd = passRun.costUsd;
-  if (pin) {
-    onProgress?.(
-      `  pin: ${pin.anchored} anchored, ${pin.moved} moved, ${pin.unmatched} not found in the diff (kept where they were).`,
-    );
-  }
-
-  // Experiment `reflect`: after the passes merge, before anything is
-  // filtered, so what it removes is reported with its reason and what it
-  // leaves still meets the same checks as everything else.
-  let reflection: ReflectionReport | null = null;
-  const reflectDropped: DroppedJudgement[] = [];
-  if (opts.experiments?.includes(REFLECT_EXPERIMENT)) {
-    const reflected = await runReflection({
-      provider,
-      input: {
-        pr,
-        files,
-        judgements: result.judgements,
-        config,
-        repoDir: opts.repoDir,
-        turnBudget: DEPTH_TURNS[decision.depth],
-      },
-      onProgress,
-    });
-    reflection = reflected.report;
-    result = { ...result, judgements: reflected.judgements };
-    for (const { judgement, reason } of reflected.report.dropped) {
-      reflectDropped.push({ ...judgement, droppedBy: "reflect", dropReason: reason });
-    }
-    // The cost is real whether or not it changed anything. It joins the
-    // run's cost rather than the pass count: a pass is a credit, and the
-    // record refuses more passes than the depth runs.
-    if (reflection.costUsd !== null) costUsd = (costUsd ?? 0) + reflection.costUsd;
-  }
-
-  const { valid, dropped } = validateJudgements(result, files, config);
-  const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
+    contextSources: opts.contextSources,
+    contextScope: opts.contextScope,
+    onProgress,
+    depthRequest: opts.depthRequest,
+    experiments: opts.experiments,
+  });
+  const { files, shared, featureMap, decision, passRun, dropped } = reviewed;
+  const finalResult = reviewed.result;
 
   const record: ReviewRecord = {
     version: 3,
@@ -289,7 +201,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
       depth: decision.depth,
       depthReason: decision.reason,
       passes: passRun.passes,
-      costUsd,
+      costUsd: passRun.costUsd,
     },
     posted: false,
   };
@@ -348,14 +260,248 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     record,
     recordPath,
     reviewUrl,
-    droppedJudgements: [...dropped, ...reflectDropped],
+    droppedJudgements: dropped,
     sharedContext: shared.docs.map((d) => ({ label: d.label })),
     sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
     changeFingerprint: changeFingerprint(allFiles),
     featureMap: featureMap?.path ?? null,
+    ...(reviewed.pin ? { pin: reviewed.pin } : {}),
+    reflection: reviewed.reflection,
+  };
+}
+
+/** Everything `reviewChange` needs: a change already read, and how to review it. */
+export interface ReviewChangeOptions {
+  pr: PRMeta;
+  /** Every changed file, before path filters. */
+  allFiles: PRFile[];
+  provider: ReviewProvider;
+  config: KomodoConfig;
+  repoDir?: string;
+  memories?: ReviewMemory[];
+  contextSources?: ResolvedContextSource[];
+  contextScope?: { repoId: string; clusterNames?: string[] };
+  onProgress?: (msg: string) => void;
+  depthRequest?: DepthRequest | null;
+  experiments?: string[];
+}
+
+export interface ReviewChangeOutcome {
+  /** The reviewable files, after path filters. */
+  files: PRFile[];
+  /** Judgements that survived `validateJudgements`, sorted as the review shows them. */
+  result: ReviewResult;
+  /**
+   * Judgements the passes raised that did not survive: filtered by
+   * `validateJudgements`, or removed by the `reflect` experiment (those carry
+   * `droppedBy: "reflect"` and a reason).
+   */
+  dropped: DroppedJudgement[];
+  /** Cost and tokens include the `reflect` call when it ran. */
+  passRun: PassRun;
+  decision: DepthDecision;
+  shared: ReturnType<typeof selectSharedContext>;
+  featureMap: ReturnType<typeof readFeatureMap>;
+  /** What the `pin` experiment did to this run's judgements; absent when it was off. */
+  pin?: PinStats;
+  /** What the `reflect` experiment did, or null when it was not switched on. */
+  reflection: ReflectionReport | null;
+}
+
+/** No file in the change survived the path filters, so there is nothing to review. */
+export class NoReviewableFilesError extends Error {
+  constructor() {
+    super("No reviewable files after path filters.");
+    this.name = "NoReviewableFilesError";
+  }
+}
+
+/**
+ * The review itself, from a change already read to the judgements a person
+ * would be shown: path filters, shared context, the feature map, the depth
+ * decision, the passes and their merge, and the final `validateJudgements`
+ * filter. Nothing here reads GitHub, writes a record or posts.
+ *
+ * `runReview` is this plus GitHub on either side. `runLocalReview` is this
+ * plus a local git range, for the benchmark harness — one pipeline, so a
+ * score measures the reviewer people actually get.
+ */
+export async function reviewChange(opts: ReviewChangeOptions): Promise<ReviewChangeOutcome> {
+  const { pr, allFiles, provider, config, onProgress } = opts;
+  const keptPaths = new Set(filterPaths(allFiles.map((f) => f.path), effectivePathFilters(config)));
+  const files = allFiles.filter((f) => keptPaths.has(f.path));
+  onProgress?.(`Reviewing ${files.length}/${allFiles.length} files with ${provider.name}…`);
+  if (!files.length) throw new NoReviewableFilesError();
+
+  const shared = selectSharedContext(opts.contextSources ?? [], {
+    repoId: opts.contextScope?.repoId,
+    clusterNames: opts.contextScope?.clusterNames,
+    changedPaths: files.map((f) => f.path),
+    maxTotalChars: config.context.max_total_chars,
+  });
+  if (shared.docs.length) {
+    onProgress?.(`  applying ${shared.docs.length} shared context document(s).`);
+  }
+  if (shared.overflow.length) {
+    onProgress?.(`  ${shared.overflow.length} shared context document(s) skipped: over the ${config.context.max_total_chars}-character cap.`);
+  }
+  if (shared.needsClusters.length) {
+    onProgress?.(`  ${shared.needsClusters.length} shared context document(s) skipped: scoped to a repo cluster, which this caller cannot resolve.`);
+  }
+
+  // Only from a checkout: the map has to describe the head being reviewed,
+  // and without a working tree there is no head to read it from.
+  const featureMap = opts.repoDir ? readFeatureMap(opts.repoDir) : null;
+  if (featureMap) {
+    onProgress?.(
+      `  writing checks from the feature map in ${featureMap.path}${featureMap.truncated ? " (truncated)" : ""}.`,
+    );
+  }
+
+  // Decided on the reviewable set, after path filters: a lockfile rewrite is
+  // not a reason to look harder at the code.
+  const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
+  onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
+  const experiments = opts.experiments ?? [];
+  const pin = pinEnabled(experiments) ? emptyPinStats() : undefined;
+  const reviewProvider = pin ? withPinning(provider, files, pin) : provider;
+  const passInput = {
+    pr,
+    files,
+    config,
+    repoDir: opts.repoDir,
+    memories: opts.memories,
+    sharedContext: shared.docs,
+    featureMap: featureMap ?? undefined,
+    ...(experiments.length ? { experiments } : {}),
+  };
+  const accept = judgementCheck(files, config);
+
+  // Experiment `grouping`. One bundle is the ordinary review, so a small
+  // change set takes the unchanged path.
+  const bundles = experiments.includes(GROUPING_EXPERIMENT) ? bundleFiles(files) : [];
+  let passRun: PassRun;
+  if (bundles.length > 1) {
+    onProgress?.(`  grouping: ${bundles.length} bundles — ${bundles.map((b) => b.label).join("; ")}.`);
+    passRun = await runGroupedPasses({
+      provider: reviewProvider,
+      input: passInput,
+      depth: decision.depth,
+      bundles,
+      accept,
+      onProgress,
+    });
+  } else {
+    if (experiments.includes(GROUPING_EXPERIMENT)) onProgress?.("  grouping: one bundle, reviewing as a single unit.");
+    passRun = await runPasses({ provider: reviewProvider, input: passInput, depth: decision.depth, accept, onProgress });
+  }
+  let result = passRun.result;
+  if (pin) {
+    onProgress?.(
+      `  pin: ${pin.anchored} anchored, ${pin.moved} moved, ${pin.unmatched} not found in the diff (kept where they were).`,
+    );
+  }
+
+  // Experiment `reflect`: after the passes merge, before anything is
+  // filtered, so what it removes is reported with its reason and what it
+  // leaves still meets the same checks as everything else.
+  let reflection: ReflectionReport | null = null;
+  const reflectDropped: DroppedJudgement[] = [];
+  if (experiments.includes(REFLECT_EXPERIMENT)) {
+    const reflected = await runReflection({
+      provider,
+      input: {
+        pr,
+        files,
+        judgements: result.judgements,
+        config,
+        repoDir: opts.repoDir,
+        turnBudget: DEPTH_TURNS[decision.depth],
+      },
+      onProgress,
+    });
+    reflection = reflected.report;
+    result = { ...result, judgements: reflected.judgements };
+    for (const { judgement, reason } of reflected.report.dropped) {
+      reflectDropped.push({ ...judgement, droppedBy: "reflect", dropReason: reason });
+    }
+    // The cost is real whether or not it changed anything. It joins the
+    // run's cost and tokens rather than the pass count: a pass is a credit,
+    // and the record refuses more passes than the depth runs.
+    passRun = {
+      ...passRun,
+      costUsd: addNullable(passRun.costUsd, reflection.costUsd),
+      inputTokens: addNullable(passRun.inputTokens, reflection.inputTokens),
+      outputTokens: addNullable(passRun.outputTokens, reflection.outputTokens),
+    };
+  }
+
+  const { valid, dropped } = validateJudgements(result, files, config);
+  const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
+
+  return {
+    files,
+    result: finalResult,
+    dropped: [...dropped, ...reflectDropped],
+    passRun,
+    decision,
+    shared,
+    featureMap,
     ...(pin ? { pin } : {}),
     reflection,
   };
+}
+
+/** Sum of two provider-reported numbers; null only when neither side reported one. */
+function addNullable(a: number | null, b: number | null): number | null {
+  return a === null && b === null ? null : (a ?? 0) + (b ?? 0);
+}
+
+export interface RunLocalReviewOptions {
+  /** A checkout holding both commits. The provider's tools read files from here. */
+  repoDir: string;
+  /** The base the change is measured from; the merge-base with `head` is taken. */
+  base: string;
+  /** The commit under review. */
+  head: string;
+  provider: ReviewProvider;
+  config: KomodoConfig;
+  onProgress?: (msg: string) => void;
+  depthRequest?: DepthRequest | null;
+  experiments?: string[];
+  memories?: ReviewMemory[];
+  contextSources?: ResolvedContextSource[];
+}
+
+export interface RunLocalReviewOutcome extends ReviewChangeOutcome {
+  meta: DiffMeta;
+  /** Every changed file, before path filters. */
+  allFiles: DiffFile[];
+}
+
+/**
+ * Reviews `base...head` of a local checkout with the same pipeline as
+ * `runReview`, without GitHub: no pull request is fetched, nothing is posted
+ * and no record is written. Built for `komodo-review eval aacr`, which needs
+ * Komodo's real preflight on a benchmark pull request it cannot post to.
+ */
+export async function runLocalReview(opts: RunLocalReviewOptions): Promise<RunLocalReviewOutcome> {
+  const source = new LocalGitDiffSource(opts.repoDir, opts.base, opts.head);
+  const meta = await source.getMeta();
+  const allFiles = await source.getFiles();
+  const outcome = await reviewChange({
+    pr: meta,
+    allFiles,
+    provider: opts.provider,
+    config: opts.config,
+    repoDir: opts.repoDir,
+    memories: opts.memories,
+    contextSources: opts.contextSources,
+    onProgress: opts.onProgress,
+    depthRequest: opts.depthRequest,
+    experiments: opts.experiments,
+  });
+  return { ...outcome, meta, allFiles };
 }
 
 /**

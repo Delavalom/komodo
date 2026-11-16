@@ -21,3 +21,4 @@ export * from "./render/markdown.js";
 export * from "./pipeline.js";
 export * from "./verification-status.js";
 export * from "./eval.js";
+export * as aacr from "./aacr/index.js";
