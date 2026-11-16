@@ -83,6 +83,8 @@ export interface ReviewInput {
   bundle?: BundleContext;
   /** Which pass this is. Absent means a standard single pass. */
   pass?: ReviewPass;
+  /** Eval-only experiment names — see `RunReviewOptions.experiments`. */
+  experiments?: string[];
   /** Agent turns this pass may take, for providers that run an agent loop. */
   turnBudget?: number;
   /**

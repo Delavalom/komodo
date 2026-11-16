@@ -2,6 +2,7 @@ import { DIAGRAM_HEADLINE_BUDGET } from "@komodo/diagram";
 import { annotatePatch } from "../diff.js";
 import { SAME_SPOT } from "../merge.js";
 import type { Judgement } from "../schema.js";
+import { pinPromptField } from "../pin.js";
 import { voiceSection } from "../voice.js";
 import type { BundleContext, LensFocus, ReviewInput, ReviewPass } from "./types.js";
 
@@ -186,7 +187,7 @@ Do not create a code judgement merely because code looks unusual. Do not create 
 - \`sources\`: only what you were actually given — the diff, the PR description, any repository instructions above, and any shared context documents above. Do NOT invent tickets, ADRs or documents. If the diff is all you had, that is \`["the diff"]\`.
 - \`sourceNote\`: what those sources say, and why that makes this a blocker or merely a preference.
 - \`code\`: two or three plain lines of \`path:line   what is there\`. No fences.
-- \`options\`: exactly four. The first two are the real, opposed answers for THIS judgement — never generic. The third is "I have a question first" (bucket \`Asked\`). The fourth hands it off, e.g. "Not my call — hand it to someone who knows" (bucket \`Passed on\`). Buckets: \`Blocks\` stops the merge, \`Agreed\` accepts it.
+- \`options\`: exactly four. The first two are the real, opposed answers for THIS judgement — never generic. The third is "I have a question first" (bucket \`Asked\`). The fourth hands it off, e.g. "Not my call — hand it to someone who knows" (bucket \`Passed on\`). Buckets: \`Blocks\` stops the merge, \`Agreed\` accepts it.${pinPromptField(input.experiments)}
 
 ${voiceSection(config.voice?.extra)}
 

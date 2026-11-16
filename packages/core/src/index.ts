@@ -10,6 +10,7 @@ export * from "./voice.js";
 export * from "./context-sources.js";
 export * from "./feature-map.js";
 export * from "./diff.js";
+export * from "./pin.js";
 export * from "./diff-source.js";
 export * from "./diff-sources/index.js";
 export * from "./github.js";

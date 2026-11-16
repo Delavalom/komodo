@@ -28,7 +28,7 @@ import {
  */
 export async function evalCommand(
   file: string,
-  opts: { provider?: string; model?: string },
+  opts: { provider?: string; model?: string; experiment?: string[] },
 ): Promise<void> {
   // Read and validated before anything is spent, so a bad file or a bad
   // pattern in it is an error here, not after the first model run.
@@ -70,6 +70,7 @@ export async function evalCommand(
             outDir,
             onProgress: (m) => console.log(pc.dim(`    ${m}`)),
             depthRequest: { depth, by: "eval" },
+            experiments: opts.experiment,
             model: config.model,
           });
           const kept = outcome.record.result.judgements;

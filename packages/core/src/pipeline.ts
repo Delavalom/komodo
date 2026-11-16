@@ -8,6 +8,7 @@ import type { DiffFile, DiffMeta } from "./diff-source.js";
 import { resolveDepth, type DepthRequest } from "./depth-rules.js";
 import { bundleFiles, GROUPING_EXPERIMENT, runGroupedPasses } from "./grouping.js";
 import { runPasses, type PassRun } from "./passes.js";
+import { emptyPinStats, pinEnabled, withPinning, type PinStats } from "./pin.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -78,9 +79,11 @@ export interface RunReviewOptions {
   /**
    * Eval-only switches for experimental behaviour, by name. Not a setting: it
    * has no komodo.yaml field and no control, and it is never read from a
-   * stored configuration. Recognised: `grouping` (bundle related files into
-   * isolated sub-reviews — see grouping.ts). Absent or empty, a review runs
-   * exactly as it always has.
+   * stored configuration (AGENTS.md rule 3) — an experiment is a way to
+   * measure the reviewer, not a thing a team configures. Recognised:
+   * `grouping` (bundle related files into isolated sub-reviews — see
+   * grouping.ts) and `pin` (place judgements by their quoted anchor — see
+   * pin.ts). Absent or empty, a review runs exactly as it always has.
    */
   experiments?: string[];
 }
@@ -116,6 +119,8 @@ export interface RunReviewOutcome {
   changeFingerprint: string | null;
   /** Where the feature map handed to the provider was read from, or null when there was none. */
   featureMap: string | null;
+  /** What the `pin` experiment did to this run's judgements; absent when it was off. */
+  pin?: PinStats;
 }
 
 /**
@@ -175,7 +180,10 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   // not a reason to look harder at the code.
   const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
   onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
+  const pin = pinEnabled(opts.experiments) ? emptyPinStats() : undefined;
+  const reviewProvider = pin ? withPinning(provider, files, pin) : provider;
   const passInput = {
+    ...(opts.experiments?.length ? { experiments: opts.experiments } : {}),
     pr,
     files,
     config,
@@ -192,7 +200,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   if (bundles.length > 1) {
     onProgress?.(`  grouping: ${bundles.length} bundles — ${bundles.map((b) => b.label).join("; ")}.`);
     passRun = await runGroupedPasses({
-      provider,
+      provider: reviewProvider,
       input: passInput,
       depth: decision.depth,
       bundles,
@@ -201,9 +209,14 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     });
   } else {
     if (opts.experiments?.includes(GROUPING_EXPERIMENT)) onProgress?.("  grouping: one bundle, reviewing as a single unit.");
-    passRun = await runPasses({ provider, input: passInput, depth: decision.depth, accept, onProgress });
+    passRun = await runPasses({ provider: reviewProvider, input: passInput, depth: decision.depth, accept, onProgress });
   }
   const result = passRun.result;
+  if (pin) {
+    onProgress?.(
+      `  pin: ${pin.anchored} anchored, ${pin.moved} moved, ${pin.unmatched} not found in the diff (kept where they were).`,
+    );
+  }
 
   const { valid, dropped } = validateJudgements(result, files, config);
   const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
@@ -301,6 +314,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
     changeFingerprint: changeFingerprint(allFiles),
     featureMap: featureMap?.path ?? null,
+    ...(pin ? { pin } : {}),
   };
 }
 
