@@ -18,17 +18,31 @@ export function repoFromRemoteUrl(remote: string): { owner: string; repo: string
 export class LocalGitDiffSource implements DiffSource {
   private repoDir: string;
   private baseBranch: string;
+  /**
+   * The commit whose change is read. HEAD by default — the branch someone is
+   * on. An explicit head reads a range without touching the working tree,
+   * which is how the benchmark harness reviews `base...head` of a cached
+   * clone; the merge-base is still taken, so the range means what a pull
+   * request's diff means.
+   */
+  private head: string;
 
-  constructor(repoDir: string, baseBranch?: string) {
+  constructor(repoDir: string, baseBranch?: string, head?: string) {
     this.repoDir = repoDir;
     this.baseBranch = baseBranch ?? this.detectBaseBranch();
+    this.head = head ?? "HEAD";
   }
 
   async getMeta(): Promise<DiffMeta> {
-    const headSha = this.git(["rev-parse", "HEAD"]);
-    const headRef = this.git(["branch", "--show-current"]) || "HEAD";
-    const title = this.git(["log", "-1", "--format=%s", "HEAD"]);
-    const author = this.gitOptional(["config", "user.name"]) ?? "unknown";
+    const explicit = this.head !== "HEAD";
+    const headSha = this.git(["rev-parse", `${this.head}^{commit}`]);
+    const headRef = explicit ? this.head : this.git(["branch", "--show-current"]) || "HEAD";
+    const title = this.git(["log", "-1", "--format=%s", this.head]);
+    // A branch someone is on is theirs; a named commit is whoever wrote it.
+    const author =
+      (explicit
+        ? this.gitOptional(["log", "-1", "--format=%an", this.head])
+        : this.gitOptional(["config", "user.name"])) ?? "unknown";
 
     let owner = "local";
     let repo = basename(this.repoDir);
@@ -56,20 +70,20 @@ export class LocalGitDiffSource implements DiffSource {
   }
 
   async getFiles(): Promise<DiffFile[]> {
-    const mergeBase = this.git(["merge-base", this.baseBranch, "HEAD"]);
-    const numstat = this.git(["diff", "--numstat", `${mergeBase}...HEAD`]);
-    if (!numstat) return [];
-
+    const mergeBase = this.git(["merge-base", this.baseBranch, this.head]);
+    const range = `${mergeBase}...${this.head}`;
+    // -z so a rename arrives as its two paths rather than `a/{x => y}`, which
+    // is not a path anything can diff or anchor a comment to.
+    const numstat = this.gitRaw(["diff", "--numstat", "-z", range]);
     const files: DiffFile[] = [];
-    for (const line of numstat.split("\n")) {
-      const [add, del, path] = line.split("\t");
-      if (!path) continue;
-
-      const additions = add === "-" ? 0 : parseInt(add, 10);
-      const deletions = del === "-" ? 0 : parseInt(del, 10);
-      const status = this.inferStatus(additions, deletions, mergeBase, path);
-      const patch = this.gitOptional(["diff", "--unified=3", `${mergeBase}...HEAD`, "--", path]);
-
+    for (const entry of parseNumstatZ(numstat)) {
+      const { additions, deletions, path, from } = entry;
+      const status = from ? "renamed" : this.inferStatus(additions, deletions, mergeBase, path);
+      const patch = this.gitOptional(
+        from
+          ? ["diff", "--unified=3", "-M", range, "--", from, path]
+          : ["diff", "--unified=3", range, "--", path],
+      );
       files.push({ path, status, additions, deletions, patch: patch || undefined });
     }
     return files;
@@ -94,14 +108,23 @@ export class LocalGitDiffSource implements DiffSource {
       if (!existed) return "added";
     }
     if (additions === 0 && deletions > 0) {
-      const exists = this.gitOptional(["cat-file", "-t", `HEAD:${path}`]);
+      const exists = this.gitOptional(["cat-file", "-t", `${this.head}:${path}`]);
       if (!exists) return "removed";
     }
     return "modified";
   }
 
   private git(args: string[]): string {
-    return execFileSync("git", args, { cwd: this.repoDir, encoding: "utf8" }).trim();
+    return this.gitRaw(args).trim();
+  }
+
+  private gitRaw(args: string[]): string {
+    return execFileSync("git", args, {
+      cwd: this.repoDir,
+      encoding: "utf8",
+      // A large pull request's numstat or patch easily passes the 1 MB default.
+      maxBuffer: 256 * 1024 * 1024,
+    });
   }
 
   private gitOptional(args: string[]): string | null {
@@ -110,10 +133,39 @@ export class LocalGitDiffSource implements DiffSource {
         cwd: this.repoDir,
         encoding: "utf8",
         stdio: ["pipe", "pipe", "pipe"],
+        maxBuffer: 256 * 1024 * 1024,
       }).trim();
       return result || null;
     } catch {
       return null;
     }
   }
+}
+
+/**
+ * `git diff --numstat -z` output, one entry per file. A rename is
+ * `add\tdel\t\0from\0to\0`; anything else is `add\tdel\tpath\0`. Binary
+ * files report `-` for both counts, read here as zero.
+ */
+export function parseNumstatZ(
+  raw: string,
+): { additions: number; deletions: number; path: string; from?: string }[] {
+  const parts = raw.split("\0");
+  const out: { additions: number; deletions: number; path: string; from?: string }[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const head = parts[i];
+    if (!head) continue;
+    const [add, del, inline] = head.split("\t");
+    if (add === undefined || del === undefined || inline === undefined) continue;
+    const additions = add === "-" ? 0 : parseInt(add, 10);
+    const deletions = del === "-" ? 0 : parseInt(del, 10);
+    if (inline) {
+      out.push({ additions, deletions, path: inline });
+    } else {
+      const from = parts[++i];
+      const to = parts[++i];
+      if (from && to) out.push({ additions, deletions, path: to, from });
+    }
+  }
+  return out;
 }

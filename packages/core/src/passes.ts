@@ -18,6 +18,9 @@ export interface PassRun {
   passes: number;
   /** Summed over the passes that reported a cost; null when none did. */
   costUsd: number | null;
+  /** Summed over the passes that reported tokens; null when none did. */
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 /**
@@ -41,7 +44,12 @@ export async function runPasses(opts: {
   onProgress?: (msg: string) => void;
 }): Promise<PassRun> {
   const { provider, input, depth, accept, onProgress } = opts;
-  const tally = { passes: 0, costUsd: null as number | null };
+  const tally = {
+    passes: 0,
+    costUsd: null as number | null,
+    inputTokens: null as number | null,
+    outputTokens: null as number | null,
+  };
   const turnBudget = DEPTH_TURNS[depth];
 
   const run = async (pass: ReviewPass): Promise<ReviewResult> => {
@@ -57,6 +65,12 @@ export async function runPasses(opts: {
         onUsage: (usage) => {
           if (typeof usage.costUsd === "number") {
             tally.costUsd = (tally.costUsd ?? 0) + usage.costUsd;
+          }
+          if (typeof usage.inputTokens === "number") {
+            tally.inputTokens = (tally.inputTokens ?? 0) + usage.inputTokens;
+          }
+          if (typeof usage.outputTokens === "number") {
+            tally.outputTokens = (tally.outputTokens ?? 0) + usage.outputTokens;
           }
         },
       },

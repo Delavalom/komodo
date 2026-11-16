@@ -5,8 +5,9 @@ import { selectSharedContext, type ResolvedContextSource } from "./context-sourc
 import { changeFingerprint, commentableLines, filterPaths } from "./diff.js";
 import { readFeatureMap } from "./feature-map.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
-import { resolveDepth, type DepthRequest } from "./depth-rules.js";
-import { runPasses } from "./passes.js";
+import { resolveDepth, type DepthDecision, type DepthRequest } from "./depth-rules.js";
+import { LocalGitDiffSource } from "./diff-sources/local-git.js";
+import { runPasses, type PassRun } from "./passes.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -74,6 +75,13 @@ export interface RunReviewOptions {
    * paid for, rather than writing a review under a head nobody claimed.
    */
   expectedHeadSha?: string;
+  /**
+   * Eval-only switches for the passes, carried into every provider call as
+   * `ReviewInput.experiments`. Set by `komodo-review eval aacr --experiment`
+   * and nothing else; not a setting, so no screen or komodo.yaml field
+   * reaches it.
+   */
+  experiments?: string[];
 }
 
 /** The pull request moved past the head a run was claimed for. Not a failure. */
@@ -132,59 +140,21 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     throw new HeadMovedError(opts.expectedHeadSha, pr.headSha);
   }
 
-  const keptPaths = new Set(filterPaths(allFiles.map((f) => f.path), effectivePathFilters(config)));
-  const files = allFiles.filter((f) => keptPaths.has(f.path));
-  onProgress?.(`Reviewing ${files.length}/${allFiles.length} files with ${provider.name}…`);
-  if (!files.length) throw new Error("No reviewable files after path filters.");
-
-  const shared = selectSharedContext(opts.contextSources ?? [], {
-    repoId: opts.contextScope?.repoId,
-    clusterNames: opts.contextScope?.clusterNames,
-    changedPaths: files.map((f) => f.path),
-    maxTotalChars: config.context.max_total_chars,
-  });
-  if (shared.docs.length) {
-    onProgress?.(`  applying ${shared.docs.length} shared context document(s).`);
-  }
-  if (shared.overflow.length) {
-    onProgress?.(`  ${shared.overflow.length} shared context document(s) skipped: over the ${config.context.max_total_chars}-character cap.`);
-  }
-  if (shared.needsClusters.length) {
-    onProgress?.(`  ${shared.needsClusters.length} shared context document(s) skipped: scoped to a repo cluster, which this caller cannot resolve.`);
-  }
-
-  // Only from a checkout: the map has to describe the head being reviewed,
-  // and without a working tree there is no head to read it from.
-  const featureMap = opts.repoDir ? readFeatureMap(opts.repoDir) : null;
-  if (featureMap) {
-    onProgress?.(
-      `  writing checks from the feature map in ${featureMap.path}${featureMap.truncated ? " (truncated)" : ""}.`,
-    );
-  }
-
-  // Decided on the reviewable set, after path filters: a lockfile rewrite is
-  // not a reason to look harder at the code.
-  const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
-  onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
-  const passRun = await runPasses({
+  const reviewed = await reviewChange({
+    pr,
+    allFiles,
     provider,
-    input: {
-      pr,
-      files,
-      config,
-      repoDir: opts.repoDir,
-      memories: opts.memories,
-      sharedContext: shared.docs,
-      featureMap: featureMap ?? undefined,
-    },
-    depth: decision.depth,
-    accept: judgementCheck(files, config),
+    config,
+    repoDir: opts.repoDir,
+    memories: opts.memories,
+    contextSources: opts.contextSources,
+    contextScope: opts.contextScope,
     onProgress,
+    depthRequest: opts.depthRequest,
+    experiments: opts.experiments,
   });
-  const result = passRun.result;
-
-  const { valid, dropped } = validateJudgements(result, files, config);
-  const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
+  const { files, shared, featureMap, decision, passRun, dropped } = reviewed;
+  const finalResult = reviewed.result;
 
   const record: ReviewRecord = {
     version: 3,
@@ -280,6 +250,168 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     changeFingerprint: changeFingerprint(allFiles),
     featureMap: featureMap?.path ?? null,
   };
+}
+
+/** Everything `reviewChange` needs: a change already read, and how to review it. */
+export interface ReviewChangeOptions {
+  pr: PRMeta;
+  /** Every changed file, before path filters. */
+  allFiles: PRFile[];
+  provider: ReviewProvider;
+  config: KomodoConfig;
+  repoDir?: string;
+  memories?: ReviewMemory[];
+  contextSources?: ResolvedContextSource[];
+  contextScope?: { repoId: string; clusterNames?: string[] };
+  onProgress?: (msg: string) => void;
+  depthRequest?: DepthRequest | null;
+  experiments?: string[];
+}
+
+export interface ReviewChangeOutcome {
+  /** The reviewable files, after path filters. */
+  files: PRFile[];
+  /** Judgements that survived `validateJudgements`, sorted as the review shows them. */
+  result: ReviewResult;
+  /** Judgements the passes raised that `validateJudgements` filtered out. */
+  dropped: Judgement[];
+  passRun: PassRun;
+  decision: DepthDecision;
+  shared: ReturnType<typeof selectSharedContext>;
+  featureMap: ReturnType<typeof readFeatureMap>;
+}
+
+/** No file in the change survived the path filters, so there is nothing to review. */
+export class NoReviewableFilesError extends Error {
+  constructor() {
+    super("No reviewable files after path filters.");
+    this.name = "NoReviewableFilesError";
+  }
+}
+
+/**
+ * The review itself, from a change already read to the judgements a person
+ * would be shown: path filters, shared context, the feature map, the depth
+ * decision, the passes and their merge, and the final `validateJudgements`
+ * filter. Nothing here reads GitHub, writes a record or posts.
+ *
+ * `runReview` is this plus GitHub on either side. `runLocalReview` is this
+ * plus a local git range, for the benchmark harness — one pipeline, so a
+ * score measures the reviewer people actually get.
+ */
+export async function reviewChange(opts: ReviewChangeOptions): Promise<ReviewChangeOutcome> {
+  const { pr, allFiles, provider, config, onProgress } = opts;
+  const keptPaths = new Set(filterPaths(allFiles.map((f) => f.path), effectivePathFilters(config)));
+  const files = allFiles.filter((f) => keptPaths.has(f.path));
+  onProgress?.(`Reviewing ${files.length}/${allFiles.length} files with ${provider.name}…`);
+  if (!files.length) throw new NoReviewableFilesError();
+
+  const shared = selectSharedContext(opts.contextSources ?? [], {
+    repoId: opts.contextScope?.repoId,
+    clusterNames: opts.contextScope?.clusterNames,
+    changedPaths: files.map((f) => f.path),
+    maxTotalChars: config.context.max_total_chars,
+  });
+  if (shared.docs.length) {
+    onProgress?.(`  applying ${shared.docs.length} shared context document(s).`);
+  }
+  if (shared.overflow.length) {
+    onProgress?.(`  ${shared.overflow.length} shared context document(s) skipped: over the ${config.context.max_total_chars}-character cap.`);
+  }
+  if (shared.needsClusters.length) {
+    onProgress?.(`  ${shared.needsClusters.length} shared context document(s) skipped: scoped to a repo cluster, which this caller cannot resolve.`);
+  }
+
+  // Only from a checkout: the map has to describe the head being reviewed,
+  // and without a working tree there is no head to read it from.
+  const featureMap = opts.repoDir ? readFeatureMap(opts.repoDir) : null;
+  if (featureMap) {
+    onProgress?.(
+      `  writing checks from the feature map in ${featureMap.path}${featureMap.truncated ? " (truncated)" : ""}.`,
+    );
+  }
+
+  // Decided on the reviewable set, after path filters: a lockfile rewrite is
+  // not a reason to look harder at the code.
+  const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
+  onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
+  const passRun = await runPasses({
+    provider,
+    input: {
+      pr,
+      files,
+      config,
+      repoDir: opts.repoDir,
+      memories: opts.memories,
+      sharedContext: shared.docs,
+      featureMap: featureMap ?? undefined,
+      experiments: opts.experiments,
+    },
+    depth: decision.depth,
+    accept: judgementCheck(files, config),
+    onProgress,
+  });
+  const result = passRun.result;
+
+  const { valid, dropped } = validateJudgements(result, files, config);
+  const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
+
+  return {
+    files,
+    result: finalResult,
+    dropped,
+    passRun,
+    decision,
+    shared,
+    featureMap,
+  };
+}
+
+export interface RunLocalReviewOptions {
+  /** A checkout holding both commits. The provider's tools read files from here. */
+  repoDir: string;
+  /** The base the change is measured from; the merge-base with `head` is taken. */
+  base: string;
+  /** The commit under review. */
+  head: string;
+  provider: ReviewProvider;
+  config: KomodoConfig;
+  onProgress?: (msg: string) => void;
+  depthRequest?: DepthRequest | null;
+  experiments?: string[];
+  memories?: ReviewMemory[];
+  contextSources?: ResolvedContextSource[];
+}
+
+export interface RunLocalReviewOutcome extends ReviewChangeOutcome {
+  meta: DiffMeta;
+  /** Every changed file, before path filters. */
+  allFiles: DiffFile[];
+}
+
+/**
+ * Reviews `base...head` of a local checkout with the same pipeline as
+ * `runReview`, without GitHub: no pull request is fetched, nothing is posted
+ * and no record is written. Built for `komodo-review eval aacr`, which needs
+ * Komodo's real preflight on a benchmark pull request it cannot post to.
+ */
+export async function runLocalReview(opts: RunLocalReviewOptions): Promise<RunLocalReviewOutcome> {
+  const source = new LocalGitDiffSource(opts.repoDir, opts.base, opts.head);
+  const meta = await source.getMeta();
+  const allFiles = await source.getFiles();
+  const outcome = await reviewChange({
+    pr: meta,
+    allFiles,
+    provider: opts.provider,
+    config: opts.config,
+    repoDir: opts.repoDir,
+    memories: opts.memories,
+    contextSources: opts.contextSources,
+    onProgress: opts.onProgress,
+    depthRequest: opts.depthRequest,
+    experiments: opts.experiments,
+  });
+  return { ...outcome, meta, allFiles };
 }
 
 /**
