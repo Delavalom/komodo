@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { CachedJudge, JudgeStats } from "./judge.js";
 import { scoreInstance, summarize, type AacrSummary, type InstanceScore, type InstanceUsage } from "./metrics.js";
 import { pyRound } from "./python-compat.js";
-import type { AacrInstance, Reviewer, ReviewerRun } from "./types.js";
+import { SEVERITIES } from "../schema.js";
+import type { AacrInstance, GeneratedComment, Reviewer, ReviewerRun } from "./types.js";
 
 /**
  * A run directory, `.komodo/eval/aacr/<version>/<reviewer>/<run-id>/`:
@@ -29,6 +30,9 @@ export interface RunManifest {
   model?: string;
   depth?: string;
   ocrMode?: string;
+  /** Komodo reviewer overrides of its default configuration, when given. */
+  profile?: string;
+  minSeverity?: string;
   experiments: string[];
   seed: number;
   limit?: number;
@@ -251,7 +255,36 @@ export interface MetricsFile {
  * file that is not there. Judge answers come from the run's cache when it has
  * them, so scoring a run twice asks the judge nothing the second time.
  */
-export async function scoreRun(runDir: string, judge: CachedJudge, judgeModel: string): Promise<MetricsFile> {
+/**
+ * A subset of a run's comments to score instead of all of them, by the
+ * details the reviewer recorded. Comments without details (another
+ * reviewer's) are kept. Written beside the full score as
+ * `metrics-<tag>.json` / `summary-<tag>.md`; the full score is untouched.
+ */
+export interface ScoreSubset {
+  tag: string;
+  onlyFocus?: string[];
+  minSeverity?: (typeof SEVERITIES)[number];
+}
+
+/** Which of a stored run's comments a subset keeps. */
+export function subsetComments(run: ReviewerRun, subset?: ScoreSubset): GeneratedComment[] {
+  if (!subset || !run.details || run.details.length !== run.comments.length) return run.comments;
+  const floor = subset.minSeverity ? SEVERITIES.indexOf(subset.minSeverity) : SEVERITIES.length - 1;
+  return run.comments.filter((_, i) => {
+    const d = run.details![i];
+    if (subset.onlyFocus?.length && (!d.focus || !subset.onlyFocus.includes(d.focus))) return false;
+    if (d.severity && SEVERITIES.indexOf(d.severity as (typeof SEVERITIES)[number]) > floor) return false;
+    return true;
+  });
+}
+
+export async function scoreRun(
+  runDir: string,
+  judge: CachedJudge,
+  judgeModel: string,
+  subset?: ScoreSubset,
+): Promise<MetricsFile> {
   const manifest = readManifest(runDir);
   const instances = readInstances(runDir);
   const byId = new Map(instances.map((i) => [i.id, i]));
@@ -264,7 +297,7 @@ export async function scoreRun(runDir: string, judge: CachedJudge, judgeModel: s
   const scored = await mapPool(selected, selected.length || 1, async (instance) => {
     const stored = readResult(runDir, instance.id);
     if (!stored) return null;
-    const score = await scoreInstance(instance, stored.run.comments, judge.judge);
+    const score = await scoreInstance(instance, subsetComments(stored.run, subset), judge.judge);
     const usage: InstanceUsage = {
       durationSeconds: pyRound(stored.run.durationSeconds, 2),
       inputTokens: stored.run.inputTokens ?? 0,
@@ -316,8 +349,9 @@ export async function scoreRun(runDir: string, judge: CachedJudge, judgeModel: s
       by_language: byLanguage,
     },
   };
-  writeJsonAtomic(join(runDir, "metrics.json"), metrics);
-  writeFileSync(join(runDir, "summary.md"), renderSummaryMarkdown(manifest, metrics));
+  const suffix = subset ? `-${subset.tag}` : "";
+  writeJsonAtomic(join(runDir, `metrics${suffix}.json`), metrics);
+  writeFileSync(join(runDir, `summary${suffix}.md`), renderSummaryMarkdown(manifest, metrics));
   return metrics;
 }
 

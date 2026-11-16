@@ -5,7 +5,7 @@ import { ClaudeProvider } from "../../providers/claude.js";
 import { resolveClaudeExecutable } from "../../providers/index.js";
 import type { ReviewProvider } from "../../providers/types.js";
 import type { Judgement } from "../../schema.js";
-import type { GeneratedComment, Reviewer, ReviewerRun } from "../types.js";
+import type { CommentDetail, GeneratedComment, Reviewer, ReviewerRun } from "../types.js";
 
 export interface KomodoReviewerOptions {
   /** Defaults to a Claude provider on `model`. Tests hand in a fake. */
@@ -30,6 +30,11 @@ export function judgementToGenerated(j: Judgement): GeneratedComment {
     toLine: j.endLine ?? j.line,
     body: [j.title, j.lede, j.detail].map((s) => s.trim()).filter(Boolean).join("\n\n"),
   };
+}
+
+/** The judgement facts a run can later be re-scored on. */
+export function judgementDetail(j: Judgement): CommentDetail {
+  return { focus: j.focus, kind: j.kind, severity: j.severity };
 }
 
 /**
@@ -75,6 +80,12 @@ export function createKomodoReviewer(opts: KomodoReviewerOptions = {}): Reviewer
         return {
           ...base,
           comments: out.result.judgements.map(judgementToGenerated),
+          details: out.result.judgements.map(judgementDetail),
+          hidden: out.dropped.map((j) => ({
+            ...judgementToGenerated(j),
+            ...judgementDetail(j),
+            reason: j.droppedBy === "reflect" ? `reflect: ${j.dropReason ?? ""}`.trim() : "filtered",
+          })),
           durationSeconds: seconds(),
           ...(out.passRun.inputTokens !== null ? { inputTokens: out.passRun.inputTokens } : {}),
           ...(out.passRun.outputTokens !== null ? { outputTokens: out.passRun.outputTokens } : {}),
