@@ -6,7 +6,8 @@ import { changeFingerprint, commentableLines, filterPaths } from "./diff.js";
 import { readFeatureMap } from "./feature-map.js";
 import type { DiffFile, DiffMeta } from "./diff-source.js";
 import { resolveDepth, type DepthRequest } from "./depth-rules.js";
-import { runPasses } from "./passes.js";
+import { bundleFiles, GROUPING_EXPERIMENT, runGroupedPasses } from "./grouping.js";
+import { runPasses, type PassRun } from "./passes.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -74,6 +75,14 @@ export interface RunReviewOptions {
    * paid for, rather than writing a review under a head nobody claimed.
    */
   expectedHeadSha?: string;
+  /**
+   * Eval-only switches for experimental behaviour, by name. Not a setting: it
+   * has no komodo.yaml field and no control, and it is never read from a
+   * stored configuration. Recognised: `grouping` (bundle related files into
+   * isolated sub-reviews — see grouping.ts). Absent or empty, a review runs
+   * exactly as it always has.
+   */
+  experiments?: string[];
 }
 
 /** The pull request moved past the head a run was claimed for. Not a failure. */
@@ -166,21 +175,34 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
   // not a reason to look harder at the code.
   const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
   onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
-  const passRun = await runPasses({
-    provider,
-    input: {
-      pr,
-      files,
-      config,
-      repoDir: opts.repoDir,
-      memories: opts.memories,
-      sharedContext: shared.docs,
-      featureMap: featureMap ?? undefined,
-    },
-    depth: decision.depth,
-    accept: judgementCheck(files, config),
-    onProgress,
-  });
+  const passInput = {
+    pr,
+    files,
+    config,
+    repoDir: opts.repoDir,
+    memories: opts.memories,
+    sharedContext: shared.docs,
+    featureMap: featureMap ?? undefined,
+  };
+  const accept = judgementCheck(files, config);
+  // Experiment `grouping`. One bundle is the ordinary review, so a small
+  // change set takes the unchanged path below.
+  const bundles = opts.experiments?.includes(GROUPING_EXPERIMENT) ? bundleFiles(files) : [];
+  let passRun: PassRun;
+  if (bundles.length > 1) {
+    onProgress?.(`  grouping: ${bundles.length} bundles — ${bundles.map((b) => b.label).join("; ")}.`);
+    passRun = await runGroupedPasses({
+      provider,
+      input: passInput,
+      depth: decision.depth,
+      bundles,
+      accept,
+      onProgress,
+    });
+  } else {
+    if (opts.experiments?.includes(GROUPING_EXPERIMENT)) onProgress?.("  grouping: one bundle, reviewing as a single unit.");
+    passRun = await runPasses({ provider, input: passInput, depth: decision.depth, accept, onProgress });
+  }
   const result = passRun.result;
 
   const { valid, dropped } = validateJudgements(result, files, config);

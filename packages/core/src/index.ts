@@ -5,6 +5,7 @@ export * from "./depth.js";
 export * from "./depth-rules.js";
 export * from "./merge.js";
 export * from "./passes.js";
+export * from "./grouping.js";
 export * from "./voice.js";
 export * from "./context-sources.js";
 export * from "./feature-map.js";

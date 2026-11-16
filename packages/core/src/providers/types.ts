@@ -41,6 +41,19 @@ export interface PassUsage {
   costUsd?: number;
 }
 
+/**
+ * Set when a review is one bundle of a larger change (experiment `grouping`,
+ * see ../grouping.ts). `files` then holds only this bundle's files, and the
+ * rest of the pull request is named here so the reviewer knows it exists.
+ */
+export interface BundleContext {
+  /** 1-based position among the bundles. */
+  index: number;
+  total: number;
+  /** Changed files reviewed in other bundles (or with no textual diff). No patches. */
+  otherFiles: Pick<PRFile, "path" | "status" | "additions" | "deletions">[];
+}
+
 export interface ReviewInput {
   pr: PRMeta;
   /** Files after path filtering, with annotated patches. */
@@ -66,6 +79,8 @@ export interface ReviewInput {
    * `readFeatureMap`. Absent when there is no checkout or no map.
    */
   featureMap?: FeatureMap;
+  /** Present only under the `grouping` experiment: this review covers one bundle of the change. */
+  bundle?: BundleContext;
   /** Which pass this is. Absent means a standard single pass. */
   pass?: ReviewPass;
   /** Agent turns this pass may take, for providers that run an agent loop. */

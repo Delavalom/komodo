@@ -3,7 +3,7 @@ import { annotatePatch } from "../diff.js";
 import { SAME_SPOT } from "../merge.js";
 import type { Judgement } from "../schema.js";
 import { voiceSection } from "../voice.js";
-import type { LensFocus, ReviewInput, ReviewPass } from "./types.js";
+import type { BundleContext, LensFocus, ReviewInput, ReviewPass } from "./types.js";
 
 const LENS_BRIEF: Record<LensFocus, string> = {
   architecture:
@@ -46,6 +46,18 @@ export function passSection(pass: ReviewPass | undefined): string {
   // prompt that promised otherwise would have the model write judgements the
   // merge silently drops.
   return `\n## This pass\nEarlier passes over this pull request already raised the judgements below. Do not repeat them or reword them. Look for what they missed — most often behaviour that only appears under particular configuration, limits or input sizes, a changed path no test reaches, and, when a checkout is available, files the change depends on outside the diff. ${rest}\n\nHow this pass is merged: a judgement with the same focus in the same file within ${SAME_SPOT} lines of one below — or, with no line, the same title — is the same concern. It replaces the earlier one only when its severity is higher, so raise one again only to say it is more serious than listed; otherwise it is dropped. A verification check with the same title as an earlier one is not added again; it can only make that check required.\n\nAlready raised:\n${prior}\n`;
+}
+
+/**
+ * Tells a bundle review what it is and is not responsible for. Empty unless
+ * the `grouping` experiment is on, so every other prompt is unchanged.
+ */
+export function bundleSection(bundle: BundleContext | undefined): string {
+  if (!bundle) return "";
+  const others = bundle.otherFiles.length
+    ? bundle.otherFiles.map((f) => `- ${f.path} (${f.status}, +${f.additions}/-${f.deletions})`).join("\n")
+    : "- (none)";
+  return `\n## This bundle\nThis pull request is reviewed in ${bundle.total} bundles of related files, each by a separate reviewer with its own context. You have bundle ${bundle.index} of ${bundle.total}; the Diff section below holds only its files. Raise judgements about these files, and describe only them in the summary and walkthrough. Other bundles cover the files listed here, whose diffs you cannot see; read them from the checkout if one is available and a link matters, but do not review them.\n\nChanged in other bundles:\n${others}\n`;
 }
 
 /** Where a judgement sits: `path:line`, `path` when file-level, or a marker when it has no file. */
@@ -114,7 +126,7 @@ Reading source cannot establish that the result works. Code that looks reasonabl
 
 The person reading you may not have opened the diff and may not own this code. Everything you write must make sense to them anyway.
 
-${profileNote}${passSection(input.pass)}
+${profileNote}${passSection(input.pass)}${bundleSection(input.bundle)}
 
 ## Pull request
 - Repo: ${pr.owner}/${pr.repo}
