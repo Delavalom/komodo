@@ -30,10 +30,25 @@ export interface GeneratedComment {
   body: string;
 }
 
+/**
+ * What a reviewer knows about one of its comments beyond the text: Komodo's
+ * judgement focus, kind and severity. The judge never sees it; it exists so a
+ * run can be re-scored on a subset (`eval aacr score --only-focus code`).
+ */
+export interface CommentDetail {
+  focus?: string;
+  kind?: string;
+  severity?: string;
+}
+
 export interface ReviewerRun {
   instanceId: string;
   reviewer: string;
   comments: GeneratedComment[];
+  /** Same length and order as `comments`, when the reviewer can say. */
+  details?: CommentDetail[];
+  /** Raised but not shown (filtered, or dropped by an experiment), for diagnosis. Never scored. */
+  hidden?: (GeneratedComment & CommentDetail & { reason: string })[];
   durationSeconds: number;
   inputTokens?: number;
   outputTokens?: number;

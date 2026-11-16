@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import pc from "picocolors";
 
-import { aacr, KomodoConfigSchema, REVIEW_DEPTHS, resolveClaudeExecutable, type ReviewDepth } from "@komodo/core";
+import { aacr, KomodoConfigSchema, REVIEW_DEPTHS, resolveClaudeExecutable, SEVERITIES, type ReviewDepth } from "@komodo/core";
 
 /**
  * `komodo-review eval aacr`: Komodo's preflight scored against AACR-Bench
@@ -22,6 +22,8 @@ export interface AacrRunOptions {
   model: string;
   judgeModel: string;
   depth: string;
+  profile?: string;
+  minSeverity?: string;
   experiment?: string;
   runId?: string;
   concurrency: string;
@@ -142,6 +144,8 @@ export async function evalAacrCommand(opts: AacrRunOptions): Promise<void> {
       isKomodo ? undefined : opts.ocrMode ?? "delegate",
       opts.model,
       isKomodo ? depth : undefined,
+      isKomodo && opts.profile ? opts.profile : undefined,
+      isKomodo && opts.minSeverity ? `min-${opts.minSeverity}` : undefined,
       experiments.length ? experiments.join("+") : undefined,
       `s${seed}`,
       `n${limit ?? "all"}`,
@@ -151,6 +155,10 @@ export async function evalAacrCommand(opts: AacrRunOptions): Promise<void> {
 
   const reviewer = isKomodo
     ? aacr.createKomodoReviewer({
+        config: KomodoConfigSchema.parse({
+          ...(opts.profile ? { profile: opts.profile } : {}),
+          ...(opts.minSeverity ? { min_severity: opts.minSeverity } : {}),
+        }),
         model: opts.model,
         depth,
         experiments,
@@ -170,6 +178,8 @@ export async function evalAacrCommand(opts: AacrRunOptions): Promise<void> {
     reviewer: reviewer.name,
     model: opts.model,
     ...(isKomodo ? { depth } : { ocrMode: opts.ocrMode ?? "delegate" }),
+    ...(isKomodo && opts.profile ? { profile: opts.profile } : {}),
+    ...(isKomodo && opts.minSeverity ? { minSeverity: opts.minSeverity } : {}),
     experiments,
     seed,
     ...(limit !== undefined ? { limit } : {}),
@@ -211,10 +221,27 @@ export async function evalAacrCommand(opts: AacrRunOptions): Promise<void> {
 }
 
 /** Re-scores saved results; the judge is only asked what its cache does not already hold. */
-export async function evalAacrScoreCommand(runDir: string, opts: { judgeModel: string }): Promise<void> {
+export async function evalAacrScoreCommand(
+  runDir: string,
+  opts: { judgeModel: string; onlyFocus?: string; minSeverity?: string },
+): Promise<void> {
   const dir = resolve(runDir);
   const judge = createJudge(dir, opts.judgeModel);
-  const metrics = await aacr.scoreRun(dir, judge, opts.judgeModel);
+  const onlyFocus = (opts.onlyFocus ?? "").split(",").map((f) => f.trim()).filter(Boolean);
+  if (opts.minSeverity && !(SEVERITIES as readonly string[]).includes(opts.minSeverity)) {
+    throw new Error(`--min-severity must be one of ${SEVERITIES.join(", ")}, got ${opts.minSeverity}`);
+  }
+  const subset: aacr.ScoreSubset | undefined =
+    onlyFocus.length || opts.minSeverity
+      ? {
+          tag: [onlyFocus.length ? `focus-${onlyFocus.join("+")}` : "", opts.minSeverity ? `min-${opts.minSeverity}` : ""]
+            .filter(Boolean)
+            .join("-"),
+          ...(onlyFocus.length ? { onlyFocus } : {}),
+          ...(opts.minSeverity ? { minSeverity: opts.minSeverity as aacr.ScoreSubset["minSeverity"] } : {}),
+        }
+      : undefined;
+  const metrics = await aacr.scoreRun(dir, judge, opts.judgeModel, subset);
   printSummary(dir, metrics);
 }
 

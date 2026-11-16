@@ -8,6 +8,10 @@ import type { DiffFile, DiffMeta } from "./diff-source.js";
 import { resolveDepth, type DepthDecision, type DepthRequest } from "./depth-rules.js";
 import { LocalGitDiffSource } from "./diff-sources/local-git.js";
 import { runPasses, type PassRun } from "./passes.js";
+import { bundleFiles, GROUPING_EXPERIMENT, runGroupedPasses } from "./grouping.js";
+import { emptyPinStats, pinEnabled, withPinning, type PinStats } from "./pin.js";
+import { DEPTH_TURNS } from "./depth.js";
+import { REFLECT_EXPERIMENT, runReflection, type ReflectionReport } from "./reflect.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -76,10 +80,15 @@ export interface RunReviewOptions {
    */
   expectedHeadSha?: string;
   /**
-   * Eval-only switches for the passes, carried into every provider call as
-   * `ReviewInput.experiments`. Set by `komodo-review eval aacr --experiment`
-   * and nothing else; not a setting, so no screen or komodo.yaml field
-   * reaches it.
+   * Eval-only switches for experimental behaviour, by name, carried into
+   * every provider call as `ReviewInput.experiments`. Set by `komodo-review
+   * eval --experiment` and nothing else: not a setting, so no screen or
+   * komodo.yaml field reaches it (AGENTS.md rule 3). Recognised: `grouping`
+   * (bundle related files into isolated sub-reviews — see grouping.ts),
+   * `pin` (place judgements by their quoted anchor — see pin.ts) and
+   * `reflect` (after the passes merge, one more call checks each judgement
+   * against the code and drops, tightens or keeps it — see reflect.ts).
+   * Absent or empty, a review runs exactly as it always has.
    */
   experiments?: string[];
 }
@@ -97,11 +106,14 @@ export class HeadMovedError extends Error {
   }
 }
 
+/** A judgement the run did not show, and — when something other than the filters removed it — why. */
+export type DroppedJudgement = Judgement & { droppedBy?: "reflect"; dropReason?: string };
+
 export interface RunReviewOutcome {
   record: ReviewRecord;
   recordPath: string;
   reviewUrl?: string;
-  droppedJudgements: Judgement[];
+  droppedJudgements: DroppedJudgement[];
   /** Shared context documents actually handed to the provider, for a caller that wants to say so. */
   sharedContext: { label: string }[];
   /** Documents scoped to a repo cluster the caller had no way to resolve (e.g. `komodo pr`, which has no store). */
@@ -115,6 +127,10 @@ export interface RunReviewOutcome {
   changeFingerprint: string | null;
   /** Where the feature map handed to the provider was read from, or null when there was none. */
   featureMap: string | null;
+  /** What the `pin` experiment did to this run's judgements; absent when it was off. */
+  pin?: PinStats;
+  /** What the `reflect` experiment did, or null when it was not switched on. */
+  reflection: ReflectionReport | null;
 }
 
 /**
@@ -249,6 +265,8 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
     changeFingerprint: changeFingerprint(allFiles),
     featureMap: featureMap?.path ?? null,
+    ...(reviewed.pin ? { pin: reviewed.pin } : {}),
+    reflection: reviewed.reflection,
   };
 }
 
@@ -273,12 +291,21 @@ export interface ReviewChangeOutcome {
   files: PRFile[];
   /** Judgements that survived `validateJudgements`, sorted as the review shows them. */
   result: ReviewResult;
-  /** Judgements the passes raised that `validateJudgements` filtered out. */
-  dropped: Judgement[];
+  /**
+   * Judgements the passes raised that did not survive: filtered by
+   * `validateJudgements`, or removed by the `reflect` experiment (those carry
+   * `droppedBy: "reflect"` and a reason).
+   */
+  dropped: DroppedJudgement[];
+  /** Cost and tokens include the `reflect` call when it ran. */
   passRun: PassRun;
   decision: DepthDecision;
   shared: ReturnType<typeof selectSharedContext>;
   featureMap: ReturnType<typeof readFeatureMap>;
+  /** What the `pin` experiment did to this run's judgements; absent when it was off. */
+  pin?: PinStats;
+  /** What the `reflect` experiment did, or null when it was not switched on. */
+  reflection: ReflectionReport | null;
 }
 
 /** No file in the change survived the path filters, so there is nothing to review. */
@@ -335,23 +362,79 @@ export async function reviewChange(opts: ReviewChangeOptions): Promise<ReviewCha
   // not a reason to look harder at the code.
   const decision = resolveDepth(config, { files, labels: pr.labels }, opts.depthRequest);
   onProgress?.(`  depth: ${decision.depth} — ${decision.reason}.`);
-  const passRun = await runPasses({
-    provider,
-    input: {
-      pr,
-      files,
-      config,
-      repoDir: opts.repoDir,
-      memories: opts.memories,
-      sharedContext: shared.docs,
-      featureMap: featureMap ?? undefined,
-      experiments: opts.experiments,
-    },
-    depth: decision.depth,
-    accept: judgementCheck(files, config),
-    onProgress,
-  });
-  const result = passRun.result;
+  const experiments = opts.experiments ?? [];
+  const pin = pinEnabled(experiments) ? emptyPinStats() : undefined;
+  const reviewProvider = pin ? withPinning(provider, files, pin) : provider;
+  const passInput = {
+    pr,
+    files,
+    config,
+    repoDir: opts.repoDir,
+    memories: opts.memories,
+    sharedContext: shared.docs,
+    featureMap: featureMap ?? undefined,
+    ...(experiments.length ? { experiments } : {}),
+  };
+  const accept = judgementCheck(files, config);
+
+  // Experiment `grouping`. One bundle is the ordinary review, so a small
+  // change set takes the unchanged path.
+  const bundles = experiments.includes(GROUPING_EXPERIMENT) ? bundleFiles(files) : [];
+  let passRun: PassRun;
+  if (bundles.length > 1) {
+    onProgress?.(`  grouping: ${bundles.length} bundles — ${bundles.map((b) => b.label).join("; ")}.`);
+    passRun = await runGroupedPasses({
+      provider: reviewProvider,
+      input: passInput,
+      depth: decision.depth,
+      bundles,
+      accept,
+      onProgress,
+    });
+  } else {
+    if (experiments.includes(GROUPING_EXPERIMENT)) onProgress?.("  grouping: one bundle, reviewing as a single unit.");
+    passRun = await runPasses({ provider: reviewProvider, input: passInput, depth: decision.depth, accept, onProgress });
+  }
+  let result = passRun.result;
+  if (pin) {
+    onProgress?.(
+      `  pin: ${pin.anchored} anchored, ${pin.moved} moved, ${pin.unmatched} not found in the diff (kept where they were).`,
+    );
+  }
+
+  // Experiment `reflect`: after the passes merge, before anything is
+  // filtered, so what it removes is reported with its reason and what it
+  // leaves still meets the same checks as everything else.
+  let reflection: ReflectionReport | null = null;
+  const reflectDropped: DroppedJudgement[] = [];
+  if (experiments.includes(REFLECT_EXPERIMENT)) {
+    const reflected = await runReflection({
+      provider,
+      input: {
+        pr,
+        files,
+        judgements: result.judgements,
+        config,
+        repoDir: opts.repoDir,
+        turnBudget: DEPTH_TURNS[decision.depth],
+      },
+      onProgress,
+    });
+    reflection = reflected.report;
+    result = { ...result, judgements: reflected.judgements };
+    for (const { judgement, reason } of reflected.report.dropped) {
+      reflectDropped.push({ ...judgement, droppedBy: "reflect", dropReason: reason });
+    }
+    // The cost is real whether or not it changed anything. It joins the
+    // run's cost and tokens rather than the pass count: a pass is a credit,
+    // and the record refuses more passes than the depth runs.
+    passRun = {
+      ...passRun,
+      costUsd: addNullable(passRun.costUsd, reflection.costUsd),
+      inputTokens: addNullable(passRun.inputTokens, reflection.inputTokens),
+      outputTokens: addNullable(passRun.outputTokens, reflection.outputTokens),
+    };
+  }
 
   const { valid, dropped } = validateJudgements(result, files, config);
   const finalResult: ReviewResult = { ...result, judgements: sortJudgements(valid) };
@@ -359,12 +442,19 @@ export async function reviewChange(opts: ReviewChangeOptions): Promise<ReviewCha
   return {
     files,
     result: finalResult,
-    dropped,
+    dropped: [...dropped, ...reflectDropped],
     passRun,
     decision,
     shared,
     featureMap,
+    ...(pin ? { pin } : {}),
+    reflection,
   };
+}
+
+/** Sum of two provider-reported numbers; null only when neither side reported one. */
+function addNullable(a: number | null, b: number | null): number | null {
+  return a === null && b === null ? null : (a ?? 0) + (b ?? 0);
 }
 
 export interface RunLocalReviewOptions {

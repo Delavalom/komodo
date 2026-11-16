@@ -51,6 +51,11 @@ const evalCmd = program
   .description("Run seeded pull requests at each review depth and report which known defects were raised")
   .option("--provider <name>", "claude | codex (default: from komodo.yaml / auto-detect)")
   .option("--model <model>", "model override passed to the provider")
+  .option(
+    "--experiment <name>",
+    "turn on a reviewer experiment for this eval only (repeatable or comma-separated); known: grouping, pin, reflect",
+    (name: string, previous: string[] = []) => [...previous, ...name.split(",").map((s) => s.trim()).filter(Boolean)],
+  )
   .action(evalCommand);
 
 const aacrCmd = evalCmd
@@ -65,6 +70,8 @@ const aacrCmd = evalCmd
   .option("--model <model>", "reviewer model", "claude-sonnet-5-5")
   .option("--judge-model <model>", "judge model", "claude-sonnet-5-5")
   .option("--depth <depth>", "standard | deep | thorough (komodo reviewer)", "standard")
+  .option("--profile <profile>", "chill | assertive (komodo reviewer; default: Komodo's default)")
+  .option("--min-severity <severity>", "critical | major | minor | trivial (komodo reviewer; default: Komodo's default)")
   .option("--experiment <names>", "comma-separated eval-only experiments passed to the passes")
   .option("--run-id <name>", "run directory name (default: derived from the options, so --resume finds it)")
   .option("--concurrency <n>", "instances reviewed at once", "2")
@@ -80,6 +87,8 @@ aacrCmd
   .argument("<run-dir>", "a run directory under .komodo/eval/aacr")
   .description("Re-judge and re-score saved results without reviewing again (cached judge answers are free)")
   .option("--judge-model <model>", "judge model", "claude-sonnet-5-5")
+  .option("--only-focus <list>", "score only comments whose recorded focus is in this comma-separated list, e.g. code")
+  .option("--min-severity <severity>", "score only comments at or above this recorded severity")
   .action(evalAacrScoreCommand);
 
 aacrCmd

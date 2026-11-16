@@ -1,0 +1,96 @@
+{
+  "status": "complete",
+  "llm": {
+    "model": "anthropic/claude-sonnet-5.5"
+  },
+  "message": "Review complete: 6 finding(s) across 3 selected item(s).",
+  "summary": {
+    "files_reviewed": 3,
+    "comments": 6,
+    "total_tokens": 34823,
+    "input_tokens": 33027,
+    "output_tokens": 1796,
+    "elapsed": "18s"
+  },
+  "tool_calls": {
+    "total": 4,
+    "by_tool": {
+      "code_comment": 1,
+      "file_read": 3
+    },
+    "failure": 0,
+    "failure_by_tool": {},
+    "failure_details": []
+  },
+  "comments": [
+    {
+      "path": "src/db.js",
+      "content": "SQL injection: user input is interpolated directly into the query. Use a parameterized query (and escape `%`/`_` in the input if literal matching is needed).",
+      "suggestion_code": "    \"SELECT * FROM users WHERE name LIKE $1 ORDER BY id\",\n    [`%${name}%`]",
+      "existing_code": "    `SELECT * FROM users WHERE name LIKE '%${name}%' ORDER BY id`",
+      "start_line": 17,
+      "end_line": 17,
+      "category": "security",
+      "severity": "critical"
+    },
+    {
+      "path": "src/pagination.js",
+      "content": "Should round up: with 25 items and pageSize 10 this returns 2, dropping the partial last page. Use Math.ceil (and guard against pageSize <= 0).",
+      "suggestion_code": "  return Math.ceil(totalItems / pageSize);",
+      "existing_code": "  return Math.floor(totalItems / pageSize);",
+      "start_line": 10,
+      "end_line": 10,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "src/pagination.js",
+      "content": "Off-by-one / ambiguous: for 0-based pages this returns the exclusive end index, not the last item's index (that would be `page * pageSize + pageSize - 1`). It also ignores the total item count, so the last partial page overshoots. Clarify the semantics and clamp to totalItems.",
+      "suggestion_code": "export function lastItemIndexOnPage(page, pageSize, totalItems) {\n  return Math.min((page + 1) * pageSize, totalItems) - 1;\n}",
+      "existing_code": "  return page * pageSize + pageSize;",
+      "start_line": 14,
+      "end_line": 14,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "src/wallet.js",
+      "content": "Race condition (lost update): the balance is read before an await and written after it, so concurrent credits to the same user overwrite each other. Re-read the balance at write time (after the awaits) or serialize per-user operations. The artificial 10ms setTimeout also looks like leftover debug code.",
+      "suggestion_code": "  await new Promise((resolve) => setTimeout(resolve, 10));\n  balances.set(userId, getBalance(userId) + amount);",
+      "existing_code": "  const current = getBalance(userId);\n  await new Promise((resolve) => setTimeout(resolve, 10));\n  balances.set(userId, current + amount);",
+      "start_line": 12,
+      "end_line": 14,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "src/wallet.js",
+      "content": "Non-atomic transfer: the balance check happens before an await, so concurrent transfers can both pass the check and overdraw the account. If credit throws, nothing is debited, but the sender is debited only after the await. Debit first (synchronously after the check), then credit, and roll back on failure. Also, insufficient funds is silently ignored; throw an error or return a result. Validate that amount is positive.",
+      "suggestion_code": "  if (!(amount > 0)) throw new Error(\"invalid amount\");\n  if (getBalance(fromId) < amount) throw new Error(\"insufficient funds\");\n  balances.set(fromId, getBalance(fromId) - amount);\n  try {\n    await credit(toId, amount);\n  } catch (err) {\n    balances.set(fromId, getBalance(fromId) + amount);\n    throw err;\n  }",
+      "existing_code": "  if (getBalance(fromId) >= amount) {\n    await credit(toId, amount);\n    balances.set(fromId, getBalance(fromId) - amount);\n  }",
+      "start_line": 18,
+      "end_line": 21,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "src/wallet.js",
+      "content": "`credit` changed from sync to async, which is a breaking change: existing callers that don't await it will get unhandled rejections and read stale balances. Verify all call sites. Also validate `amount`.",
+      "existing_code": "export async function credit(userId, amount) {",
+      "start_line": 9,
+      "end_line": 9,
+      "category": "maintainability",
+      "severity": "medium"
+    }
+  ],
+  "groups": [
+    {
+      "label": "small change set",
+      "files": [
+        "src/db.js",
+        "src/pagination.js",
+        "src/wallet.js"
+      ]
+    }
+  ]
+}

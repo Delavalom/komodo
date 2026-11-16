@@ -2,6 +2,7 @@ import type { KomodoConfig } from "../config.js";
 import type { SharedContextDoc } from "../context-sources.js";
 import type { FeatureMap } from "../feature-map.js";
 import type { PRFile, PRMeta } from "../github.js";
+import type { ReflectInput, ReflectionResult } from "../reflect.js";
 import type { Judgement, ReviewResult } from "../schema.js";
 
 /**
@@ -49,6 +50,19 @@ export interface PassUsage {
   outputTokens?: number;
 }
 
+/**
+ * Set when a review is one bundle of a larger change (experiment `grouping`,
+ * see ../grouping.ts). `files` then holds only this bundle's files, and the
+ * rest of the pull request is named here so the reviewer knows it exists.
+ */
+export interface BundleContext {
+  /** 1-based position among the bundles. */
+  index: number;
+  total: number;
+  /** Changed files reviewed in other bundles (or with no textual diff). No patches. */
+  otherFiles: Pick<PRFile, "path" | "status" | "additions" | "deletions">[];
+}
+
 export interface ReviewInput {
   pr: PRMeta;
   /** Files after path filtering, with annotated patches. */
@@ -74,6 +88,8 @@ export interface ReviewInput {
    * `readFeatureMap`. Absent when there is no checkout or no map.
    */
   featureMap?: FeatureMap;
+  /** Present only under the `grouping` experiment: this review covers one bundle of the change. */
+  bundle?: BundleContext;
   /** Which pass this is. Absent means a standard single pass. */
   pass?: ReviewPass;
   /**
@@ -96,4 +112,10 @@ export interface ReviewInput {
 export interface ReviewProvider {
   readonly name: string;
   review(input: ReviewInput, onProgress?: (msg: string) => void): Promise<ReviewResult>;
+  /**
+   * The `reflect` experiment's call: check finished judgements against the
+   * code. Optional, and only ever called when a run opts in with
+   * `experiments: ["reflect"]` — see ../reflect.ts.
+   */
+  reflect?(input: ReflectInput, onProgress?: (msg: string) => void): Promise<ReflectionResult>;
 }
