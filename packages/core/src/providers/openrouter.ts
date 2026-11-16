@@ -1,3 +1,10 @@
+import {
+  buildReflectionPrompt,
+  ReflectionResultSchema,
+  reflectionJsonSchema,
+  type ReflectInput,
+  type ReflectionResult,
+} from "../reflect.js";
 import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { pinEnabled } from "../pin.js";
 import { buildReviewPrompt } from "./prompt.js";
@@ -47,6 +54,7 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
     schemaName: string,
     jsonSchema: Record<string, unknown>,
     onCost?: (costUsd: number) => void,
+    onTokens?: (tokens: { inputTokens: number; outputTokens: number }) => void,
   ): Promise<{ payload: unknown; usage: OpenRouterUsage }> {
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
@@ -89,6 +97,7 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
     // returned rather than read back off a field another pass may overwrite.
     this.lastUsage = usageRow;
     if (typeof usage.cost === "number") onCost?.(usage.cost);
+    onTokens?.({ inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 });
     const content: string = data.choices?.[0]?.message?.content ?? "";
     const jsonStart = content.indexOf("{");
     const jsonEnd = content.lastIndexOf("}");
@@ -108,6 +117,24 @@ export class OpenRouterProvider implements ReviewProvider, RereadProvider {
       input.onUsage && ((costUsd) => input.onUsage?.({ costUsd })),
     );
     return parseReviewResult(payload);
+  }
+
+  /**
+   * The `reflect` experiment's call. Diff-only, like every OpenRouter call:
+   * there is no checkout to read, and the prompt says so.
+   */
+  async reflect(input: ReflectInput, onProgress?: (msg: string) => void): Promise<ReflectionResult> {
+    onProgress?.(`Calling ${this.model} via OpenRouter to reflect…`);
+    // The prompt promises a checkout only to a caller that passed `repoDir`;
+    // this provider cannot read one, so it is not told it can.
+    const { payload } = await this.complete(
+      buildReflectionPrompt({ ...input, repoDir: undefined }),
+      "reflection_result",
+      reflectionJsonSchema(),
+      input.onUsage && ((costUsd) => input.onUsage?.({ costUsd })),
+      input.onUsage && ((tokens) => input.onUsage?.(tokens)),
+    );
+    return ReflectionResultSchema.parse(payload);
   }
 
   async reread(input: RereadInput): Promise<RereadResult> {

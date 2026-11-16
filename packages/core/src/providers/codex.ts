@@ -3,6 +3,13 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import {
+  buildReflectionPrompt,
+  ReflectionResultSchema,
+  reflectionJsonSchema,
+  type ReflectInput,
+  type ReflectionResult,
+} from "../reflect.js";
 import { parseReviewResult, reviewResultJsonSchema, type ReviewResult } from "../schema.js";
 import { pinEnabled } from "../pin.js";
 import { buildReviewPrompt } from "./prompt.js";
@@ -62,6 +69,47 @@ export class CodexProvider implements ReviewProvider {
         throw new Error("Codex CLI not found. Install it (`npm i -g @openai/codex`) and run `codex login`.");
       }
       throw new Error(`Codex review failed: ${err?.message ?? err}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * The `reflect` experiment's call: same CLI, same model, same read-only
+   * sandbox. Kept apart from `review` so the stable path is untouched.
+   */
+  async reflect(input: ReflectInput, onProgress?: (msg: string) => void): Promise<ReflectionResult> {
+    const dir = mkdtempSync(join(tmpdir(), "komodo-codex-"));
+    const schemaPath = join(dir, "schema.json");
+    const outPath = join(dir, "last-message.txt");
+    writeFileSync(schemaPath, JSON.stringify(reflectionJsonSchema()));
+    try {
+      onProgress?.("Running codex exec to reflect…");
+      const args = [
+        "exec",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--output-schema",
+        schemaPath,
+        "--output-last-message",
+        outPath,
+        ...(this.model ? ["--model", this.model] : []),
+        "-",
+      ];
+      await execFileAsync("codex", args, {
+        cwd: input.repoDir ?? process.cwd(),
+        input: buildReflectionPrompt(input),
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 15 * 60 * 1000,
+      } as any);
+      const { readFileSync } = await import("node:fs");
+      return ReflectionResultSchema.parse(JSON.parse(readFileSync(outPath, "utf8")));
+    } catch (err: any) {
+      if (err?.code === "ENOENT") {
+        throw new Error("Codex CLI not found. Install it (`npm i -g @openai/codex`) and run `codex login`.");
+      }
+      throw new Error(`Codex reflection failed: ${err?.message ?? err}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

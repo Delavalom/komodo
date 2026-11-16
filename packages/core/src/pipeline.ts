@@ -9,6 +9,8 @@ import { resolveDepth, type DepthRequest } from "./depth-rules.js";
 import { bundleFiles, GROUPING_EXPERIMENT, runGroupedPasses } from "./grouping.js";
 import { runPasses, type PassRun } from "./passes.js";
 import { emptyPinStats, pinEnabled, withPinning, type PinStats } from "./pin.js";
+import { DEPTH_TURNS } from "./depth.js";
+import { REFLECT_EXPERIMENT, runReflection, type ReflectionReport } from "./reflect.js";
 import {
   judgementToComment,
   GitHubClient,
@@ -83,10 +85,15 @@ export interface RunReviewOptions {
    * measure the reviewer, not a thing a team configures. Recognised:
    * `grouping` (bundle related files into isolated sub-reviews — see
    * grouping.ts) and `pin` (place judgements by their quoted anchor — see
-   * pin.ts). Absent or empty, a review runs exactly as it always has.
+   * pin.ts) and `reflect` (after the passes merge, one more call checks
+   * each judgement against the code and drops, tightens or keeps it — see
+   * reflect.ts). Absent or empty, a review runs exactly as it always has.
    */
   experiments?: string[];
 }
+
+/** A judgement the run did not show, and — when something other than the filters removed it — why. */
+export type DroppedJudgement = Judgement & { droppedBy?: "reflect"; dropReason?: string };
 
 /** The pull request moved past the head a run was claimed for. Not a failure. */
 export class HeadMovedError extends Error {
@@ -105,7 +112,7 @@ export interface RunReviewOutcome {
   record: ReviewRecord;
   recordPath: string;
   reviewUrl?: string;
-  droppedJudgements: Judgement[];
+  droppedJudgements: DroppedJudgement[];
   /** Shared context documents actually handed to the provider, for a caller that wants to say so. */
   sharedContext: { label: string }[];
   /** Documents scoped to a repo cluster the caller had no way to resolve (e.g. `komodo pr`, which has no store). */
@@ -121,6 +128,8 @@ export interface RunReviewOutcome {
   featureMap: string | null;
   /** What the `pin` experiment did to this run's judgements; absent when it was off. */
   pin?: PinStats;
+  /** What the `reflect` experiment did, or null when it was not switched on. */
+  reflection: ReflectionReport | null;
 }
 
 /**
@@ -211,11 +220,41 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     if (opts.experiments?.includes(GROUPING_EXPERIMENT)) onProgress?.("  grouping: one bundle, reviewing as a single unit.");
     passRun = await runPasses({ provider: reviewProvider, input: passInput, depth: decision.depth, accept, onProgress });
   }
-  const result = passRun.result;
+  let result = passRun.result;
+  let costUsd = passRun.costUsd;
   if (pin) {
     onProgress?.(
       `  pin: ${pin.anchored} anchored, ${pin.moved} moved, ${pin.unmatched} not found in the diff (kept where they were).`,
     );
+  }
+
+  // Experiment `reflect`: after the passes merge, before anything is
+  // filtered, so what it removes is reported with its reason and what it
+  // leaves still meets the same checks as everything else.
+  let reflection: ReflectionReport | null = null;
+  const reflectDropped: DroppedJudgement[] = [];
+  if (opts.experiments?.includes(REFLECT_EXPERIMENT)) {
+    const reflected = await runReflection({
+      provider,
+      input: {
+        pr,
+        files,
+        judgements: result.judgements,
+        config,
+        repoDir: opts.repoDir,
+        turnBudget: DEPTH_TURNS[decision.depth],
+      },
+      onProgress,
+    });
+    reflection = reflected.report;
+    result = { ...result, judgements: reflected.judgements };
+    for (const { judgement, reason } of reflected.report.dropped) {
+      reflectDropped.push({ ...judgement, droppedBy: "reflect", dropReason: reason });
+    }
+    // The cost is real whether or not it changed anything. It joins the
+    // run's cost rather than the pass count: a pass is a credit, and the
+    // record refuses more passes than the depth runs.
+    if (reflection.costUsd !== null) costUsd = (costUsd ?? 0) + reflection.costUsd;
   }
 
   const { valid, dropped } = validateJudgements(result, files, config);
@@ -250,7 +289,7 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
       depth: decision.depth,
       depthReason: decision.reason,
       passes: passRun.passes,
-      costUsd: passRun.costUsd,
+      costUsd,
     },
     posted: false,
   };
@@ -309,12 +348,13 @@ export async function runReview(opts: RunReviewOptions): Promise<RunReviewOutcom
     record,
     recordPath,
     reviewUrl,
-    droppedJudgements: dropped,
+    droppedJudgements: [...dropped, ...reflectDropped],
     sharedContext: shared.docs.map((d) => ({ label: d.label })),
     sharedContextNeedsClusters: shared.needsClusters.map((f) => ({ label: f.label })),
     changeFingerprint: changeFingerprint(allFiles),
     featureMap: featureMap?.path ?? null,
     ...(pin ? { pin } : {}),
+    reflection,
   };
 }
 

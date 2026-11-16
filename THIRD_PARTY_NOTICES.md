@@ -34,6 +34,31 @@ Used in: `packages/core/src/pin.ts` (the eval-only `pin` experiment).
 | --- | --- | --- |
 | `packages/core/src/pin.ts` | `internal/diff/resolver.go` (`ResolveComment`, `resolveFromHunk`, `extractSideLines`, `matchConsecutive`, `splitAndNormalize`, `normalizeLine`) and `internal/diff/relocation.go` | The idea of placing a review comment by matching a quoted code snippet against the diff's new-side lines instead of trusting the model's line number; the line normalisation (trim, strip a leading `+`/`-`); consecutive-line matching that skips blank lines. Rewritten in TypeScript, with additional match tiers and a nearest-line tie-break that OCR does not have. |
 
+### `reflect` experiment (`packages/core/src/reflect.ts`)
+
+Ported into `packages/core/src/reflect.ts` (the `reflect` experiment) from:
+
+- `internal/agent/agent.go`: `executeGroupReviewFilter`,
+  `buildGroupFilterCommentsJSON`, `parseFilterToolCalls` and the `filterTools`
+  definitions. This is the structure of a separate pass that checks finished
+  comments against the diff, and the rule that the model reasons before it
+  names what to remove.
+- `internal/config/template/prompts/review_filter_task_system.md` and
+  `review_filter_task_user.md`: the prompt. That is the lopsided cost argument,
+  the two grounds for removal, the protected subjects that are never removed,
+  and the order of the method.
+
+The port is rewritten for Komodo's judgements, adds a `revise` verdict and read
+access to a checkout, and takes its voice from `VOICE_STYLE.md`. It is not a
+copy of OpenCodeReview's code: the files above are Go and Markdown, and what
+carries over is the logic and the structure of the prompt.
+
 Changes from the original are stated in the header of each derived file, as
 Apache-2.0 section 4(b) asks. This is the notice section 4(d) refers to; the
 upstream project ships no separate `NOTICE` file.
+
+Licensed under the Apache License, Version 2.0; you may obtain a copy at
+http://www.apache.org/licenses/LICENSE-2.0. Unless required by applicable law
+or agreed to in writing, software distributed under the License is distributed
+on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+express or implied.

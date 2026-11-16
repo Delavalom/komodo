@@ -49,8 +49,8 @@ program
   .option("--model <model>", "model override passed to the provider")
   .option(
     "--experiment <name>",
-    "turn on a reviewer experiment for this eval only (repeatable); known: pin",
-    (name: string, previous: string[] = []) => [...previous, name],
+    "turn on a reviewer experiment for this eval only (repeatable or comma-separated); known: grouping, pin, reflect",
+    (name: string, previous: string[] = []) => [...previous, ...name.split(",").map((s) => s.trim()).filter(Boolean)],
   )
   .action(evalCommand);
 
